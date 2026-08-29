@@ -1,9 +1,12 @@
-mod vault;
+pub mod prefs;
+// Public so the integration tests can drive the same code the commands wrap.
+pub mod vault;
 
 use std::path::PathBuf;
 
 use git_port::{GitPort, MergeOutcome, RepoStatus, SystemGit};
 use serde::Serialize;
+use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
 use vault::{VaultError, VaultFile, VaultInfo};
@@ -31,9 +34,46 @@ async fn pick_vault(app: tauri::AppHandle) -> Option<String> {
         .map(|p| p.display().to_string())
 }
 
+fn config_dir(app: &tauri::AppHandle) -> PathBuf {
+    app.path()
+        .app_config_dir()
+        .expect("the platform always provides a config directory")
+}
+
+/// Vaults opened before, most recent first. Entries whose folder has since been
+/// moved or deleted are dropped rather than offered.
 #[tauri::command]
-fn open_vault(root: String) -> Result<VaultInfo, VaultError> {
-    vault::open(&SystemGit::new(), &PathBuf::from(root))
+fn recent_vaults(app: tauri::AppHandle) -> Vec<String> {
+    let dir = config_dir(&app);
+    let mut p = prefs::load(&dir);
+    let before = p.recent_vaults.len();
+    prefs::prune_missing(&mut p);
+    if p.recent_vaults.len() != before {
+        let _ = prefs::save(&dir, &p);
+    }
+    p.recent_vaults
+}
+
+#[tauri::command]
+fn forget_vault(app: tauri::AppHandle, root: String) {
+    let dir = config_dir(&app);
+    let mut p = prefs::load(&dir);
+    prefs::forget(&mut p, &root);
+    let _ = prefs::save(&dir, &p);
+}
+
+#[tauri::command]
+fn open_vault(app: tauri::AppHandle, root: String) -> Result<VaultInfo, VaultError> {
+    let info = vault::open(&SystemGit::new(), &PathBuf::from(&root))?;
+
+    // Only remember a vault that actually opened, so a bad path never sticks
+    // around on the welcome screen.
+    let dir = config_dir(&app);
+    let mut p = prefs::load(&dir);
+    prefs::remember(&mut p, &info.root);
+    let _ = prefs::save(&dir, &p);
+
+    Ok(info)
 }
 
 #[tauri::command]
@@ -49,6 +89,11 @@ fn read_note(root: String, path: String) -> Result<String, VaultError> {
 #[tauri::command]
 fn write_note(root: String, path: String, contents: String) -> Result<(), VaultError> {
     vault::write_note(&PathBuf::from(root), &path, &contents)
+}
+
+#[tauri::command]
+fn read_image(root: String, path: String) -> Result<String, VaultError> {
+    vault::read_image_data_url(&PathBuf::from(root), &path)
 }
 
 #[tauri::command]
@@ -131,9 +176,12 @@ pub fn run() {
             git_probe,
             pick_vault,
             open_vault,
+            recent_vaults,
+            forget_vault,
             list_vault_files,
             read_note,
             write_note,
+            read_image,
             vault_status,
             sync_vault,
         ])

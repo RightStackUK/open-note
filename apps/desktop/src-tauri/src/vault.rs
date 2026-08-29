@@ -19,6 +19,10 @@ const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", 
 /// multi-megabyte "note" is a sign something has gone wrong.
 const MAX_NOTE_BYTES: u64 = 8 * 1024 * 1024;
 
+/// Preview images are inlined as data URLs, so the ceiling is lower than for
+/// notes — base64 inflates by a third and the whole string crosses the IPC bridge.
+const MAX_PREVIEW_BYTES: u64 = 12 * 1024 * 1024;
+
 #[derive(Debug, thiserror::Error)]
 pub enum VaultError {
     #[error("{0} is not a git repository — open a folder that has been initialised with git")]
@@ -227,6 +231,44 @@ pub fn write_note(root: &Path, relative: &str, contents: &str) -> Result<()> {
     Ok(())
 }
 
+/// An image as a `data:` URL, for preview only.
+///
+/// Inlining avoids configuring Tauri's asset protocol and, more usefully, means
+/// the vault's files are never exposed to the webview by path.
+pub fn read_image_data_url(root: &Path, relative: &str) -> Result<String> {
+    let path = resolve_within(root, relative)?;
+    if FileKind::of(&path) != FileKind::Image {
+        return Err(VaultError::NotEditable(relative.to_string()));
+    }
+    let size = fs::metadata(&path)?.len();
+    if size > MAX_PREVIEW_BYTES {
+        return Err(VaultError::TooLarge(size));
+    }
+
+    let mime = match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        _ => "application/octet-stream",
+    };
+
+    let bytes = fs::read(&path)?;
+    Ok(format!(
+        "data:{mime};base64,{}",
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,6 +378,34 @@ mod tests {
         assert!(matches!(
             read_note(&root, "photo.png"),
             Err(VaultError::NotEditable(_))
+        ));
+    }
+
+    #[test]
+    fn builds_a_data_url_for_images() {
+        let (_d, root) = vault();
+        // A one-pixel GIF is enough to prove the encoding path.
+        fs::write(root.join("pixel.gif"), b"GIF89a").unwrap();
+        let url = read_image_data_url(&root, "pixel.gif").expect("data url");
+        assert!(url.starts_with("data:image/gif;base64,"), "got {url}");
+    }
+
+    #[test]
+    fn refuses_to_preview_non_images() {
+        let (_d, root) = vault();
+        fs::write(root.join("note.md"), "# hi").unwrap();
+        assert!(matches!(
+            read_image_data_url(&root, "note.md"),
+            Err(VaultError::NotEditable(_))
+        ));
+    }
+
+    #[test]
+    fn refuses_to_preview_outside_the_vault() {
+        let (_d, root) = vault();
+        assert!(matches!(
+            read_image_data_url(&root, "../secret.png"),
+            Err(VaultError::PathEscapesVault)
         ));
     }
 

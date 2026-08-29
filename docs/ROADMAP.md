@@ -214,17 +214,20 @@ is earned by actually using the previous one.
 - [x] `pnpm desktop:build` produces a 9.4 MB `.app` and a valid 2.6 MB `.dmg`
 - [ ] First green CI run once the repo has a remote
 
-### Phase 1 — MVP: edit a local repo  (~3–4 weeks)
+### Phase 1 — MVP: edit a local repo
 *Goal: replace whatever you currently take notes in.*
 
-- Open an existing local Git repo as a vault; remember recent vaults
-- File tree: Markdown files openable; other files listed, images previewable
-- CodeMirror 6 editor with Bear-style inline Markdown decoration
-- Autosave to disk (write loop only)
-- A single manual **Sync** button: `commit → pull --rebase → push`
-- `SystemGitAdapter` fully implemented behind `GitPort`
-- Light/dark themes, basic settings screen
-- Single vault only
+- [x] Open an existing local Git repo as a vault; recent vaults remembered and
+      the last one reopened on launch
+- [x] File tree: Markdown files openable; other files listed but inert; images previewable
+- [x] CodeMirror 6 editor with Bear-style syntax concealment
+- [x] Autosave to disk (write loop only, 500 ms idle)
+- [x] A single manual **Sync** button: `commit → pull --rebase → push`
+- [x] `SystemGit` fully implemented behind `GitPort`
+- [x] Light/dark themes
+- [x] Single vault only
+- [ ] Settings screen — deferred to Phase 2, where the sync controls it would
+      contain actually exist
 
 ### Phase 2 — The sync engine  (~3 weeks)
 *Goal: never think about Git again.*

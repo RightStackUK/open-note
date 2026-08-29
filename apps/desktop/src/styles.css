@@ -1,17 +1,33 @@
 :root {
   --bg: #fbfaf8;
+  --bg-raised: #f3f1ed;
   --fg: #1c1b19;
-  --muted: #6f6b66;
+  --muted: #85807a;
+  --border: #e2ded7;
   --accent: #c2410c;
+  --selection: #f8d9c6;
+  --code-bg: #ece8e1;
+  --danger: #b91c1c;
+
+  --ui-font: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --note-font: ui-serif, Charter, Georgia, Cambria, serif;
+  --mono-font: ui-monospace, "SF Mono", Menlo, monospace;
+  --note-font-size: 17px;
+
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #171614;
+    --bg-raised: #1f1e1b;
     --fg: #eae7e2;
     --muted: #8b857e;
+    --border: #302e2a;
     --accent: #fb923c;
+    --selection: #45301f;
+    --code-bg: #26241f;
+    --danger: #f87171;
   }
 }
 
@@ -19,52 +35,347 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
-  font-size: 15px;
-  line-height: 1.6;
+  font-family: var(--ui-font);
+  font-size: 14px;
   -webkit-font-smoothing: antialiased;
 }
 
-.shell {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 3rem;
-  max-width: 40rem;
-  margin: 0 auto;
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
 }
 
-h1 {
+/* ---------- Welcome ---------- */
+
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.welcome h1 {
   margin: 0;
   font-size: 2rem;
   letter-spacing: -0.02em;
 }
 
 .tagline {
-  margin: 0.25rem 0 2rem;
+  margin: 0 0 1.5rem;
   color: var(--muted);
 }
 
-.status {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.4rem 1.5rem;
-  margin: 0;
-  padding-top: 1.5rem;
-  border-top: 1px solid color-mix(in srgb, var(--muted) 25%, transparent);
-  font-size: 0.875rem;
+.hint {
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
-.status dt {
+.primary {
+  padding: 0.55rem 1.1rem;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 550;
+}
+
+.error {
+  color: var(--danger);
+  max-width: 32rem;
+}
+
+/* ---------- Shell ---------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  /* Leave room for the macOS traffic lights under the overlay title bar. */
+  padding: 0.5rem 0.75rem 0.5rem 5.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.titlebar button,
+.titlebar .save-state {
+  -webkit-app-region: no-drag;
+}
+
+.vault-id {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.vault-id strong {
+  font-weight: 600;
+}
+
+.branch {
+  color: var(--muted);
+  font-family: var(--mono-font);
+  font-size: 0.78rem;
+}
+
+.counters {
+  display: flex;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-family: var(--mono-font);
+  font-size: 0.78rem;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.actions button {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.actions button:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+.actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.save-state {
+  font-size: 0.78rem;
   color: var(--muted);
 }
 
-.status dd {
+.save-state.is-dirty {
+  color: var(--accent);
+}
+
+.save-state.is-error {
+  color: var(--danger);
+}
+
+/* ---------- Banner ---------- */
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  font-size: 0.85rem;
+}
+
+.banner.is-error {
+  color: var(--danger);
+}
+
+.dismiss {
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--muted);
+}
+
+/* ---------- Body ---------- */
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar {
+  width: 15.5rem;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 0.5rem 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.sidebar-empty,
+.pane-empty {
+  color: var(--muted);
+  padding: 1rem;
+  font-size: 0.85rem;
+}
+
+.pane-empty {
+  margin: auto;
+}
+
+.tree-list {
+  list-style: none;
   margin: 0;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  padding: 0;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.2rem 0.6rem;
+  text-align: left;
+  border-radius: 5px;
+  font-size: 0.86rem;
+  color: var(--fg);
+}
+
+.tree-row:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+
+.tree-row.is-active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-weight: 550;
+}
+
+/* Files we list but cannot open stay visible, just clearly inert. */
+.tree-row.is-inert {
+  color: var(--muted);
+  cursor: default;
+}
+
+.tree-caret,
+.tree-icon {
+  width: 0.9rem;
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.tree-folder {
+  font-weight: 550;
+}
+
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-dot {
+  width: 5px;
+  height: 5px;
+  margin-left: auto;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ---------- Editor / preview ---------- */
+
+.pane {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.editor {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  flex: 1;
+  padding: 2rem;
+  overflow: auto;
+}
+
+.preview img {
+  max-width: 100%;
+  max-height: 70vh;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.preview-caption {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-family: var(--mono-font);
+}
+
+/* ---------- Recent vaults ---------- */
+
+.recents {
+  list-style: none;
+  margin: 1.75rem 0 0;
+  padding: 0;
+  width: min(26rem, 80vw);
+  text-align: left;
+}
+
+.recents li {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.recent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+}
+
+.recent:hover {
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+
+.recent-name {
+  font-weight: 550;
+}
+
+.recent-path {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-family: var(--mono-font);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
