@@ -53,10 +53,44 @@ impl From<std::io::Error> for VaultError {
     }
 }
 
-// Tauri requires command errors to be serialisable; the message is what the UI shows.
+impl VaultError {
+    /// A stable machine-readable tag.
+    ///
+    /// The sync engine reacts very differently to each of these — `nothingToCommit`
+    /// is routine, `offline` means back off and retry, `conflicted` means stop and
+    /// ask the user — so the frontend must be able to branch on the kind of failure
+    /// rather than pattern-match on English prose.
+    pub fn code(&self) -> &'static str {
+        match self {
+            VaultError::NotARepository(_) => "notARepository",
+            VaultError::PathEscapesVault => "pathEscapesVault",
+            VaultError::NotEditable(_) => "notEditable",
+            VaultError::TooLarge(_) => "tooLarge",
+            VaultError::NotUtf8 => "notUtf8",
+            VaultError::Io(_) => "io",
+            VaultError::Git(e) => match e {
+                git_port::GitError::GitNotFound => "gitNotFound",
+                git_port::GitError::NotARepository(_) => "notARepository",
+                git_port::GitError::NothingToCommit => "nothingToCommit",
+                git_port::GitError::PushRejected(_) => "pushRejected",
+                git_port::GitError::Offline => "offline",
+                git_port::GitError::NoUpstream(_) => "noUpstream",
+                git_port::GitError::Conflicted { .. } => "conflicted",
+                _ => "gitFailed",
+            },
+        }
+    }
+}
+
+// Tauri requires command errors to be serialisable. Emitting an object rather
+// than a bare string lets the frontend branch on `code` and still show `message`.
 impl serde::Serialize for VaultError {
     fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
+        use serde::ser::SerializeStruct;
+        let mut st = s.serialize_struct("VaultError", 2)?;
+        st.serialize_field("code", self.code())?;
+        st.serialize_field("message", &self.to_string())?;
+        st.end()
     }
 }
 
@@ -269,6 +303,36 @@ pub fn read_image_data_url(root: &Path, relative: &str) -> Result<String> {
     ))
 }
 
+/// Per-vault settings file, relative to the vault root.
+pub const SETTINGS_PATH: &str = ".opennote/settings.json";
+
+/// Raw settings JSON, or `None` when the vault has none yet.
+///
+/// The schema is owned by the frontend, which is where the sync engine and its
+/// defaults live; this side only moves bytes.
+pub fn read_settings(root: &Path) -> Result<Option<String>> {
+    let path = resolve_within(root, SETTINGS_PATH)?;
+    match fs::read_to_string(&path) {
+        Ok(raw) => Ok(Some(raw)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+pub fn write_settings(root: &Path, json: &str) -> Result<()> {
+    // Reject anything unparseable rather than writing a file that will fail to
+    // load on next launch.
+    serde_json::from_str::<serde_json::Value>(json)
+        .map_err(|e| VaultError::Io(format!("settings are not valid JSON: {e}")))?;
+
+    let path = resolve_within(root, SETTINGS_PATH)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&path, json)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,6 +471,47 @@ mod tests {
             read_image_data_url(&root, "../secret.png"),
             Err(VaultError::PathEscapesVault)
         ));
+    }
+
+    #[test]
+    fn settings_are_absent_until_written() {
+        let (_d, root) = vault();
+        assert_eq!(read_settings(&root).expect("read"), None);
+    }
+
+    #[test]
+    fn settings_round_trip_into_the_repo() {
+        let (_d, root) = vault();
+        write_settings(&root, r#"{"sync":{"autoPush":true}}"#).expect("write");
+        assert!(root.join(SETTINGS_PATH).exists(), "settings not written");
+        assert_eq!(
+            read_settings(&root).expect("read").as_deref(),
+            Some(r#"{"sync":{"autoPush":true}}"#)
+        );
+    }
+
+    #[test]
+    fn invalid_settings_json_is_refused_rather_than_written() {
+        let (_d, root) = vault();
+        assert!(write_settings(&root, "{ not json").is_err());
+        assert!(
+            !root.join(SETTINGS_PATH).exists(),
+            "a broken settings file was written"
+        );
+    }
+
+    #[test]
+    fn error_codes_are_stable_for_the_frontend() {
+        assert_eq!(VaultError::PathEscapesVault.code(), "pathEscapesVault");
+        assert_eq!(VaultError::NotUtf8.code(), "notUtf8");
+        assert_eq!(
+            VaultError::Git(git_port::GitError::NothingToCommit).code(),
+            "nothingToCommit"
+        );
+        assert_eq!(
+            VaultError::Git(git_port::GitError::Offline).code(),
+            "offline"
+        );
     }
 
     #[test]

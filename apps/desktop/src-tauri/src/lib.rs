@@ -101,6 +101,45 @@ fn vault_status(root: String) -> Result<RepoStatus, VaultError> {
     Ok(SystemGit::new().status(&PathBuf::from(root))?)
 }
 
+// ---------------------------------------------------------------------------
+// Granular git operations.
+//
+// The sync engine lives in the frontend (packages/core) and drives these one at
+// a time, so it can debounce, back off and stop on conflict independently per
+// vault. `sync_vault` below remains the one-shot manual path.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn vault_commit(root: String, message: String) -> Result<String, VaultError> {
+    let id = SystemGit::new().commit(&PathBuf::from(root), &[], &message)?;
+    Ok(id.0)
+}
+
+#[tauri::command]
+fn vault_fetch(root: String, remote: String) -> Result<git_port::FetchOutcome, VaultError> {
+    Ok(SystemGit::new().fetch(&PathBuf::from(root), &remote)?)
+}
+
+#[tauri::command]
+fn vault_pull_rebase(root: String) -> Result<MergeOutcome, VaultError> {
+    Ok(SystemGit::new().pull_rebase(&PathBuf::from(root))?)
+}
+
+#[tauri::command]
+fn vault_push(root: String, remote: String, branch: String) -> Result<(), VaultError> {
+    Ok(SystemGit::new().push(&PathBuf::from(root), &remote, &branch)?)
+}
+
+#[tauri::command]
+fn read_vault_settings(root: String) -> Result<Option<String>, VaultError> {
+    vault::read_settings(&PathBuf::from(root))
+}
+
+#[tauri::command]
+fn write_vault_settings(root: String, json: String) -> Result<(), VaultError> {
+    vault::write_settings(&PathBuf::from(root), &json)
+}
+
 /// What a manual sync actually did, so the UI can say something specific rather
 /// than just "done".
 #[derive(Debug, Serialize)]
@@ -183,6 +222,12 @@ pub fn run() {
             write_note,
             read_image,
             vault_status,
+            vault_commit,
+            vault_fetch,
+            vault_pull_rebase,
+            vault_push,
+            read_vault_settings,
+            write_vault_settings,
             sync_vault,
         ])
         .run(tauri::generate_context!())

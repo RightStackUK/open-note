@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // DOM is here only for the timer globals; this package must stay free of
+    // any actual browser or Tauri dependency so it can be reused on mobile.
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["src"]
+}
