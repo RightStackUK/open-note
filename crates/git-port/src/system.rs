@@ -258,6 +258,28 @@ impl GitPort for SystemGit {
         Ok(status)
     }
 
+    fn list_files(&self, repo: &Path) -> Result<Vec<PathBuf>> {
+        let bytes = self.run_ok_bytes(
+            Some(repo),
+            &[
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "-z",
+            ],
+        )?;
+        let text = String::from_utf8_lossy(&bytes);
+        let mut files: Vec<PathBuf> = text
+            .split('\0')
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .collect();
+        files.sort();
+        files.dedup();
+        Ok(files)
+    }
+
     fn commit(&self, repo: &Path, paths: &[PathBuf], message: &str) -> Result<CommitId> {
         // `add -A` honours .gitignore, so ignored files never enter a commit.
         let mut add: Vec<String> = vec!["add".into(), "-A".into(), "--".into()];
@@ -699,6 +721,44 @@ mod tests {
             }
             other => panic!("expected a conflict, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn list_files_includes_tracked_and_new_files() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "tracked.md", "a");
+        git.commit(&repo, &[], "notes: seed").expect("commit");
+        write(&repo, "brand-new.md", "b");
+
+        let files = git.list_files(&repo).expect("list");
+        assert!(files.contains(&PathBuf::from("tracked.md")));
+        assert!(files.contains(&PathBuf::from("brand-new.md")));
+    }
+
+    #[test]
+    fn list_files_excludes_ignored_paths() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, ".gitignore", "node_modules/\nsecret.md\n");
+        fs::create_dir_all(repo.join("node_modules/pkg")).expect("mkdir");
+        write(&repo, "node_modules/pkg/index.js", "junk");
+        write(&repo, "secret.md", "private");
+        write(&repo, "note.md", "a");
+
+        let files = git.list_files(&repo).expect("list");
+        assert!(files.contains(&PathBuf::from("note.md")));
+        assert!(
+            !files.iter().any(|f| f.starts_with("node_modules")),
+            "ignored dir leaked into the tree: {files:?}"
+        );
+        assert!(!files.contains(&PathBuf::from("secret.md")));
+    }
+
+    #[test]
+    fn list_files_never_includes_the_git_directory() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "note.md", "a");
+        let files = git.list_files(&repo).expect("list");
+        assert!(!files.iter().any(|f| f.starts_with(".git")), "{files:?}");
     }
 
     #[test]

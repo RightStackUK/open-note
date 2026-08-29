@@ -29,6 +29,11 @@ pub trait GitPort: Send + Sync {
 
     fn status(&self, repo: &Path) -> Result<RepoStatus>;
 
+    /// Every file the vault owns: tracked files plus untracked ones that are not
+    /// ignored. Delegating this to git means `.gitignore` is honoured for free,
+    /// so we never walk `node_modules` or `target`.
+    fn list_files(&self, repo: &Path) -> Result<Vec<PathBuf>>;
+
     /// Stage `paths` and create a commit. An empty `paths` stages everything the
     /// vault owns (respecting `.gitignore`).
     fn commit(&self, repo: &Path, paths: &[PathBuf], message: &str) -> Result<CommitId>;
