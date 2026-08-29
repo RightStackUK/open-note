@@ -1,0 +1,19 @@
+[package]
+name = "open-note-desktop"
+description = "Open Note desktop application"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "open_note_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+git-port = { workspace = true }
+tauri = { version = "2", features = [] }

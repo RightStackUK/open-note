@@ -1,0 +1,28 @@
+{
+  "name": "open-note",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A local-first Markdown notes and todo app backed by Git repositories",
+  "license": "MIT",
+  "packageManager": "pnpm@10.25.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "desktop:dev": "pnpm --filter @open-note/desktop dev",
+    "desktop:build": "pnpm --filter @open-note/desktop build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.11",
+    "turbo": "^2.10.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}
