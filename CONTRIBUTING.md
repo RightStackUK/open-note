@@ -66,6 +66,34 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
 CI runs the same checks on macOS, Windows and Linux.
 
+## Troubleshooting
+
+### macOS: `failed to bundle project: error running bundle_dmg.sh`
+
+`pnpm desktop:build` produces the `.app` and then fails while packaging the `.dmg`, with an
+AppleScript error `-1712` (AppleEvent timed out) or `-1728`.
+
+The DMG packager drives **Finder** over AppleScript to lay out the disk-image window. If your
+terminal has not been granted Finder automation permission, that call times out. The app itself
+built fine — only the cosmetic DMG step failed.
+
+Either grant the permission in **System Settings → Privacy & Security → Automation**, or skip the
+cosmetic step:
+
+```bash
+CI=true pnpm desktop:build
+```
+
+`CI=true` makes the bundler pass `--skip-jenkins`, which omits the Finder layout pass and produces
+a plain but perfectly valid DMG. CI runners set `CI` themselves, so this never affects automated
+builds.
+
+To skip DMG packaging entirely while iterating:
+
+```bash
+pnpm --filter @open-note/desktop exec tauri build --bundles app
+```
+
 ## Reporting bugs
 
 Include your OS, app version, `git --version`, and — if it is a sync issue — the sync status

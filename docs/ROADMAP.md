@@ -209,7 +209,9 @@ is earned by actually using the previous one.
 - [x] MIT `LICENSE`, `README.md`, `CONTRIBUTING.md`, PR template, conventional commits
 - [x] CI workflow: lint, typecheck, test, `cargo fmt`/`clippy`/`test`, bundle on macOS + Windows + Linux
 - [x] Nightly workflow producing unsigned artifacts for dogfooding
-- [ ] **Verify the Rust side compiles** — needs a local `rustup` toolchain; unverified until then
+- [x] Rust workspace compiles; `cargo fmt`, `clippy -D warnings` and `cargo test` all clean
+- [x] `pnpm desktop:dev` opens the app; webview↔Rust IPC verified end to end
+- [x] `pnpm desktop:build` produces a 9.4 MB `.app` and a valid 2.6 MB `.dmg`
 - [ ] First green CI run once the repo has a remote
 
 ### Phase 1 — MVP: edit a local repo  (~3–4 weeks)
