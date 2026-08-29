@@ -74,6 +74,14 @@ export const api = {
   rebaseInProgress: (root: string) => invoke<boolean>('rebase_in_progress', { root }),
   readRaw: (root: string, path: string) => invoke<string>('read_raw', { root, path }),
 
+  // Bulk note load, for building the search index in one round trip.
+  readAllNotes: (root: string) =>
+    invoke<Array<{ path: string; content: string }>>('read_all_notes', { root }),
+
+  // Keymap, stored in .opennote/keymap.json.
+  readKeymap: (root: string) => invoke<string | null>('read_vault_keymap', { root }),
+  writeKeymap: (root: string, json: string) => invoke<void>('write_vault_keymap', { root, json }),
+
   // Per-vault settings, stored in .opennote/settings.json.
   readSettings: (root: string) => invoke<string | null>('read_vault_settings', { root }),
   writeSettings: (root: string, json: string) =>

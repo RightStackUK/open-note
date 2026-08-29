@@ -728,3 +728,366 @@ button {
   color: var(--muted);
   font-size: 0.74rem;
 }
+
+/* ---------- Palette ---------- */
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  padding-top: 12vh;
+  background: color-mix(in srgb, #000 38%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.palette {
+  width: min(38rem, 92vw);
+  max-height: 62vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 35%);
+}
+
+.palette-input {
+  padding: 0.9rem 1.1rem;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.palette-input:focus {
+  outline: none;
+}
+
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem;
+  overflow-y: auto;
+}
+
+.palette-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.45rem 0.7rem;
+  border-radius: 7px;
+  text-align: left;
+}
+
+.palette-item.is-active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.palette-title {
+  flex-shrink: 0;
+  font-size: 0.9rem;
+}
+
+.palette-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.palette-hint {
+  flex-shrink: 0;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-family: var(--mono-font);
+  font-size: 0.7rem;
+}
+
+.palette-empty {
+  padding: 1.5rem;
+  margin: 0;
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.86rem;
+}
+
+/* ---------- Backlinks ---------- */
+
+.backlinks {
+  width: 16rem;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 1rem;
+  border-left: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.backlinks h3 {
+  margin: 0 0 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.backlinks section + section {
+  margin-top: 1.5rem;
+}
+
+.backlinks .count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.tag {
+  padding: 0.15rem 0.45rem;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  font-size: 0.75rem;
+}
+
+.backlink-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.backlink-list button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.backlink-list button:hover {
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+
+.backlink-title {
+  font-size: 0.84rem;
+  font-weight: 550;
+}
+
+.backlink-alias {
+  color: var(--accent);
+  font-size: 0.75rem;
+}
+
+.backlink-path {
+  color: var(--muted);
+  font-family: var(--mono-font);
+  font-size: 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.muted-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+/* ---------- Tasks ---------- */
+
+.todos {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2.5rem;
+  max-width: 46rem;
+  margin: 0 auto;
+}
+
+.todos-head h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1.3rem;
+}
+
+.todos-head {
+  margin-bottom: 1.5rem;
+}
+
+.todo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.todo-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.todo-list input {
+  margin-top: 0.25rem;
+  accent-color: var(--accent);
+}
+
+.todo-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.todo-text {
+  font-size: 0.92rem;
+}
+
+.todo-list li.is-done .todo-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.todo-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.due {
+  font-family: var(--mono-font);
+}
+
+.due.is-today {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.due.is-overdue {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.prio {
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  text-transform: uppercase;
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+}
+
+.prio.is-high {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+  color: var(--danger);
+}
+
+.tag-chip {
+  color: var(--accent);
+}
+
+.actions button.is-on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---------- Keymap ---------- */
+
+.keymap {
+  width: 23rem;
+}
+
+.keymap-group {
+  margin-top: 1.1rem;
+}
+
+.keymap-group h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.keymap-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+}
+
+.keymap-title {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.84rem;
+  min-width: 0;
+}
+
+.keymap-clash {
+  color: var(--danger);
+  font-size: 0.7rem;
+}
+
+.keymap-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.keymap-binding {
+  min-width: 4.5rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  font-family: var(--mono-font);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.keymap-binding:hover {
+  border-color: var(--accent);
+}
+
+.keymap-binding.is-recording {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-family: var(--ui-font);
+}
+
+.keymap-reset {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.scheme-select {
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+}

@@ -318,13 +318,68 @@ pub fn read_image_data_url(root: &Path, relative: &str) -> Result<String> {
 
 /// Per-vault settings file, relative to the vault root.
 pub const SETTINGS_PATH: &str = ".opennote/settings.json";
+/// Per-vault keymap file, relative to the vault root.
+pub const KEYMAP_PATH: &str = ".opennote/keymap.json";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteSource {
+    pub path: String,
+    pub content: String,
+}
+
+/// Every markdown note in the vault, with its text.
+///
+/// One call rather than one per note: a vault of a few thousand notes would
+/// otherwise mean a few thousand IPC round trips to build the search index.
+/// Unreadable or non-UTF-8 files are skipped rather than failing the whole load.
+pub fn read_all_notes(git: &SystemGit, root: &Path) -> Result<Vec<NoteSource>> {
+    let mut out = Vec::new();
+    for rel in git.list_files(root)? {
+        if FileKind::of(&rel) != FileKind::Markdown {
+            continue;
+        }
+        let abs = root.join(&rel);
+        let Ok(meta) = fs::metadata(&abs) else {
+            continue;
+        };
+        if meta.len() > MAX_NOTE_BYTES {
+            continue;
+        }
+        let Ok(bytes) = fs::read(&abs) else { continue };
+        let Ok(content) = String::from_utf8(bytes) else {
+            continue;
+        };
+        out.push(NoteSource {
+            path: to_slash(&rel),
+            content,
+        });
+    }
+    Ok(out)
+}
 
 /// Raw settings JSON, or `None` when the vault has none yet.
 ///
 /// The schema is owned by the frontend, which is where the sync engine and its
 /// defaults live; this side only moves bytes.
 pub fn read_settings(root: &Path) -> Result<Option<String>> {
-    let path = resolve_within(root, SETTINGS_PATH)?;
+    read_config(root, SETTINGS_PATH)
+}
+
+pub fn write_settings(root: &Path, json: &str) -> Result<()> {
+    write_config(root, SETTINGS_PATH, json)
+}
+
+pub fn read_keymap(root: &Path) -> Result<Option<String>> {
+    read_config(root, KEYMAP_PATH)
+}
+
+pub fn write_keymap(root: &Path, json: &str) -> Result<()> {
+    write_config(root, KEYMAP_PATH, json)
+}
+
+fn read_config(root: &Path, relative: &str) -> Result<Option<String>> {
+    let path = resolve_within(root, relative)?;
     match fs::read_to_string(&path) {
         Ok(raw) => Ok(Some(raw)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -332,13 +387,13 @@ pub fn read_settings(root: &Path) -> Result<Option<String>> {
     }
 }
 
-pub fn write_settings(root: &Path, json: &str) -> Result<()> {
+fn write_config(root: &Path, relative: &str, json: &str) -> Result<()> {
     // Reject anything unparseable rather than writing a file that will fail to
     // load on next launch.
     serde_json::from_str::<serde_json::Value>(json)
-        .map_err(|e| VaultError::Io(format!("settings are not valid JSON: {e}")))?;
+        .map_err(|e| VaultError::Io(format!("{relative} is not valid JSON: {e}")))?;
 
-    let path = resolve_within(root, SETTINGS_PATH)?;
+    let path = resolve_within(root, relative)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -511,6 +566,28 @@ mod tests {
             !root.join(SETTINGS_PATH).exists(),
             "a broken settings file was written"
         );
+    }
+
+    #[test]
+    fn keymap_round_trips_separately_from_settings() {
+        let (_d, root) = vault();
+        write_settings(&root, r#"{"sync":{}}"#).expect("settings");
+        write_keymap(&root, r#"{"scheme":"bear"}"#).expect("keymap");
+        assert_eq!(
+            read_keymap(&root).expect("read").as_deref(),
+            Some(r#"{"scheme":"bear"}"#)
+        );
+        assert_eq!(
+            read_settings(&root).expect("read").as_deref(),
+            Some(r#"{"sync":{}}"#)
+        );
+    }
+
+    #[test]
+    fn invalid_keymap_json_is_refused() {
+        let (_d, root) = vault();
+        assert!(write_keymap(&root, "nope").is_err());
+        assert!(!root.join(KEYMAP_PATH).exists());
     }
 
     #[test]

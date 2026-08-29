@@ -6,15 +6,21 @@ interface NoteEditorProps {
   path: string;
   doc: string;
   onChange: (doc: string) => void;
+  /** Resolve a `[[wikilink]]` target to a note path. */
+  resolveLink: (target: string) => string | null;
+  /** Follow a link; `path` is null when the target has no note yet. */
+  onFollowLink: (target: string, path: string | null) => void;
 }
 
-export function NoteEditor({ path, doc, onChange }: NoteEditorProps) {
+export function NoteEditor({ path, doc, onChange, resolveLink, onFollowLink }: NoteEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   // Keep the latest callback reachable without rebuilding the editor, which
   // would drop undo history and focus on every keystroke.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const linkRef = useRef({ resolveLink, onFollowLink });
+  linkRef.current = { resolveLink, onFollowLink };
 
   useEffect(() => {
     if (!host.current) return;
@@ -23,6 +29,11 @@ export function NoteEditor({ path, doc, onChange }: NoteEditorProps) {
       doc,
       placeholder: 'Start writing…',
       onChange: (next) => onChangeRef.current(next),
+      // Read through refs so the editor is never rebuilt when the index changes.
+      wikiLinks: {
+        resolve: (target) => linkRef.current.resolveLink(target),
+        onOpen: (target, resolved) => linkRef.current.onFollowLink(target, resolved),
+      },
     });
     view.current = editor;
     editor.focus();

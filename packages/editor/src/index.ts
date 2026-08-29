@@ -14,10 +14,13 @@ import {
 
 import { concealMarkdownSyntax } from './conceal';
 import { markdownTheme } from './theme';
+import { type WikiLinkOptions, wikiLinks } from './wikilinks';
 
 export type { EditorView } from '@codemirror/view';
 export { concealedRangesForTest, concealMarkdownSyntax } from './conceal';
 export { editorTheme, markdownHighlight, markdownTheme } from './theme';
+export type { WikiLinkOptions } from './wikilinks';
+export { wikiLinks } from './wikilinks';
 
 export interface CreateEditorOptions {
   parent: HTMLElement;
@@ -28,6 +31,8 @@ export interface CreateEditorOptions {
   onChange?: (doc: string) => void;
   /** Extra extensions, appended last so they can override defaults. */
   extensions?: Extension[];
+  /** Enables clickable `[[wikilinks]]` when provided. */
+  wikiLinks?: WikiLinkOptions;
 }
 
 export function markdownEditorExtensions(options: CreateEditorOptions = { parent: null as never }) {
@@ -44,6 +49,7 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     EditorView.lineWrapping,
     markdownTheme,
     concealMarkdownSyntax,
+    options.wikiLinks ? wikiLinks(options.wikiLinks) : [],
     keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
     options.placeholder ? placeholderExt(options.placeholder) : [],
   ];

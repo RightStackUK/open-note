@@ -242,16 +242,24 @@ is earned by actually using the previous one.
 - [x] `.opennote/settings.json` read/write, degrading to defaults field by field
 - [x] Commits left unpushed by a previous session are published on next launch
 
-### Phase 3 — A real notes app  (~4 weeks)
+### Phase 3 — A real notes app
 *Goal: it is nice to use.*
 
-- Command palette
-- Configurable keymap (`.opennote/keymap.json`) with preset schemes: Default / Bear / Vim
-- Full-text search — MiniSearch in-memory, migrating to SQLite FTS5 for large vaults
-- Tags, `[[wikilinks]]`, backlinks panel, quick switcher
-- YAML frontmatter support
-- Todo view aggregating tasks across the vault (§3.5)
-- Daily notes
+- [x] Command palette, quick switcher and full-text search sharing one overlay
+- [x] Configurable keymap in `.opennote/keymap.json`, with a settings panel that
+      records a real key press rather than asking for a binding string
+- [x] Preset schemes: Default and Bear. Conflict detection, tested to ensure
+      neither shipped scheme has a clash
+- [x] Full-text search over titles, body and tags (MiniSearch, in memory)
+- [x] Tags, `[[wikilinks]]` that are clickable and create the note when missing,
+      backlinks panel
+- [x] YAML frontmatter, degrading to an empty header when malformed
+- [x] Task view across the whole vault, sorted by state, due date then priority
+- [x] Daily notes
+- [ ] **Vim mode deferred.** Vim is modal editing, not a keymap — it needs a
+      CodeMirror editing mode (`@replit/codemirror-vim`), which belongs with the
+      editor rather than with shortcut configuration. Tracked for a later phase.
+- [ ] SQLite FTS5 migration, once vaults outgrow an in-memory index
 
 ### Phase 4 — Diagrams  (~2 weeks)
 - Mermaid rendering with live preview
