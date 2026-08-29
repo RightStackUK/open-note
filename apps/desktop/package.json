@@ -15,7 +15,8 @@
     "@tauri-apps/api": "^2.11.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "@open-note/editor": "workspace:*"
+    "@open-note/editor": "workspace:*",
+    "@open-note/core": "workspace:*"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",

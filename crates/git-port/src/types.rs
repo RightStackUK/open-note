@@ -65,3 +65,14 @@ pub enum MergeOutcome {
     Rebased { commits: u32 },
     Conflicted { paths: Vec<PathBuf> },
 }
+
+/// Which version of a conflicted file to keep, named from the user's point of
+/// view rather than git's mid-rebase perspective.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConflictSide {
+    /// The version this user wrote.
+    Mine,
+    /// The version that came from the remote.
+    Theirs,
+}

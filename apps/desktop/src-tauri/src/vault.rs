@@ -253,6 +253,19 @@ pub fn read_note(root: &Path, relative: &str) -> Result<String> {
     String::from_utf8(bytes).map_err(|_| VaultError::NotUtf8)
 }
 
+/// Read a text file verbatim, without the markdown-only restriction.
+///
+/// Used for conflicted files, which must be shown with their markers intact so
+/// the user can see exactly what git produced.
+pub fn read_raw(root: &Path, relative: &str) -> Result<String> {
+    let path = resolve_within(root, relative)?;
+    let size = fs::metadata(&path)?.len();
+    if size > MAX_NOTE_BYTES {
+        return Err(VaultError::TooLarge(size));
+    }
+    String::from_utf8(fs::read(&path)?).map_err(|_| VaultError::NotUtf8)
+}
+
 pub fn write_note(root: &Path, relative: &str, contents: &str) -> Result<()> {
     let path = resolve_within(root, relative)?;
     if FileKind::of(&path) != FileKind::Markdown {

@@ -229,15 +229,18 @@ is earned by actually using the previous one.
 - [ ] Settings screen — deferred to Phase 2, where the sync controls it would
       contain actually exist
 
-### Phase 2 — The sync engine  (~3 weeks)
+### Phase 2 — The sync engine
 *Goal: never think about Git again.*
 
-- Commit loop + push loop with backoff
-- Periodic fetch, auto fast-forward, hot-reload of open buffers
-- Conflict detection, `conflicted` repo state, three-way merge UI
-- Sync status indicator; per-vault sync settings; global kill switch
-- Multi-vault support with independent sync state
-- `.opennote/settings.json` read/write
+- [x] Commit loop (idle + max-wait ceiling) and push loop with exponential backoff
+- [x] Periodic fetch with jitter, automatic rebase, hot-reload of the open buffer
+- [x] Conflict detection and a `conflict` phase that halts all automation
+- [x] Conflict resolution UI: keep mine / keep theirs / edit by hand, then continue
+      or abort the rebase
+- [x] Sync status indicator covering every phase; per-vault settings; global pause
+- [x] Multi-vault support, one engine per vault with independent state
+- [x] `.opennote/settings.json` read/write, degrading to defaults field by field
+- [x] Commits left unpushed by a previous session are published on next launch
 
 ### Phase 3 — A real notes app  (~4 weeks)
 *Goal: it is nice to use.*

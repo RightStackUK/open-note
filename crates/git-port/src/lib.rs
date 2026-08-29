@@ -45,4 +45,24 @@ pub trait GitPort: Send + Sync {
 
     /// Push `branch` to `remote`. Implementations must never force-push.
     fn push(&self, repo: &Path, remote: &str, branch: &str) -> Result<()>;
+
+    /// Resolve a conflicted path by taking one side wholesale.
+    ///
+    /// Mid-rebase the sides are inverted relative to intuition: "ours" is the
+    /// upstream work being replayed onto, and "theirs" is the user's own commit.
+    /// [`ConflictSide`] is named from the user's point of view and the adapter
+    /// does the translation, so callers never have to think about it.
+    fn resolve_with(&self, repo: &Path, path: &Path, side: ConflictSide) -> Result<()>;
+
+    /// Stage paths, marking them resolved.
+    fn stage(&self, repo: &Path, paths: &[PathBuf]) -> Result<()>;
+
+    /// Continue an in-progress rebase once conflicts are staged.
+    fn rebase_continue(&self, repo: &Path) -> Result<MergeOutcome>;
+
+    /// Abandon an in-progress rebase, returning the vault to where it was.
+    fn rebase_abort(&self, repo: &Path) -> Result<()>;
+
+    /// Whether a rebase is currently in progress.
+    fn rebase_in_progress(&self, repo: &Path) -> bool;
 }

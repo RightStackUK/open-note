@@ -4,7 +4,7 @@ pub mod vault;
 
 use std::path::PathBuf;
 
-use git_port::{GitPort, MergeOutcome, RepoStatus, SystemGit};
+use git_port::{ConflictSide, GitPort, MergeOutcome, RepoStatus, SystemGit};
 use serde::Serialize;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
@@ -131,6 +131,52 @@ fn vault_push(root: String, remote: String, branch: String) -> Result<(), VaultE
 }
 
 #[tauri::command]
+fn resolve_conflict(root: String, path: String, side: ConflictSide) -> Result<(), VaultError> {
+    let repo = PathBuf::from(root);
+    // Guard the path even here: a conflicted path still comes from the webview.
+    let resolved = vault::resolve_within(&repo, &path)?;
+    let relative = resolved
+        .strip_prefix(&repo)
+        .unwrap_or(&resolved)
+        .to_path_buf();
+    Ok(SystemGit::new().resolve_with(&repo, &relative, side)?)
+}
+
+#[tauri::command]
+fn stage_resolution(root: String, path: String) -> Result<(), VaultError> {
+    let repo = PathBuf::from(root);
+    let resolved = vault::resolve_within(&repo, &path)?;
+    let relative = resolved
+        .strip_prefix(&repo)
+        .unwrap_or(&resolved)
+        .to_path_buf();
+    Ok(SystemGit::new().stage(&repo, &[relative])?)
+}
+
+#[tauri::command]
+fn rebase_continue(root: String) -> Result<MergeOutcome, VaultError> {
+    Ok(SystemGit::new().rebase_continue(&PathBuf::from(root))?)
+}
+
+#[tauri::command]
+fn rebase_abort(root: String) -> Result<(), VaultError> {
+    Ok(SystemGit::new().rebase_abort(&PathBuf::from(root))?)
+}
+
+#[tauri::command]
+fn rebase_in_progress(root: String) -> bool {
+    SystemGit::new().rebase_in_progress(&PathBuf::from(root))
+}
+
+/// Read a file exactly as it sits on disk, conflict markers and all.
+///
+/// `read_note` is for editing; this is for showing the user what git left behind.
+#[tauri::command]
+fn read_raw(root: String, path: String) -> Result<String, VaultError> {
+    vault::read_raw(&PathBuf::from(root), &path)
+}
+
+#[tauri::command]
 fn read_vault_settings(root: String) -> Result<Option<String>, VaultError> {
     vault::read_settings(&PathBuf::from(root))
 }
@@ -226,6 +272,12 @@ pub fn run() {
             vault_fetch,
             vault_pull_rebase,
             vault_push,
+            resolve_conflict,
+            stage_resolution,
+            rebase_continue,
+            rebase_abort,
+            rebase_in_progress,
+            read_raw,
             read_vault_settings,
             write_vault_settings,
             sync_vault,

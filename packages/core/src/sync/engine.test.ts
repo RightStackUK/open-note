@@ -274,6 +274,56 @@ describe('push loop', () => {
     engine.stop();
   });
 
+  it('publishes commits left unpushed by a previous session', async () => {
+    // Quit while offline with work committed but not pushed; on next launch it
+    // must go out on its own.
+    const port = new FakePort();
+    port.statusValue = status({ ahead: 3 });
+    const { engine } = makeEngine(port);
+
+    await engine.start();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(port.calls).toContain('push');
+    engine.stop();
+  });
+
+  it('does not push a backlog when autoPush is off', async () => {
+    const port = new FakePort();
+    port.statusValue = status({ ahead: 3 });
+    const { engine } = makeEngine(port, { autoPush: false });
+
+    await engine.start();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(port.calls).not.toContain('push');
+    engine.stop();
+  });
+
+  it('does not push a backlog with no upstream to push to', async () => {
+    const port = new FakePort();
+    port.statusValue = status({ upstream: null, ahead: 3 });
+    const { engine } = makeEngine(port);
+
+    await engine.start();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(port.calls).not.toContain('push');
+    engine.stop();
+  });
+
+  it('does not push when there is nothing waiting', async () => {
+    const port = new FakePort();
+    port.statusValue = status({ ahead: 0 });
+    const { engine } = makeEngine(port);
+
+    await engine.start();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(port.calls).not.toContain('push');
+    engine.stop();
+  });
+
   it('reports a missing upstream instead of failing silently', async () => {
     const port = new FakePort();
     port.statusValue = status({ upstream: null, ahead: 2 });

@@ -23,6 +23,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@open-note/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@open-note/editor':
         specifier: workspace:*
         version: link:../../packages/editor

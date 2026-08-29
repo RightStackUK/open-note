@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use crate::error::{GitError, Result};
-use crate::types::{CommitId, FetchOutcome, FileChange, FileState, MergeOutcome, RepoStatus};
+use crate::types::{
+    CommitId, ConflictSide, FetchOutcome, FileChange, FileState, MergeOutcome, RepoStatus,
+};
 use crate::GitPort;
 
 #[derive(Debug, Clone)]
@@ -349,6 +351,85 @@ impl GitPort for SystemGit {
         // must never be able to destroy remote history.
         self.run_ok(Some(repo), &["push", remote, branch])?;
         Ok(())
+    }
+
+    fn resolve_with(&self, repo: &Path, path: &Path, side: ConflictSide) -> Result<()> {
+        // During a rebase the user's own commit is being replayed on top of the
+        // upstream work, so git's --ours is the upstream and --theirs is the
+        // user. Invert here so callers can speak in user terms.
+        let flag = if self.rebase_in_progress(repo) {
+            match side {
+                ConflictSide::Mine => "--theirs",
+                ConflictSide::Theirs => "--ours",
+            }
+        } else {
+            match side {
+                ConflictSide::Mine => "--ours",
+                ConflictSide::Theirs => "--theirs",
+            }
+        };
+        let path_str = path.to_string_lossy();
+        self.run_ok(Some(repo), &["checkout", flag, "--", &path_str])?;
+        self.run_ok(Some(repo), &["add", "--", &path_str])?;
+        Ok(())
+    }
+
+    fn stage(&self, repo: &Path, paths: &[PathBuf]) -> Result<()> {
+        let mut args: Vec<String> = vec!["add".into(), "--".into()];
+        if paths.is_empty() {
+            args.push(".".into());
+        } else {
+            args.extend(paths.iter().map(|p| p.to_string_lossy().into_owned()));
+        }
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.run_ok(Some(repo), &refs)?;
+        Ok(())
+    }
+
+    fn rebase_continue(&self, repo: &Path) -> Result<MergeOutcome> {
+        match self.run_ok(Some(repo), &["rebase", "--continue"]) {
+            Ok(_) => {}
+            Err(GitError::CommandFailed { .. }) => {
+                // Still conflicted, or nothing staged. Report which.
+                let paths = self.conflicted_paths(repo)?;
+                if !paths.is_empty() {
+                    return Ok(MergeOutcome::Conflicted { paths });
+                }
+                return Err(GitError::CommandFailed {
+                    command: "rebase --continue".into(),
+                    stderr: "rebase could not continue".into(),
+                });
+            }
+            Err(e) => return Err(e),
+        }
+
+        if self.rebase_in_progress(repo) {
+            // Multi-commit rebases can stop again on the next commit.
+            let paths = self.conflicted_paths(repo)?;
+            if !paths.is_empty() {
+                return Ok(MergeOutcome::Conflicted { paths });
+            }
+        }
+        let head = self.run_ok(Some(repo), &["rev-parse", "HEAD"])?;
+        Ok(MergeOutcome::FastForwarded { to: CommitId(head) })
+    }
+
+    fn rebase_abort(&self, repo: &Path) -> Result<()> {
+        self.run_ok(Some(repo), &["rebase", "--abort"])?;
+        Ok(())
+    }
+
+    fn rebase_in_progress(&self, repo: &Path) -> bool {
+        let git_dir = match self.run_ok(Some(repo), &["rev-parse", "--git-dir"]) {
+            Ok(d) => d,
+            Err(_) => return false,
+        };
+        let base = if Path::new(&git_dir).is_absolute() {
+            PathBuf::from(git_dir)
+        } else {
+            repo.join(git_dir)
+        };
+        base.join("rebase-merge").exists() || base.join("rebase-apply").exists()
     }
 }
 
@@ -759,6 +840,126 @@ mod tests {
         write(&repo, "note.md", "a");
         let files = git.list_files(&repo).expect("list");
         assert!(!files.iter().any(|f| f.starts_with(".git")), "{files:?}");
+    }
+
+    /// Drive two clones into a genuine conflict on the same line.
+    fn conflicted_fixture() -> (TempDir, PathBuf, SystemGit) {
+        let (dir, origin, work, git) = cloned_fixture();
+        write(&work, "shared.md", "original\n");
+        git.commit(&work, &[], "notes: seed").expect("commit");
+        git.push(&work, "origin", "main").expect("push");
+
+        let other = dir.path().join("other");
+        git.run_ok(
+            None,
+            &["clone", origin.to_str().unwrap(), other.to_str().unwrap()],
+        )
+        .expect("clone");
+        for args in [
+            vec!["config", "user.email", "other@example.com"],
+            vec!["config", "user.name", "Other"],
+            vec!["config", "commit.gpgsign", "false"],
+        ] {
+            git.run_ok(Some(&other), &args).expect("config");
+        }
+        write(&other, "shared.md", "theirs\n");
+        git.commit(&other, &[], "notes: theirs").expect("commit");
+        git.push(&other, "origin", "main").expect("push");
+
+        write(&work, "shared.md", "mine\n");
+        git.commit(&work, &[], "notes: mine").expect("commit");
+        git.fetch(&work, "origin").expect("fetch");
+        let outcome = git.pull_rebase(&work).expect("pull");
+        assert!(
+            matches!(outcome, MergeOutcome::Conflicted { .. }),
+            "{outcome:?}"
+        );
+        (dir, work, git)
+    }
+
+    #[test]
+    fn detects_an_in_progress_rebase() {
+        let (_d, work, git) = conflicted_fixture();
+        assert!(git.rebase_in_progress(&work));
+    }
+
+    #[test]
+    fn keeping_my_side_preserves_my_text() {
+        let (_d, work, git) = conflicted_fixture();
+        git.resolve_with(&work, Path::new("shared.md"), ConflictSide::Mine)
+            .expect("resolve");
+        assert_eq!(
+            fs::read_to_string(work.join("shared.md")).unwrap(),
+            "mine\n"
+        );
+    }
+
+    #[test]
+    fn keeping_their_side_preserves_the_remote_text() {
+        let (_d, work, git) = conflicted_fixture();
+        git.resolve_with(&work, Path::new("shared.md"), ConflictSide::Theirs)
+            .expect("resolve");
+        assert_eq!(
+            fs::read_to_string(work.join("shared.md")).unwrap(),
+            "theirs\n"
+        );
+    }
+
+    #[test]
+    fn continuing_the_rebase_after_resolution_finishes_it() {
+        let (_d, work, git) = conflicted_fixture();
+        git.resolve_with(&work, Path::new("shared.md"), ConflictSide::Mine)
+            .expect("resolve");
+
+        let outcome = git.rebase_continue(&work).expect("continue");
+        assert!(
+            !matches!(outcome, MergeOutcome::Conflicted { .. }),
+            "{outcome:?}"
+        );
+        assert!(!git.rebase_in_progress(&work));
+        assert!(git.status(&work).expect("status").is_clean());
+    }
+
+    #[test]
+    fn aborting_the_rebase_restores_my_work() {
+        let (_d, work, git) = conflicted_fixture();
+        git.rebase_abort(&work).expect("abort");
+
+        assert!(!git.rebase_in_progress(&work));
+        // My commit is back, untouched.
+        assert_eq!(
+            fs::read_to_string(work.join("shared.md")).unwrap(),
+            "mine\n"
+        );
+    }
+
+    #[test]
+    fn a_hand_edited_resolution_can_be_staged_and_continued() {
+        let (_d, work, git) = conflicted_fixture();
+        // What the editor does: the user merges both by hand.
+        write(&work, "shared.md", "mine and theirs\n");
+        git.stage(&work, &[PathBuf::from("shared.md")])
+            .expect("stage");
+
+        let outcome = git.rebase_continue(&work).expect("continue");
+        assert!(
+            !matches!(outcome, MergeOutcome::Conflicted { .. }),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            fs::read_to_string(work.join("shared.md")).unwrap(),
+            "mine and theirs\n"
+        );
+    }
+
+    #[test]
+    fn continuing_with_conflicts_still_unresolved_reports_them_again() {
+        let (_d, work, git) = conflicted_fixture();
+        let outcome = git.rebase_continue(&work).expect("continue");
+        assert!(
+            matches!(outcome, MergeOutcome::Conflicted { .. }),
+            "{outcome:?}"
+        );
     }
 
     #[test]

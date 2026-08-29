@@ -108,7 +108,19 @@ export class VaultSync {
     if (this.started) return;
     this.started = true;
     await this.refreshStatus();
+    // A previous session may have committed but failed to push — offline, or
+    // the app was quit before the debounce elapsed. Without this those commits
+    // would sit on this machine forever, which is exactly the kind of silent
+    // loss the engine exists to prevent.
+    this.publishBacklog();
     this.armFetch();
+  }
+
+  /** Schedule a push if commits are waiting and pushing is allowed. */
+  private publishBacklog() {
+    if (this.paused || this.isConflicted()) return;
+    if (!this.settings.autoPush || !this.state.upstream) return;
+    if (this.state.ahead > 0) this.armPush();
   }
 
   stop() {
@@ -346,6 +358,7 @@ export class VaultSync {
       } else {
         await this.refreshStatus();
       }
+      this.publishBacklog();
     } catch (e) {
       // A failed fetch is not worth alarming anyone about; the next tick retries.
       if (errorCode(e) === 'offline') {
