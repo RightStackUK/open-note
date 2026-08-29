@@ -6,7 +6,7 @@ members = ["apps/desktop/src-tauri", "crates/*"]
 version = "0.0.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/theopennote/open-note"
+repository = "https://github.com/RightStackUK/open-note"
 rust-version = "1.82"
 
 [workspace.dependencies]
