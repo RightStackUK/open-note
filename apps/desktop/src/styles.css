@@ -1091,3 +1091,15 @@ button {
   font: inherit;
   font-size: 0.82rem;
 }
+
+/* ---------- Drawing canvas ---------- */
+
+.drawing {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.drawing .excalidraw {
+  --zIndex-layerUI: 10;
+}

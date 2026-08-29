@@ -1,3 +1,4 @@
+import { knownLanguages, renderDiagram } from '@open-note/diagrams';
 import { createMarkdownEditor, type EditorView, setEditorDoc } from '@open-note/editor';
 import { useEffect, useRef } from 'react';
 
@@ -10,9 +11,18 @@ interface NoteEditorProps {
   resolveLink: (target: string) => string | null;
   /** Follow a link; `path` is null when the target has no note yet. */
   onFollowLink: (target: string, path: string | null) => void;
+  /** Colour scheme, so rendered diagrams match the app. */
+  dark: boolean;
 }
 
-export function NoteEditor({ path, doc, onChange, resolveLink, onFollowLink }: NoteEditorProps) {
+export function NoteEditor({
+  path,
+  doc,
+  onChange,
+  resolveLink,
+  onFollowLink,
+  dark,
+}: NoteEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   // Keep the latest callback reachable without rebuilding the editor, which
@@ -33,6 +43,11 @@ export function NoteEditor({ path, doc, onChange, resolveLink, onFollowLink }: N
       wikiLinks: {
         resolve: (target) => linkRef.current.resolveLink(target),
         onOpen: (target, resolved) => linkRef.current.onFollowLink(target, resolved),
+      },
+      diagrams: {
+        languages: knownLanguages(),
+        dark,
+        render: (language, source, id) => renderDiagram(language, source, { dark, id }),
       },
     });
     view.current = editor;

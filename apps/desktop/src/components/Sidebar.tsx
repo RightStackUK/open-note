@@ -13,6 +13,7 @@ interface SidebarProps {
 function kindIcon(kind: FileKind): string {
   if (kind === 'markdown') return '¶';
   if (kind === 'image') return '▣';
+  if (kind === 'drawing') return '◇';
   return '·';
 }
 
@@ -66,7 +67,7 @@ function Node({
   const { file } = node;
   // Non-markdown files are shown but never opened in the editor — the tree stays
   // honest about what the repo contains without pretending to be an IDE.
-  const openable = file.kind === 'markdown' || file.kind === 'image';
+  const openable = file.kind !== 'other';
 
   return (
     <li>

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type VaultFile } from './api';
 import { BacklinksPanel } from './components/BacklinksPanel';
 import { ConflictPanel } from './components/ConflictPanel';
+import { DrawingEditor } from './components/DrawingEditor';
 import { KeymapPanel } from './components/KeymapPanel';
 import { NoteEditor } from './components/NoteEditor';
 import {
@@ -24,6 +25,7 @@ import { Sidebar } from './components/Sidebar';
 import { SyncBadge } from './components/SyncBadge';
 import { TodoView } from './components/TodoView';
 import { PLATFORM, useCommandKeys } from './useCommands';
+import { useDarkMode } from './useDarkMode';
 import { useVaultIndex } from './useVaultIndex';
 import { errorText, useWorkspace } from './useWorkspace';
 
@@ -42,6 +44,7 @@ interface OpenNote {
 export function App() {
   const [note, setNote] = useState<OpenNote | null>(null);
   const [preview, setPreview] = useState<{ path: string; url: string } | null>(null);
+  const [drawing, setDrawing] = useState<{ path: string; source: string } | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [recents, setRecents] = useState<string[]>([]);
   const [booting, setBooting] = useState(true);
@@ -81,6 +84,7 @@ export function App() {
   const session = ws.activeRoot ? ws.sessions[ws.activeRoot] : undefined;
   const paused = ws.activeRoot ? ws.isPaused(ws.activeRoot) : false;
   const vaultIndex = useVaultIndex(ws.activeRoot);
+  const dark = useDarkMode();
 
   const openVault = ws.openVault;
   useEffect(() => {
@@ -151,10 +155,18 @@ export function App() {
       try {
         if (file.kind === 'image') {
           setNote(null);
+          setDrawing(null);
           setPreview({ path: file.path, url: await api.readImage(root, file.path) });
           return;
         }
+        if (file.kind === 'drawing') {
+          setNote(null);
+          setPreview(null);
+          setDrawing({ path: file.path, source: await api.readDrawing(root, file.path) });
+          return;
+        }
         setPreview(null);
+        setDrawing(null);
         setNote({ path: file.path, doc: await api.readNote(root, file.path), revision: 0 });
         setSaveState('saved');
       } catch (e) {
@@ -240,6 +252,23 @@ export function App() {
       void createNote(path, `# ${target}\n\n`);
     },
     [openNoteAt, createNote],
+  );
+
+  const saveDrawing = useCallback(
+    async (path: string, json: string) => {
+      const root = ws.activeRoot;
+      if (!root) return;
+      try {
+        setSaveState('saving');
+        await api.writeDrawing(root, path, json);
+        setSaveState('saved');
+        ws.noteSaved(root);
+      } catch (e) {
+        setSaveState('error');
+        ws.setError(errorText(e));
+      }
+    },
+    [ws],
   );
 
   const openPalette = useCallback((mode: PaletteMode) => {
@@ -458,7 +487,7 @@ export function App() {
             </div>
             <Sidebar
               files={session.files}
-              activePath={note?.path ?? preview?.path ?? null}
+              activePath={note?.path ?? preview?.path ?? drawing?.path ?? null}
               changedPaths={new Set(session.state.conflicts)}
               onSelect={select}
             />
@@ -484,12 +513,22 @@ export function App() {
             />
           ) : note ? (
             <NoteEditor
-              key={`${session.info.root}:${note.path}:${note.revision}`}
+              // `dark` is in the key because diagram SVGs bake in their colours
+              // and must be redrawn when the theme changes.
+              key={`${session.info.root}:${note.path}:${note.revision}:${dark}`}
               path={note.path}
               doc={note.doc}
               onChange={onDocChange}
               resolveLink={(target) => vaultIndex.index.resolveLink(target)}
               onFollowLink={followLink}
+              dark={dark}
+            />
+          ) : drawing ? (
+            <DrawingEditor
+              path={drawing.path}
+              source={drawing.source}
+              dark={dark}
+              onSave={(json) => void saveDrawing(drawing.path, json)}
             />
           ) : preview ? (
             <div className="preview">

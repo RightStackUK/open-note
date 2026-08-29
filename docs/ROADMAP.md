@@ -185,6 +185,12 @@ opens the repo on github.com without Open Note.**
 |---|---|---|---|
 | **Mermaid** | ` ```mermaid ` fence, inline in the `.md` | ✅ native (GitHub + GitLab) | **Primary.** The only format where notes stay readable outside the app. |
 | **Excalidraw** | `.excalidraw` — plaintext JSON | ❌ | **Secondary.** The only credible freehand/whiteboard-as-text option. Diffs are noisy (every drag rewrites coordinates) but it is genuinely text. Optionally emit a sibling `.svg` on save for web viewability. |
+
+**Implementation note.** Mermaid is configured with `htmlLabels: false`. Its default
+is to draw labels as HTML inside a `<foreignObject>`, which the SVG sanitiser strips
+as an XSS vector — silently erasing every label in the diagram. It also has
+`suppressErrorRendering: true`, because on a parse failure it otherwise appends a
+large error graphic to `document.body`, outside the editor entirely.
 | **Graphviz DOT** | `.dot` or fenced block | ❌ | **Cheap add.** `viz.js` compiles to WASM — no external binary, no Java. Unmatched for dense dependency graphs. |
 | **D2** | `.d2` | ❌ | **Deferred.** Best auto-layout (TALA) for architecture diagrams, but requires bundling a Go binary. Revisit on demand. |
 | **PlantUML** | `.puml` | ❌ | **Rejected.** Requires a JVM or a remote render server. Both are unacceptable for an offline local-first app. |
@@ -261,10 +267,16 @@ is earned by actually using the previous one.
       editor rather than with shortcut configuration. Tracked for a later phase.
 - [ ] SQLite FTS5 migration, once vaults outgrow an in-memory index
 
-### Phase 4 — Diagrams  (~2 weeks)
-- Mermaid rendering with live preview
-- Excalidraw embed + in-app editing
-- Graphviz DOT via `viz.js` (WASM)
+### Phase 4 — Diagrams
+- [x] Mermaid rendered in place, replacing the fenced block unless the cursor is
+      inside it
+- [x] Graphviz DOT via `viz.js` (WASM) — no external binary, no JVM
+- [x] Excalidraw: `.excalidraw` files open in an in-app canvas and save back as
+      pretty-printed JSON
+- [x] Rendered SVG is sanitised before it reaches the DOM, since a vault can be
+      cloned from anywhere
+- [ ] D2 — still deferred; needs a bundled Go binary. Revisit on demand
+- [ ] Embedding a drawing inside a note (`![[sketch.excalidraw]]`)
 
 ### Phase 5 — Advanced Git  (~3 weeks)
 *Goal: the power users arrive.*

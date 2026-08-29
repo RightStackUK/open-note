@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-export type FileKind = 'markdown' | 'image' | 'other';
+export type FileKind = 'markdown' | 'image' | 'drawing' | 'other';
 
 export interface VaultFile {
   path: string;
@@ -54,6 +54,9 @@ export const api = {
   writeNote: (root: string, path: string, contents: string) =>
     invoke<void>('write_note', { root, path, contents }),
   readImage: (root: string, path: string) => invoke<string>('read_image', { root, path }),
+  readDrawing: (root: string, path: string) => invoke<string>('read_drawing', { root, path }),
+  writeDrawing: (root: string, path: string, contents: string) =>
+    invoke<void>('write_drawing', { root, path, contents }),
   status: (root: string) => invoke<RepoStatus>('vault_status', { root }),
   sync: (root: string) => invoke<SyncReport>('sync_vault', { root }),
 

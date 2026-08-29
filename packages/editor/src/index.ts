@@ -13,11 +13,14 @@ import {
 } from '@codemirror/view';
 
 import { concealMarkdownSyntax } from './conceal';
+import { type DiagramOptions, diagramBlocks } from './diagrams';
 import { markdownTheme } from './theme';
 import { type WikiLinkOptions, wikiLinks } from './wikilinks';
 
 export type { EditorView } from '@codemirror/view';
 export { concealedRangesForTest, concealMarkdownSyntax } from './conceal';
+export type { DiagramOptions, DiagramRenderResult } from './diagrams';
+export { diagramBlocks } from './diagrams';
 export { editorTheme, markdownHighlight, markdownTheme } from './theme';
 export type { WikiLinkOptions } from './wikilinks';
 export { wikiLinks } from './wikilinks';
@@ -33,6 +36,8 @@ export interface CreateEditorOptions {
   extensions?: Extension[];
   /** Enables clickable `[[wikilinks]]` when provided. */
   wikiLinks?: WikiLinkOptions;
+  /** Renders fenced diagram blocks in place when provided. */
+  diagrams?: DiagramOptions;
 }
 
 export function markdownEditorExtensions(options: CreateEditorOptions = { parent: null as never }) {
@@ -50,6 +55,7 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     markdownTheme,
     concealMarkdownSyntax,
     options.wikiLinks ? wikiLinks(options.wikiLinks) : [],
+    options.diagrams ? diagramBlocks(options.diagrams) : [],
     keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
     options.placeholder ? placeholderExt(options.placeholder) : [],
   ];

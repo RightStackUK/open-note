@@ -177,6 +177,16 @@ fn read_raw(root: String, path: String) -> Result<String, VaultError> {
 }
 
 #[tauri::command]
+fn read_drawing(root: String, path: String) -> Result<String, VaultError> {
+    vault::read_drawing(&PathBuf::from(root), &path)
+}
+
+#[tauri::command]
+fn write_drawing(root: String, path: String, contents: String) -> Result<(), VaultError> {
+    vault::write_drawing(&PathBuf::from(root), &path, &contents)
+}
+
+#[tauri::command]
 fn read_all_notes(root: String) -> Result<Vec<vault::NoteSource>, VaultError> {
     vault::read_all_notes(&SystemGit::new(), &PathBuf::from(root))
 }
@@ -293,6 +303,8 @@ pub fn run() {
             rebase_abort,
             rebase_in_progress,
             read_raw,
+            read_drawing,
+            write_drawing,
             read_all_notes,
             read_vault_keymap,
             write_vault_keymap,

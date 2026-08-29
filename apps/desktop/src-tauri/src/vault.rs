@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd"];
 /// Files we can show a preview for, but never open for editing.
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp"];
+/// Freehand drawings. Plaintext JSON, so they diff and merge like any other file.
+const DRAWING_EXTENSIONS: &[&str] = &["excalidraw"];
 
 /// Refuse to load anything absurd into the editor. Notes are prose, and a
 /// multi-megabyte "note" is a sign something has gone wrong.
@@ -103,6 +105,8 @@ pub enum FileKind {
     Markdown,
     /// Previewable, not editable.
     Image,
+    /// Editable in the drawing canvas.
+    Drawing,
     /// Listed by name only.
     Other,
 }
@@ -118,6 +122,8 @@ impl FileKind {
             FileKind::Markdown
         } else if IMAGE_EXTENSIONS.contains(&ext.as_str()) {
             FileKind::Image
+        } else if DRAWING_EXTENSIONS.contains(&ext.as_str()) {
+            FileKind::Drawing
         } else {
             FileKind::Other
         }
@@ -264,6 +270,37 @@ pub fn read_raw(root: &Path, relative: &str) -> Result<String> {
         return Err(VaultError::TooLarge(size));
     }
     String::from_utf8(fs::read(&path)?).map_err(|_| VaultError::NotUtf8)
+}
+
+/// Read a drawing's JSON.
+pub fn read_drawing(root: &Path, relative: &str) -> Result<String> {
+    let path = resolve_within(root, relative)?;
+    if FileKind::of(&path) != FileKind::Drawing {
+        return Err(VaultError::NotEditable(relative.to_string()));
+    }
+    let size = fs::metadata(&path)?.len();
+    if size > MAX_NOTE_BYTES {
+        return Err(VaultError::TooLarge(size));
+    }
+    String::from_utf8(fs::read(&path)?).map_err(|_| VaultError::NotUtf8)
+}
+
+/// Write a drawing, rejecting anything that is not valid JSON.
+///
+/// A corrupt `.excalidraw` file would be unopenable, and because these are
+/// committed automatically a bad write would be published before anyone noticed.
+pub fn write_drawing(root: &Path, relative: &str, contents: &str) -> Result<()> {
+    let path = resolve_within(root, relative)?;
+    if FileKind::of(&path) != FileKind::Drawing {
+        return Err(VaultError::NotEditable(relative.to_string()));
+    }
+    serde_json::from_str::<serde_json::Value>(contents)
+        .map_err(|e| VaultError::Io(format!("drawing is not valid JSON: {e}")))?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&path, contents)?;
+    Ok(())
 }
 
 pub fn write_note(root: &Path, relative: &str, contents: &str) -> Result<()> {
@@ -510,6 +547,50 @@ mod tests {
         assert!(matches!(
             read_note(&root, "photo.png"),
             Err(VaultError::NotEditable(_))
+        ));
+    }
+
+    #[test]
+    fn classifies_drawings() {
+        assert_eq!(FileKind::of(Path::new("a.excalidraw")), FileKind::Drawing);
+        assert_eq!(FileKind::of(Path::new("a.EXCALIDRAW")), FileKind::Drawing);
+    }
+
+    #[test]
+    fn drawings_round_trip() {
+        let (_d, root) = vault();
+        let json = r#"{"type":"excalidraw","elements":[]}"#;
+        write_drawing(&root, "diagrams/sketch.excalidraw", json).expect("write");
+        assert_eq!(
+            read_drawing(&root, "diagrams/sketch.excalidraw").expect("read"),
+            json
+        );
+    }
+
+    #[test]
+    fn refuses_to_write_a_corrupt_drawing() {
+        // These are auto-committed, so a bad write would be published unnoticed.
+        let (_d, root) = vault();
+        assert!(write_drawing(&root, "a.excalidraw", "not json").is_err());
+        assert!(!root.join("a.excalidraw").exists());
+    }
+
+    #[test]
+    fn a_drawing_is_not_a_note() {
+        let (_d, root) = vault();
+        write_drawing(&root, "a.excalidraw", "{}").expect("write");
+        assert!(matches!(
+            read_note(&root, "a.excalidraw"),
+            Err(VaultError::NotEditable(_))
+        ));
+    }
+
+    #[test]
+    fn refuses_to_write_a_drawing_outside_the_vault() {
+        let (_d, root) = vault();
+        assert!(matches!(
+            write_drawing(&root, "../escape.excalidraw", "{}"),
+            Err(VaultError::PathEscapesVault)
         ));
     }
 
