@@ -28,6 +28,19 @@ pub enum GitError {
     #[error("network unavailable")]
     Offline,
 
+    /// Nothing was staged, so there was no commit to make. Expected during
+    /// normal operation of the commit loop, not an error condition.
+    #[error("nothing to commit")]
+    NothingToCommit,
+
+    /// The branch has no configured upstream, so there is nothing to sync with.
+    #[error("branch {0} has no upstream")]
+    NoUpstream(String),
+
+    /// `git` produced output this adapter could not parse.
+    #[error("could not parse git output: {0}")]
+    Parse(String),
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
