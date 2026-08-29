@@ -18,7 +18,9 @@ pub struct SystemGit {
 
 impl Default for SystemGit {
     fn default() -> Self {
-        Self { program: PathBuf::from("git") }
+        Self {
+            program: PathBuf::from("git"),
+        }
     }
 }
 
@@ -29,7 +31,9 @@ impl SystemGit {
 
     /// Use a specific `git` executable instead of resolving one on PATH.
     pub fn with_program(program: impl Into<PathBuf>) -> Self {
-        Self { program: program.into() }
+        Self {
+            program: program.into(),
+        }
     }
 
     fn run(&self, cwd: Option<&Path>, args: &[&str]) -> Result<Output> {
@@ -100,8 +104,13 @@ mod tests {
     #[test]
     fn describe_reports_a_git_version() {
         let git = SystemGit::new();
-        let version = git.describe().expect("a git binary is required to run the test suite");
-        assert!(version.starts_with("git version"), "unexpected output: {version}");
+        let version = git
+            .describe()
+            .expect("a git binary is required to run the test suite");
+        assert!(
+            version.starts_with("git version"),
+            "unexpected output: {version}"
+        );
     }
 
     #[test]

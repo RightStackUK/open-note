@@ -16,3 +16,19 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running Open Note");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn git_probe_reports_the_system_git() {
+        // CI and dev machines always have git; a None here means PATH resolution
+        // broke, which would silently disable every sync feature.
+        let probed = git_probe().expect("system git should be discoverable");
+        assert!(
+            probed.starts_with("git version"),
+            "unexpected output: {probed}"
+        );
+    }
+}

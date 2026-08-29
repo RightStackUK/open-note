@@ -42,7 +42,9 @@ impl RepoStatus {
     }
 
     pub fn has_conflicts(&self) -> bool {
-        self.changes.iter().any(|c| c.state == FileState::Conflicted)
+        self.changes
+            .iter()
+            .any(|c| c.state == FileState::Conflicted)
     }
 }
 

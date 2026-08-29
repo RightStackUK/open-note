@@ -17,6 +17,7 @@ pub mod types;
 use std::path::{Path, PathBuf};
 
 pub use error::{GitError, Result};
+pub use system::SystemGit;
 pub use types::*;
 
 pub trait GitPort: Send + Sync {
