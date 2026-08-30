@@ -303,12 +303,20 @@ is rarely sitting on uncommitted work worth stashing, and the app's answer to "p
 this aside for a moment" is a branch. Adding a second, subtly different mechanism
 would be a worse product, not a more complete one.
 
-### Phase 6 — Ship properly  (~2 weeks)
-- macOS: Developer ID signing + notarization
-- Windows: Azure Trusted Signing
-- Linux: AppImage, `.deb`, `.rpm`, Flathub
-- Tauri updater plugin against GitHub Releases
-- theopennote.com — download page with OS detection, docs, screenshots
+### Phase 6 — Ship properly
+- [x] Tag-triggered releases: pushing `vX.Y.Z` on `main` builds all three
+      platforms and publishes a GitHub Release with the installers attached.
+      See [RELEASING.md](RELEASING.md)
+- [x] macOS ships as a single universal binary, so nobody has to know whether
+      their Mac is Intel or Apple silicon
+- [x] Linux: AppImage, `.deb`, `.rpm`
+- [ ] macOS Developer ID signing and notarisation — [#1](https://github.com/RightStackUK/open-note/issues/1)
+- [ ] Windows signing — [#2](https://github.com/RightStackUK/open-note/issues/2)
+- [ ] theopennote.com — [#3](https://github.com/RightStackUK/open-note/issues/3)
+- [ ] Tauri updater plugin against GitHub Releases. Deliberately after signing:
+      an updater that installs unsigned binaries is a worse problem than having
+      no updater
+- [ ] Flathub
 
 ### Phase 7 — Mobile
 - Implement `LibGit2Adapter`; swap it in on mobile targets

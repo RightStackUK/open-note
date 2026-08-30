@@ -1,0 +1,132 @@
+name: Release
+
+# Tag a commit on main to publish downloadable builds:
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# The tag name becomes the app version, so the bundles carry a real version
+# rather than the 0.0.0 placeholder in tauri.conf.json.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # A tag pointing at a commit that never landed on main would publish a build
+  # of code nobody reviewed. Check before spending 20 minutes building it.
+  guard:
+    name: Check the tag is on main
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Verify
+        run: |
+          # Checking out a tag leaves a detached HEAD with no remote-tracking
+          # branch, so fetch main explicitly rather than assuming origin/main.
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME is not on main. Releases are cut from main."
+            exit 1
+          fi
+          echo "$GITHUB_REF_NAME is on main."
+
+  build:
+    name: Build (${{ matrix.label }})
+    needs: guard
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One universal binary rather than two downloads, so nobody has to
+          # know whether their Mac is Intel or Apple silicon.
+          - os: macos-latest
+            label: macOS (universal)
+            target: universal-apple-darwin
+            args: --target universal-apple-darwin
+          - os: ubuntu-latest
+            label: Linux
+            target: x86_64-unknown-linux-gnu
+            args: ''
+          - os: windows-latest
+            label: Windows
+            target: x86_64-pc-windows-msvc
+            args: ''
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Add the second macOS architecture
+        if: matrix.os == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          key: release-${{ matrix.target }}
+
+      - name: Install Tauri system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libxdo-dev libssl-dev
+
+      - run: pnpm install --frozen-lockfile
+
+      # The bundles must carry the released version, not the placeholder.
+      - name: Stamp the version from the tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e "
+            const fs = require('fs');
+            const path = 'apps/desktop/src-tauri/tauri.conf.json';
+            const conf = JSON.parse(fs.readFileSync(path, 'utf8'));
+            conf.version = process.argv[1];
+            fs.writeFileSync(path, JSON.stringify(conf, null, 2) + '\n');
+          " "$VERSION"
+          echo "Building version $VERSION"
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: Open Note ${{ github.ref_name }}
+          releaseBody: |
+            ## Downloads
+
+            | Platform | File |
+            |---|---|
+            | macOS (Intel and Apple silicon) | `.dmg` |
+            | Windows | `.exe` (installer) or `.msi` |
+            | Linux | `.AppImage`, `.deb` or `.rpm` |
+
+            ### These builds are not code-signed yet
+
+            macOS will say the app "cannot be opened because the developer
+            cannot be verified". Right-click the app and choose **Open**, then
+            confirm. Windows SmartScreen will warn; choose **More info** →
+            **Run anyway**.
+
+            Signing is tracked in the issues for macOS and Windows builds.
+          releaseDraft: false
+          # A tag like v0.2.0-beta.1 publishes as a pre-release automatically.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: ${{ matrix.args }}
