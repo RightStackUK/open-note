@@ -318,6 +318,16 @@ would be a worse product, not a more complete one.
       no updater
 - [ ] Flathub
 
+### Stabilisation — before mobile
+
+An audit after Phase 5 found ten editor commands that were declared, bound and
+listed in the palette but did nothing, along with several table-stakes gaps: no
+folder creation, no rename, no delete, and a tag index with no view on top of it.
+
+Closing those is planned in **[PLAN-STABILISATION.md](PLAN-STABILISATION.md)**.
+Mobile waits until it is done — porting an app with no delete button to a second
+platform is the wrong order.
+
 ### Phase 7 — Mobile
 - Implement `LibGit2Adapter`; swap it in on mobile targets
 - Mobile UI shell reusing `packages/core` and `packages/editor`
