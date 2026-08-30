@@ -37,6 +37,15 @@ number in a file just creates a second place to forget to update.
 | Windows | `.exe` (NSIS installer), `.msi` |
 | Linux | `.AppImage`, `.deb`, `.rpm` |
 
+### Pre-releases do not get an `.msi`
+
+Windows Installer versions cannot express a non-numeric pre-release identifier,
+so there is no valid MSI version for a tag like `v0.2.0-beta.1`. Those tags ship
+the NSIS `.exe` only, which has no such restriction. Stable tags get both.
+
+This is a Windows rule rather than a Tauri one, and there is no way around it
+short of lying about the version.
+
 ## These builds are not signed yet
 
 Until code signing is set up, macOS shows *"cannot be opened because the

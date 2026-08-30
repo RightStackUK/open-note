@@ -50,7 +50,9 @@ jobs:
           - os: macos-latest
             label: macOS (universal)
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-            args: --target universal-apple-darwin
+            # Only the .dmg: "all" would also emit an .app.tar.gz, which is an
+            # updater artifact and just confusing next to the installer.
+            args: --target universal-apple-darwin --bundles dmg
           - os: ubuntu-latest
             label: Linux
             rust-targets: x86_64-unknown-linux-gnu
@@ -101,6 +103,21 @@ jobs:
           " "$VERSION"
           echo "Building version $VERSION"
 
+      - name: Work out the bundle arguments
+        id: bundles
+        shell: bash
+        run: |
+          ARGS="${{ matrix.args }}"
+          # Windows Installer versions cannot express a non-numeric pre-release
+          # identifier, so `v0.2.0-beta.1` has no valid MSI version. That is a
+          # Windows rule, not a Tauri one, and there is no way around it — so a
+          # pre-release ships the NSIS installer only.
+          if [[ "$RUNNER_OS" == "Windows" && "$GITHUB_REF_NAME" == *-* ]]; then
+            ARGS="$ARGS --bundles nsis"
+            echo "::notice::Pre-release tag: building the NSIS installer only, as MSI cannot express version ${GITHUB_REF_NAME#v}."
+          fi
+          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -131,4 +148,4 @@ jobs:
           includeUpdaterJson: false
           # A tag like v0.2.0-beta.1 publishes as a pre-release automatically.
           prerelease: ${{ contains(github.ref_name, '-') }}
-          args: ${{ matrix.args }}
+          args: ${{ steps.bundles.outputs.args }}
