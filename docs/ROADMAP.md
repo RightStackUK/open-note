@@ -218,7 +218,7 @@ is earned by actually using the previous one.
 - [x] Rust workspace compiles; `cargo fmt`, `clippy -D warnings` and `cargo test` all clean
 - [x] `pnpm desktop:dev` opens the app; webview↔Rust IPC verified end to end
 - [x] `pnpm desktop:build` produces a 9.4 MB `.app` and a valid 2.6 MB `.dmg`
-- [ ] First green CI run once the repo has a remote
+- [x] Green CI on macOS, Windows and Linux
 
 ### Phase 1 — MVP: edit a local repo
 *Goal: replace whatever you currently take notes in.*
