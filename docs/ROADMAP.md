@@ -278,15 +278,30 @@ is earned by actually using the previous one.
 - [ ] D2 — still deferred; needs a bundled Go binary. Revisit on demand
 - [ ] Embedding a drawing inside a note (`![[sketch.excalidraw]]`)
 
-### Phase 5 — Advanced Git  (~3 weeks)
+### Phase 5 — Advanced Git
 *Goal: the power users arrive.*
 
-- Branch create / switch / merge
-- Per-note history timeline and diff view
-- Pull request creation via `packages/forge` — provider detected from the remote URL,
-  OAuth device flow, GitHub / GitLab / Bitbucket REST
-- Clone-from-remote onboarding (no local repo required)
-- Stash, revert-file, discard-changes
+- [x] Branch create / switch / merge / delete. Switching never force-discards, and
+      merging reports conflicts rather than resolving them
+- [x] Per-note history timeline with a coloured diff per commit
+- [x] Restore an older version as a reviewable working-tree change, and discard
+      uncommitted changes to one note
+- [x] Clone-from-remote onboarding, using the user's own git setup
+- [x] Remote parsing for GitHub / GitLab / Bitbucket, including nested GitLab
+      groups and self-hosted installs
+- [x] Pull requests: open the forge's own "new pull request" page in the browser
+
+**Pull requests deliberately do not use the REST APIs.** Posting a PR through an
+API needs an OAuth app registered per provider (a client ID this project does not
+yet have) or a token pasted by the user and then stored. Opening the forge's own
+compare page needs neither, works on self-hosted installs, and leaves the user
+reviewing the change on the site that will host it. Revisit if PR *listing* inside
+the app is ever wanted — that genuinely does need the API.
+
+**Stash was dropped rather than deferred.** With autosave and autocommit, a vault
+is rarely sitting on uncommitted work worth stashing, and the app's answer to "put
+this aside for a moment" is a branch. Adding a second, subtly different mechanism
+would be a worse product, not a more complete one.
 
 ### Phase 6 — Ship properly  (~2 weeks)
 - macOS: Developer ID signing + notarization

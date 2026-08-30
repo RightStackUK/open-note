@@ -9,8 +9,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api, type VaultFile } from './api';
 import { BacklinksPanel } from './components/BacklinksPanel';
+import { BranchMenu } from './components/BranchMenu';
+import { CloneDialog } from './components/CloneDialog';
 import { ConflictPanel } from './components/ConflictPanel';
 import { DrawingEditor } from './components/DrawingEditor';
+import { HistoryPanel } from './components/HistoryPanel';
 import { KeymapPanel } from './components/KeymapPanel';
 import { NoteEditor } from './components/NoteEditor';
 import {
@@ -48,14 +51,19 @@ export function App() {
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [recents, setRecents] = useState<string[]>([]);
   const [booting, setBooting] = useState(true);
-  const [showSettings, setShowSettings] = useState(false);
+  /**
+   * The right-hand inspector. Only one at a time: with the sidebar, the
+   * backlinks column and two inspectors open at once the editor was squeezed
+   * off the screen entirely.
+   */
+  const [panel, setPanel] = useState<'settings' | 'keymap' | 'history' | 'branches' | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [palette, setPalette] = useState<PaletteMode | null>(null);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [showBacklinks, setShowBacklinks] = useState(true);
   const [showSidebar, setShowSidebar] = useState(true);
   const [showTodos, setShowTodos] = useState(false);
-  const [showKeymap, setShowKeymap] = useState(false);
+  const [showClone, setShowClone] = useState(false);
 
   const saveTimer = useRef<number | null>(null);
   const pending = useRef<OpenNote | null>(null);
@@ -271,6 +279,29 @@ export function App() {
     [ws],
   );
 
+  /** Re-read the open note and the tree after git changed the working copy. */
+  const reloadFromDisk = useCallback(async () => {
+    const root = ws.activeRoot;
+    if (!root) return;
+    await ws.refreshFiles(root);
+    const open = noteRef.current;
+    if (!open) return;
+    try {
+      const fresh = await api.readNote(root, open.path);
+      setNote((prev) => (prev ? { ...prev, doc: fresh, revision: prev.revision + 1 } : prev));
+      vaultIndex.updateNote(open.path, fresh);
+    } catch {
+      // The note may not exist on the branch we just moved to.
+      setNote(null);
+    }
+  }, [ws, vaultIndex]);
+
+  const togglePanel = useCallback(
+    (which: 'settings' | 'keymap' | 'history' | 'branches') =>
+      setPanel((current) => (current === which ? null : which)),
+    [],
+  );
+
   const openPalette = useCallback((mode: PaletteMode) => {
     setPaletteQuery('');
     setPalette(mode);
@@ -298,12 +329,15 @@ export function App() {
       'sync.togglePause': () => {
         if (ws.activeRoot) ws.setPaused(ws.activeRoot, !paused);
       },
-      'sync.settings': () => setShowSettings((v) => !v),
+      'sync.settings': () => togglePanel('settings'),
       'view.toggleSidebar': () => setShowSidebar((v) => !v),
       'view.toggleBacklinks': () => setShowBacklinks((v) => !v),
-      'view.keymap': () => setShowKeymap((v) => !v),
+      'view.keymap': () => togglePanel('keymap'),
+      'view.history': () => togglePanel('history'),
+      'view.branches': () => togglePanel('branches'),
+      'vault.clone': () => setShowClone(true),
     }),
-    [openPalette, createNote, sync, ws, paused],
+    [openPalette, createNote, sync, ws, paused, togglePanel],
   );
 
   useCommandKeys(vaultIndex.keymap, handlers, palette === null);
@@ -327,6 +361,9 @@ export function App() {
           Open a vault…
         </button>
         <p className="hint">Choose any folder that is a Git repository.</p>
+        <button type="button" className="linky" onClick={() => setShowClone(true)}>
+          …or clone one from a URL
+        </button>
 
         {recents.length > 0 && (
           <ul className="recents">
@@ -352,6 +389,16 @@ export function App() {
           </ul>
         )}
         {ws.error && <p className="error">{ws.error}</p>}
+
+        {showClone && (
+          <CloneDialog
+            onClose={() => setShowClone(false)}
+            onCloned={(root) => {
+              setShowClone(false);
+              void ws.openVault(root);
+            }}
+          />
+        )}
       </main>
     );
   }
@@ -449,14 +496,27 @@ export function App() {
           >
             Tasks
           </button>
-          <button type="button" onClick={sync}>
-            Sync now
+          <button
+            type="button"
+            className={panel === 'branches' ? 'is-on' : ''}
+            onClick={() => togglePanel('branches')}
+            title="Branches and pull requests"
+          >
+            {session.state.branch || session.info.branch}
           </button>
           <button
             type="button"
-            onClick={() => setShowSettings((v) => !v)}
-            aria-label="Sync settings"
+            className={panel === 'history' ? 'is-on' : ''}
+            onClick={() => togglePanel('history')}
+            disabled={!note}
+            title={note ? 'History of this note' : 'Open a note to see its history'}
           >
+            History
+          </button>
+          <button type="button" onClick={sync}>
+            Sync now
+          </button>
+          <button type="button" onClick={() => togglePanel('settings')} aria-label="Sync settings">
             ⚙
           </button>
         </div>
@@ -540,7 +600,7 @@ export function App() {
           )}
         </section>
 
-        {note && showBacklinks && !conflicted && !showTodos && (
+        {note && showBacklinks && !conflicted && !showTodos && panel === null && (
           <BacklinksPanel
             path={note.path}
             backlinks={backlinks}
@@ -553,25 +613,54 @@ export function App() {
           />
         )}
 
-        {showKeymap && (
+        {panel === 'history' && note && (
+          <HistoryPanel
+            root={session.info.root}
+            path={note.path}
+            dirty={session.state.phase === 'dirty'}
+            onClose={() => setPanel(null)}
+            onRestored={() => void reloadFromDisk()}
+          />
+        )}
+
+        {panel === 'branches' && (
+          <BranchMenu
+            root={session.info.root}
+            current={session.state.branch || session.info.branch}
+            onClose={() => setPanel(null)}
+            onChanged={() => void reloadFromDisk()}
+          />
+        )}
+
+        {panel === 'keymap' && (
           <KeymapPanel
             config={vaultIndex.keymapConfig}
             keymap={vaultIndex.keymap}
             onChange={vaultIndex.updateKeymap}
-            onClose={() => setShowKeymap(false)}
+            onClose={() => setPanel(null)}
           />
         )}
 
-        {showSettings && (
+        {panel === 'settings' && (
           <SettingsPanel
             settings={session.settings}
             paused={paused}
             onChange={(next) => void ws.updateSettings(session.info.root, next)}
             onPausedChange={(p) => ws.setPaused(session.info.root, p)}
-            onClose={() => setShowSettings(false)}
+            onClose={() => setPanel(null)}
           />
         )}
       </div>
+
+      {showClone && (
+        <CloneDialog
+          onClose={() => setShowClone(false)}
+          onCloned={(root) => {
+            setShowClone(false);
+            void ws.openVault(root);
+          }}
+        />
+      )}
 
       {palette && (
         <Palette

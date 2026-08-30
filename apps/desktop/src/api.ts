@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 export type FileKind = 'markdown' | 'image' | 'drawing' | 'other';
 
@@ -43,6 +44,27 @@ export interface SyncReport {
 
 export type ConflictSide = 'mine' | 'theirs';
 
+export interface Branch {
+  name: string;
+  isCurrent: boolean;
+  upstream: string | null;
+  isRemote: boolean;
+}
+
+export interface CommitInfo {
+  id: string;
+  shortId: string;
+  author: string;
+  date: string;
+  subject: string;
+}
+
+export type MergeResult =
+  | { kind: 'alreadyUpToDate' }
+  | { kind: 'fastForwarded'; to: string }
+  | { kind: 'merged'; to: string }
+  | { kind: 'conflicted'; paths: string[] };
+
 export const api = {
   gitProbe: () => invoke<string | null>('git_probe'),
   pickVault: () => invoke<string | null>('pick_vault'),
@@ -84,6 +106,42 @@ export const api = {
   // Keymap, stored in .opennote/keymap.json.
   readKeymap: (root: string) => invoke<string | null>('read_vault_keymap', { root }),
   writeKeymap: (root: string, json: string) => invoke<void>('write_vault_keymap', { root, json }),
+
+  // Branches.
+  branches: (root: string) => invoke<Branch[]>('list_branches', { root }),
+  createBranch: (root: string, name: string, start?: string) =>
+    invoke<void>('create_branch', { root, name, start: start ?? null }),
+  switchBranch: (root: string, name: string) => invoke<void>('switch_branch', { root, name }),
+  mergeBranch: (root: string, name: string) => invoke<MergeResult>('merge_branch', { root, name }),
+  deleteBranch: (root: string, name: string, force: boolean) =>
+    invoke<void>('delete_branch', { root, name, force }),
+
+  // History.
+  history: (root: string, path: string, limit = 50) =>
+    invoke<CommitInfo[]>('note_history', { root, path, limit }),
+  noteAtCommit: (root: string, commit: string, path: string) =>
+    invoke<string>('note_at_commit', { root, commit, path }),
+  noteDiff: (root: string, from: string, to: string | null, path: string) =>
+    invoke<string>('note_diff', { root, from, to, path }),
+  discardChanges: (root: string, path: string) =>
+    invoke<void>('discard_note_changes', { root, path }),
+  restoreNote: (root: string, commit: string, path: string) =>
+    invoke<void>('restore_note', { root, commit, path }),
+
+  // Remotes and cloning.
+  remoteUrl: (root: string, remote = 'origin') =>
+    invoke<string | null>('remote_url', { root, remote }),
+  pickFolder: () => invoke<string | null>('pick_folder'),
+  cloneVault: (url: string, parent: string, name: string) =>
+    invoke<VaultInfo>('clone_vault', { url, parent, name }),
+
+  /**
+   * Open a URL in the user's real browser.
+   *
+   * A plain `target="_blank"` link does not reliably escape the Tauri webview,
+   * and a pull-request page belongs in the browser where the user is signed in.
+   */
+  openExternal: (url: string) => openUrl(url),
 
   // Per-vault settings, stored in .opennote/settings.json.
   readSettings: (root: string) => invoke<string | null>('read_vault_settings', { root }),

@@ -4,7 +4,9 @@ pub mod vault;
 
 use std::path::PathBuf;
 
-use git_port::{ConflictSide, GitPort, MergeOutcome, RepoStatus, SystemGit};
+use git_port::{
+    Branch, CommitInfo, ConflictSide, GitPort, MergeOutcome, MergeResult, RepoStatus, SystemGit,
+};
 use serde::Serialize;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
@@ -128,6 +130,136 @@ fn vault_pull_rebase(root: String) -> Result<MergeOutcome, VaultError> {
 #[tauri::command]
 fn vault_push(root: String, remote: String, branch: String) -> Result<(), VaultError> {
     Ok(SystemGit::new().push(&PathBuf::from(root), &remote, &branch)?)
+}
+
+// ---------------------------------------------------------------------------
+// Branches and history.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn remote_url(root: String, remote: String) -> Result<Option<String>, VaultError> {
+    Ok(SystemGit::new().remote_url(&PathBuf::from(root), &remote)?)
+}
+
+/// Clone a repository into a folder the user picked, and open it as a vault.
+#[tauri::command]
+async fn clone_vault(
+    app: tauri::AppHandle,
+    url: String,
+    parent: String,
+    name: String,
+) -> Result<VaultInfo, VaultError> {
+    let git = SystemGit::new();
+    // The folder name comes from the webview; keep it a single plain segment so
+    // a crafted name cannot write outside the chosen parent.
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name.starts_with('.') {
+        return Err(VaultError::Io(format!(
+            "'{name}' is not a valid folder name"
+        )));
+    }
+    let dest = PathBuf::from(parent).join(&name);
+    git.clone_repository(&url, &dest)?;
+
+    let info = vault::open(&git, &dest)?;
+    let dir = config_dir(&app);
+    let mut prefs = prefs::load(&dir);
+    prefs::remember(&mut prefs, &info.root);
+    let _ = prefs::save(&dir, &prefs);
+    Ok(info)
+}
+
+/// Ask the user where a clone should go. `None` means they cancelled.
+#[tauri::command]
+async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .set_title("Where should the vault go?")
+        .pick_folder(move |path| {
+            let _ = tx.send(path);
+        });
+    rx.recv()
+        .ok()
+        .flatten()
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.display().to_string())
+}
+
+#[tauri::command]
+fn list_branches(root: String) -> Result<Vec<Branch>, VaultError> {
+    Ok(SystemGit::new().branches(&PathBuf::from(root))?)
+}
+
+#[tauri::command]
+fn create_branch(root: String, name: String, start: Option<String>) -> Result<(), VaultError> {
+    Ok(SystemGit::new().create_branch(&PathBuf::from(root), &name, start.as_deref())?)
+}
+
+#[tauri::command]
+fn switch_branch(root: String, name: String) -> Result<(), VaultError> {
+    Ok(SystemGit::new().switch_branch(&PathBuf::from(root), &name)?)
+}
+
+#[tauri::command]
+fn merge_branch(root: String, name: String) -> Result<MergeResult, VaultError> {
+    Ok(SystemGit::new().merge_branch(&PathBuf::from(root), &name)?)
+}
+
+#[tauri::command]
+fn delete_branch(root: String, name: String, force: bool) -> Result<(), VaultError> {
+    Ok(SystemGit::new().delete_branch(&PathBuf::from(root), &name, force)?)
+}
+
+#[tauri::command]
+fn note_history(root: String, path: String, limit: u32) -> Result<Vec<CommitInfo>, VaultError> {
+    let repo = PathBuf::from(root);
+    let relative = relative_within(&repo, &path)?;
+    Ok(SystemGit::new().log_for_path(&repo, &relative, limit)?)
+}
+
+#[tauri::command]
+fn note_at_commit(root: String, commit: String, path: String) -> Result<String, VaultError> {
+    let repo = PathBuf::from(root);
+    let relative = relative_within(&repo, &path)?;
+    Ok(SystemGit::new().file_at_commit(&repo, &commit, &relative)?)
+}
+
+#[tauri::command]
+fn note_diff(
+    root: String,
+    from: String,
+    to: Option<String>,
+    path: String,
+) -> Result<String, VaultError> {
+    let repo = PathBuf::from(root);
+    let relative = relative_within(&repo, &path)?;
+    Ok(SystemGit::new().diff_file(&repo, &from, to.as_deref(), &relative)?)
+}
+
+#[tauri::command]
+fn discard_note_changes(root: String, path: String) -> Result<(), VaultError> {
+    let repo = PathBuf::from(root);
+    let relative = relative_within(&repo, &path)?;
+    Ok(SystemGit::new().discard_file(&repo, &relative)?)
+}
+
+#[tauri::command]
+fn restore_note(root: String, commit: String, path: String) -> Result<(), VaultError> {
+    let repo = PathBuf::from(root);
+    let relative = relative_within(&repo, &path)?;
+    Ok(SystemGit::new().restore_file(&repo, &commit, &relative)?)
+}
+
+/// Validate a webview-supplied path and return it relative to the vault.
+///
+/// Every path that reaches git goes through this: a path argument is still
+/// untrusted input even when it names a file the user just clicked.
+fn relative_within(repo: &PathBuf, path: &str) -> Result<PathBuf, VaultError> {
+    let resolved = vault::resolve_within(repo, path)?;
+    Ok(resolved
+        .strip_prefix(repo)
+        .unwrap_or(&resolved)
+        .to_path_buf())
 }
 
 #[tauri::command]
@@ -282,6 +414,7 @@ fn sync_vault(root: String) -> Result<SyncReport, VaultError> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             git_probe,
             pick_vault,
@@ -297,6 +430,19 @@ pub fn run() {
             vault_fetch,
             vault_pull_rebase,
             vault_push,
+            remote_url,
+            clone_vault,
+            pick_folder,
+            list_branches,
+            create_branch,
+            switch_branch,
+            merge_branch,
+            delete_branch,
+            note_history,
+            note_at_commit,
+            note_diff,
+            discard_note_changes,
+            restore_note,
             resolve_conflict,
             stage_resolution,
             rebase_continue,

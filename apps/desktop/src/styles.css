@@ -1103,3 +1103,287 @@ button {
 .drawing .excalidraw {
   --zIndex-layerUI: 10;
 }
+
+/* ---------- History ---------- */
+
+.history,
+.branches {
+  width: 24rem;
+}
+
+.history-path {
+  font-family: var(--mono-font);
+  font-size: 0.72rem;
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history-uncommitted {
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.history-item:hover {
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+
+.history-item.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.history-subject {
+  font-size: 0.84rem;
+}
+
+.history-meta {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.history-meta code {
+  font-family: var(--mono-font);
+}
+
+.history-diff {
+  margin-top: 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+
+.linky.danger {
+  color: var(--danger);
+}
+
+/* ---------- Diff ---------- */
+
+.diff {
+  display: flex;
+  flex-direction: column;
+  max-height: 24rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.5rem 0;
+  border-radius: 6px;
+  background: var(--code-bg);
+  font-family: var(--mono-font);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.diff-line {
+  padding: 0 0.6rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-line.is-add {
+  background: color-mix(in srgb, #2f855a 22%, transparent);
+}
+
+.diff-line.is-del {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.diff-line.is-hunk {
+  color: var(--accent);
+}
+
+.diff-line.is-meta {
+  color: var(--muted);
+}
+
+/* ---------- Branches ---------- */
+
+.branch-new {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.branch-new input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.branch-new button {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 0.82rem;
+}
+
+.branch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.branch-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+}
+
+.branch-name {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem 0.4rem;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 0.85rem;
+}
+
+.branch-name:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+
+.branch-list li.is-current .branch-name {
+  color: var(--accent);
+  font-weight: 550;
+  cursor: default;
+}
+
+.branch-dot {
+  font-size: 0.6rem;
+}
+
+.branch-name small {
+  color: var(--muted);
+  font-family: var(--mono-font);
+  font-size: 0.68rem;
+}
+
+.branch-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+}
+
+.branch-pr {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.branch-pr h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.branch-pr code {
+  font-family: var(--mono-font);
+  font-size: 0.75rem;
+}
+
+.as-button {
+  display: inline-block;
+  margin-top: 0.6rem;
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+
+/* ---------- Clone ---------- */
+
+.clone {
+  width: min(30rem, 92vw);
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 35%);
+}
+
+.clone h2 {
+  margin: 0 0 0.3rem;
+  font-size: 1.1rem;
+}
+
+.clone-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 1rem;
+}
+
+.clone-field > span {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.clone-field input {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.clone-location {
+  padding: 0.45rem 0.6rem;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  text-align: left;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.clone-location:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.clone-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+.clone-actions button:not(.primary) {
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.clone-actions .primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

@@ -65,4 +65,53 @@ pub trait GitPort: Send + Sync {
 
     /// Whether a rebase is currently in progress.
     fn rebase_in_progress(&self, repo: &Path) -> bool;
+
+    // -- branches ----------------------------------------------------------
+
+    /// The configured URL for a remote, if it has one.
+    fn remote_url(&self, repo: &Path, remote: &str) -> Result<Option<String>>;
+
+    /// Clone `url` into `dest`, which must not already exist.
+    ///
+    /// Named `clone_repository`: both `clone` and `clone_into` collide with std
+    /// trait methods (`Clone::clone`, `ToOwned::clone_into`) at every call site.
+    fn clone_repository(&self, url: &str, dest: &Path) -> Result<()>;
+
+    /// Local branches, plus remote-tracking ones.
+    fn branches(&self, repo: &Path) -> Result<Vec<Branch>>;
+
+    /// Create a branch and switch to it. `start` defaults to the current HEAD.
+    fn create_branch(&self, repo: &Path, name: &str, start: Option<&str>) -> Result<()>;
+
+    /// Switch branches. Fails rather than discarding uncommitted work.
+    fn switch_branch(&self, repo: &Path, name: &str) -> Result<()>;
+
+    /// Merge `name` into the current branch, reporting conflicts rather than
+    /// resolving them.
+    fn merge_branch(&self, repo: &Path, name: &str) -> Result<MergeResult>;
+
+    /// Delete a local branch. Refuses to drop unmerged work unless `force`.
+    fn delete_branch(&self, repo: &Path, name: &str, force: bool) -> Result<()>;
+
+    // -- history -----------------------------------------------------------
+
+    /// Commits touching `path`, newest first.
+    fn log_for_path(&self, repo: &Path, path: &Path, limit: u32) -> Result<Vec<CommitInfo>>;
+
+    /// A file's contents at a given commit.
+    fn file_at_commit(&self, repo: &Path, commit: &str, path: &Path) -> Result<String>;
+
+    /// Unified diff of `path` between two commits. `to` of `None` means the
+    /// working tree.
+    fn diff_file(&self, repo: &Path, from: &str, to: Option<&str>, path: &Path) -> Result<String>;
+
+    // -- restoring ---------------------------------------------------------
+
+    /// Throw away uncommitted changes to a file. Destructive, so it is only
+    /// ever called from an explicit user action.
+    fn discard_file(&self, repo: &Path, path: &Path) -> Result<()>;
+
+    /// Put a file back to how it was at `commit`, as a working-tree change the
+    /// user can still review before it is committed.
+    fn restore_file(&self, repo: &Path, commit: &str, path: &Path) -> Result<()>;
 }

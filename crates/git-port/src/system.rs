@@ -10,7 +10,8 @@ use std::process::{Command, Output};
 
 use crate::error::{GitError, Result};
 use crate::types::{
-    CommitId, ConflictSide, FetchOutcome, FileChange, FileState, MergeOutcome, RepoStatus,
+    Branch, CommitId, CommitInfo, ConflictSide, FetchOutcome, FileChange, FileState, MergeOutcome,
+    MergeResult, RepoStatus,
 };
 use crate::GitPort;
 
@@ -416,6 +417,193 @@ impl GitPort for SystemGit {
 
     fn rebase_abort(&self, repo: &Path) -> Result<()> {
         self.run_ok(Some(repo), &["rebase", "--abort"])?;
+        Ok(())
+    }
+
+    fn remote_url(&self, repo: &Path, remote: &str) -> Result<Option<String>> {
+        match self.run_ok(Some(repo), &["remote", "get-url", remote]) {
+            Ok(url) if !url.is_empty() => Ok(Some(url)),
+            Ok(_) => Ok(None),
+            // A repo with no remote configured is a normal state, not a failure.
+            Err(GitError::CommandFailed { .. }) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn clone_repository(&self, url: &str, dest: &Path) -> Result<()> {
+        if dest.exists() {
+            return Err(GitError::CommandFailed {
+                command: "clone".into(),
+                stderr: format!("{} already exists", dest.display()),
+            });
+        }
+        let dest_str = dest.to_string_lossy();
+        // The parent must exist for git to write into it.
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        self.run_ok(None, &["clone", url, &dest_str])?;
+        Ok(())
+    }
+
+    fn branches(&self, repo: &Path) -> Result<Vec<Branch>> {
+        // A custom format keeps parsing unambiguous; branch names may contain
+        // slashes but never the separator used here.
+        let out = self.run_ok(
+            Some(repo),
+            &[
+                "for-each-ref",
+                "--format=%(refname:short)\x1f%(HEAD)\x1f%(upstream:short)\x1f%(refname)",
+                "refs/heads",
+                "refs/remotes",
+            ],
+        )?;
+
+        let mut branches = Vec::new();
+        for line in out.lines() {
+            let mut parts = line.split('\x1f');
+            let name = parts.next().unwrap_or_default().to_string();
+            let head = parts.next().unwrap_or_default();
+            let upstream = parts.next().unwrap_or_default();
+            let full = parts.next().unwrap_or_default();
+            // `refs/remotes/origin/HEAD` abbreviates to just `origin`, so the
+            // symbolic default-branch pointer has to be filtered on its full
+            // refname or it shows up as a branch called `origin`.
+            if name.is_empty() || full.ends_with("/HEAD") {
+                continue;
+            }
+            branches.push(Branch {
+                is_current: head == "*",
+                upstream: (!upstream.is_empty()).then(|| upstream.to_string()),
+                is_remote: full.starts_with("refs/remotes/"),
+                name,
+            });
+        }
+        Ok(branches)
+    }
+
+    fn create_branch(&self, repo: &Path, name: &str, start: Option<&str>) -> Result<()> {
+        let mut args = vec!["switch", "--create", name];
+        if let Some(start) = start {
+            args.push(start);
+        }
+        self.run_ok(Some(repo), &args)?;
+        Ok(())
+    }
+
+    fn switch_branch(&self, repo: &Path, name: &str) -> Result<()> {
+        // No --force and no --discard-changes: switching must never be able to
+        // throw away notes the user has not committed.
+        self.run_ok(Some(repo), &["switch", name])?;
+        Ok(())
+    }
+
+    fn merge_branch(&self, repo: &Path, name: &str) -> Result<MergeResult> {
+        let before = self.run_ok(Some(repo), &["rev-parse", "HEAD"])?;
+
+        match self.run_ok(Some(repo), &["merge", "--no-edit", name]) {
+            Ok(_) => {}
+            Err(GitError::CommandFailed { .. }) => {
+                let paths = self.conflicted_paths(repo)?;
+                if !paths.is_empty() {
+                    return Ok(MergeResult::Conflicted { paths });
+                }
+                return Err(GitError::CommandFailed {
+                    command: format!("merge {name}"),
+                    stderr: "merge failed with no conflicted paths".into(),
+                });
+            }
+            Err(e) => return Err(e),
+        }
+
+        let after = self.run_ok(Some(repo), &["rev-parse", "HEAD"])?;
+        if before == after {
+            return Ok(MergeResult::AlreadyUpToDate);
+        }
+        // A merge commit has two parents; a fast-forward does not.
+        let parents = self
+            .run_ok(Some(repo), &["rev-list", "--parents", "-n", "1", "HEAD"])
+            .unwrap_or_default();
+        let is_merge = parents.split_whitespace().count() > 2;
+        let to = CommitId(after);
+        Ok(if is_merge {
+            MergeResult::Merged { to }
+        } else {
+            MergeResult::FastForwarded { to }
+        })
+    }
+
+    fn delete_branch(&self, repo: &Path, name: &str, force: bool) -> Result<()> {
+        // -d refuses to drop unmerged commits; -D is only reachable when the
+        // user has explicitly confirmed.
+        let flag = if force { "-D" } else { "-d" };
+        self.run_ok(Some(repo), &["branch", flag, name])?;
+        Ok(())
+    }
+
+    fn log_for_path(&self, repo: &Path, path: &Path, limit: u32) -> Result<Vec<CommitInfo>> {
+        let limit = limit.to_string();
+        let path_str = path.to_string_lossy();
+        let out = self.run_ok(
+            Some(repo),
+            &[
+                "log",
+                "--max-count",
+                &limit,
+                "--format=%H\x1f%h\x1f%an\x1f%aI\x1f%s",
+                "--follow",
+                "--",
+                &path_str,
+            ],
+        )?;
+
+        Ok(out
+            .lines()
+            .filter_map(|line| {
+                let mut parts = line.split('\x1f');
+                Some(CommitInfo {
+                    id: parts.next()?.to_string(),
+                    short_id: parts.next()?.to_string(),
+                    author: parts.next()?.to_string(),
+                    date: parts.next()?.to_string(),
+                    subject: parts.next().unwrap_or_default().to_string(),
+                })
+            })
+            .collect())
+    }
+
+    fn file_at_commit(&self, repo: &Path, commit: &str, path: &Path) -> Result<String> {
+        let spec = format!("{commit}:{}", path.to_string_lossy());
+        self.run_ok(Some(repo), &["show", &spec])
+    }
+
+    fn diff_file(&self, repo: &Path, from: &str, to: Option<&str>, path: &Path) -> Result<String> {
+        let path_str = path.to_string_lossy();
+        let mut args: Vec<&str> = vec!["diff", "--no-color", "--no-ext-diff", from];
+        if let Some(to) = to {
+            args.push(to);
+        }
+        args.push("--");
+        args.push(&path_str);
+        self.run_ok(Some(repo), &args)
+    }
+
+    fn discard_file(&self, repo: &Path, path: &Path) -> Result<()> {
+        let path_str = path.to_string_lossy();
+        self.run_ok(
+            Some(repo),
+            &["restore", "--staged", "--worktree", "--", &path_str],
+        )?;
+        Ok(())
+    }
+
+    fn restore_file(&self, repo: &Path, commit: &str, path: &Path) -> Result<()> {
+        let path_str = path.to_string_lossy();
+        // Working tree only, so the change is reviewable before it is committed.
+        self.run_ok(
+            Some(repo),
+            &["restore", "--source", commit, "--", &path_str],
+        )?;
         Ok(())
     }
 
@@ -960,6 +1148,339 @@ mod tests {
             matches!(outcome, MergeOutcome::Conflicted { .. }),
             "{outcome:?}"
         );
+    }
+
+    #[test]
+    fn reads_the_remote_url() {
+        let (_dir, origin, work, git) = cloned_fixture();
+        let url = git
+            .remote_url(&work, "origin")
+            .expect("remote")
+            .expect("some");
+        assert!(url.contains(origin.to_str().unwrap()), "got {url}");
+    }
+
+    #[test]
+    fn a_repo_with_no_remote_reports_none() {
+        let (_dir, repo, git) = fixture();
+        assert_eq!(git.remote_url(&repo, "origin").expect("remote"), None);
+    }
+
+    #[test]
+    fn clones_a_repository() {
+        let (dir, _origin, work, git) = cloned_fixture();
+        write(&work, "note.md", "# hello");
+        git.commit(&work, &[], "notes: seed").expect("commit");
+        git.push(&work, "origin", "main").expect("push");
+
+        let source = git.remote_url(&work, "origin").unwrap().unwrap();
+        let dest = dir.path().join("fresh-clone");
+        git.clone_repository(&source, &dest).expect("clone");
+
+        assert!(git.is_repository(&dest));
+        assert_eq!(fs::read_to_string(dest.join("note.md")).unwrap(), "# hello");
+    }
+
+    #[test]
+    fn refuses_to_clone_over_an_existing_directory() {
+        let (dir, _origin, work, git) = cloned_fixture();
+        let source = git.remote_url(&work, "origin").unwrap().unwrap();
+        let dest = dir.path().join("occupied");
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(dest.join("important.md"), "do not clobber").unwrap();
+
+        assert!(git.clone_repository(&source, &dest).is_err());
+        assert_eq!(
+            fs::read_to_string(dest.join("important.md")).unwrap(),
+            "do not clobber"
+        );
+    }
+
+    // -- branches ----------------------------------------------------------
+
+    #[test]
+    fn lists_the_current_branch() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "a");
+        git.commit(&repo, &[], "notes: seed").expect("commit");
+
+        let branches = git.branches(&repo).expect("branches");
+        let main = branches.iter().find(|b| b.name == "main").expect("main");
+        assert!(main.is_current);
+        assert!(!main.is_remote);
+    }
+
+    #[test]
+    fn the_remote_head_pointer_is_not_listed_as_a_branch() {
+        // refs/remotes/origin/HEAD abbreviates to "origin", which is not a branch.
+        let (_dir, _origin, work, git) = cloned_fixture();
+        write(&work, "a.md", "a");
+        git.commit(&work, &[], "notes: seed").expect("commit");
+        git.push(&work, "origin", "main").expect("push");
+        git.run_ok(Some(&work), &["remote", "set-head", "origin", "--auto"])
+            .expect("set-head");
+
+        let branches = git.branches(&work).expect("branches");
+        assert!(
+            !branches.iter().any(|b| b.name == "origin"),
+            "remote HEAD leaked into the branch list: {:?}",
+            branches.iter().map(|b| &b.name).collect::<Vec<_>>()
+        );
+        assert!(branches.iter().any(|b| b.name == "origin/main"));
+    }
+
+    #[test]
+    fn creates_and_switches_to_a_branch() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "a");
+        git.commit(&repo, &[], "notes: seed").expect("commit");
+
+        git.create_branch(&repo, "feature", None).expect("create");
+        let branches = git.branches(&repo).expect("branches");
+        assert!(branches.iter().any(|b| b.name == "feature" && b.is_current));
+    }
+
+    #[test]
+    fn switches_between_existing_branches() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "a");
+        git.commit(&repo, &[], "notes: seed").expect("commit");
+        git.create_branch(&repo, "feature", None).expect("create");
+
+        git.switch_branch(&repo, "main").expect("switch");
+        assert_eq!(git.status(&repo).expect("status").branch, "main");
+    }
+
+    #[test]
+    fn refuses_to_switch_away_from_uncommitted_work_it_would_clobber() {
+        // Losing an uncommitted note to a branch switch is exactly the kind of
+        // silent loss the app must never cause.
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "original");
+        git.commit(&repo, &[], "notes: seed").expect("commit");
+        git.create_branch(&repo, "feature", None).expect("create");
+        write(&repo, "a.md", "feature version");
+        git.commit(&repo, &[], "notes: feature").expect("commit");
+
+        git.switch_branch(&repo, "main").expect("switch back");
+        write(&repo, "a.md", "uncommitted edit");
+
+        assert!(git.switch_branch(&repo, "feature").is_err());
+        assert_eq!(
+            fs::read_to_string(repo.join("a.md")).unwrap(),
+            "uncommitted edit"
+        );
+    }
+
+    #[test]
+    fn branches_from_an_explicit_start_point() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "one");
+        git.commit(&repo, &[], "notes: one").expect("commit");
+        let first = git.run_ok(Some(&repo), &["rev-parse", "HEAD"]).unwrap();
+        write(&repo, "a.md", "two");
+        git.commit(&repo, &[], "notes: two").expect("commit");
+
+        git.create_branch(&repo, "from-first", Some(&first))
+            .expect("create");
+        assert_eq!(fs::read_to_string(repo.join("a.md")).unwrap(), "one");
+    }
+
+    #[test]
+    fn merges_a_branch_by_fast_forward() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "base");
+        git.commit(&repo, &[], "notes: base").expect("commit");
+        git.create_branch(&repo, "feature", None).expect("create");
+        write(&repo, "b.md", "new");
+        git.commit(&repo, &[], "notes: feature").expect("commit");
+        git.switch_branch(&repo, "main").expect("switch");
+
+        let result = git.merge_branch(&repo, "feature").expect("merge");
+        assert!(
+            matches!(result, MergeResult::FastForwarded { .. }),
+            "{result:?}"
+        );
+        assert!(repo.join("b.md").exists());
+    }
+
+    #[test]
+    fn merging_an_ancestor_reports_up_to_date() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "base");
+        git.commit(&repo, &[], "notes: base").expect("commit");
+        git.create_branch(&repo, "feature", None).expect("create");
+        git.switch_branch(&repo, "main").expect("switch");
+
+        let result = git.merge_branch(&repo, "feature").expect("merge");
+        assert!(matches!(result, MergeResult::AlreadyUpToDate), "{result:?}");
+    }
+
+    #[test]
+    fn a_conflicting_merge_is_reported_not_resolved() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "shared.md", "base\n");
+        git.commit(&repo, &[], "notes: base").expect("commit");
+
+        git.create_branch(&repo, "feature", None).expect("create");
+        write(&repo, "shared.md", "feature\n");
+        git.commit(&repo, &[], "notes: feature").expect("commit");
+
+        git.switch_branch(&repo, "main").expect("switch");
+        write(&repo, "shared.md", "main\n");
+        git.commit(&repo, &[], "notes: main").expect("commit");
+
+        let result = git.merge_branch(&repo, "feature").expect("merge reports");
+        match result {
+            MergeResult::Conflicted { paths } => {
+                assert_eq!(paths, vec![PathBuf::from("shared.md")]);
+            }
+            other => panic!("expected a conflict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn refuses_to_delete_a_branch_with_unmerged_work() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "base");
+        git.commit(&repo, &[], "notes: base").expect("commit");
+        git.create_branch(&repo, "feature", None).expect("create");
+        write(&repo, "b.md", "only here");
+        git.commit(&repo, &[], "notes: feature").expect("commit");
+        git.switch_branch(&repo, "main").expect("switch");
+
+        assert!(git.delete_branch(&repo, "feature", false).is_err());
+        assert!(git.delete_branch(&repo, "feature", true).is_ok());
+    }
+
+    // -- history -----------------------------------------------------------
+
+    #[test]
+    fn logs_only_commits_touching_a_path() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "one");
+        git.commit(&repo, &[], "notes: a first").expect("commit");
+        write(&repo, "b.md", "unrelated");
+        git.commit(&repo, &[], "notes: b").expect("commit");
+        write(&repo, "a.md", "two");
+        git.commit(&repo, &[], "notes: a second").expect("commit");
+
+        let log = git.log_for_path(&repo, Path::new("a.md"), 10).expect("log");
+        assert_eq!(log.len(), 2);
+        // Newest first.
+        assert_eq!(log[0].subject, "notes: a second");
+        assert_eq!(log[1].subject, "notes: a first");
+        assert_eq!(log[0].author, "Test");
+        assert_eq!(log[0].short_id.len(), 7);
+    }
+
+    #[test]
+    fn honours_the_log_limit() {
+        let (_dir, repo, git) = fixture();
+        for i in 0..5 {
+            write(&repo, "a.md", &format!("v{i}"));
+            git.commit(&repo, &[], &format!("notes: v{i}"))
+                .expect("commit");
+        }
+        assert_eq!(
+            git.log_for_path(&repo, Path::new("a.md"), 2).unwrap().len(),
+            2
+        );
+    }
+
+    #[test]
+    fn history_is_empty_for_an_uncommitted_file() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "x");
+        git.commit(&repo, &[], "notes: seed").expect("commit");
+        write(&repo, "new.md", "never committed");
+
+        assert!(git
+            .log_for_path(&repo, Path::new("new.md"), 10)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn reads_a_file_as_it_was_at_a_commit() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "first");
+        git.commit(&repo, &[], "notes: first").expect("commit");
+        let first = git.run_ok(Some(&repo), &["rev-parse", "HEAD"]).unwrap();
+        write(&repo, "a.md", "second");
+        git.commit(&repo, &[], "notes: second").expect("commit");
+
+        assert_eq!(
+            git.file_at_commit(&repo, &first, Path::new("a.md"))
+                .unwrap(),
+            "first"
+        );
+    }
+
+    #[test]
+    fn diffs_a_file_between_commits() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "first\n");
+        git.commit(&repo, &[], "notes: first").expect("commit");
+        let first = git.run_ok(Some(&repo), &["rev-parse", "HEAD"]).unwrap();
+        write(&repo, "a.md", "second\n");
+        git.commit(&repo, &[], "notes: second").expect("commit");
+        let second = git.run_ok(Some(&repo), &["rev-parse", "HEAD"]).unwrap();
+
+        let diff = git
+            .diff_file(&repo, &first, Some(&second), Path::new("a.md"))
+            .expect("diff");
+        assert!(diff.contains("-first"), "{diff}");
+        assert!(diff.contains("+second"), "{diff}");
+    }
+
+    #[test]
+    fn diffs_a_commit_against_the_working_tree() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "committed\n");
+        git.commit(&repo, &[], "notes: seed").expect("commit");
+        let head = git.run_ok(Some(&repo), &["rev-parse", "HEAD"]).unwrap();
+        write(&repo, "a.md", "edited\n");
+
+        let diff = git
+            .diff_file(&repo, &head, None, Path::new("a.md"))
+            .expect("diff");
+        assert!(diff.contains("+edited"), "{diff}");
+    }
+
+    // -- restoring ----------------------------------------------------------
+
+    #[test]
+    fn discards_uncommitted_changes_to_one_file() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "committed");
+        write(&repo, "b.md", "also committed");
+        git.commit(&repo, &[], "notes: seed").expect("commit");
+        write(&repo, "a.md", "edited");
+        write(&repo, "b.md", "edited too");
+
+        git.discard_file(&repo, Path::new("a.md")).expect("discard");
+
+        assert_eq!(fs::read_to_string(repo.join("a.md")).unwrap(), "committed");
+        // Only the named file is touched.
+        assert_eq!(fs::read_to_string(repo.join("b.md")).unwrap(), "edited too");
+    }
+
+    #[test]
+    fn restores_a_file_from_an_older_commit_without_committing_it() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "a.md", "first");
+        git.commit(&repo, &[], "notes: first").expect("commit");
+        let first = git.run_ok(Some(&repo), &["rev-parse", "HEAD"]).unwrap();
+        write(&repo, "a.md", "second");
+        git.commit(&repo, &[], "notes: second").expect("commit");
+
+        git.restore_file(&repo, &first, Path::new("a.md"))
+            .expect("restore");
+
+        assert_eq!(fs::read_to_string(repo.join("a.md")).unwrap(), "first");
+        // Left as a reviewable working-tree change, not a commit.
+        assert!(!git.status(&repo).expect("status").is_clean());
     }
 
     #[test]

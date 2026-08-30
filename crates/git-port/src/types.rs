@@ -76,3 +76,35 @@ pub enum ConflictSide {
     /// The version that came from the remote.
     Theirs,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Branch {
+    pub name: String,
+    pub is_current: bool,
+    /// Configured upstream, e.g. `origin/main`.
+    pub upstream: Option<String>,
+    /// A remote-tracking branch rather than a local one.
+    pub is_remote: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitInfo {
+    pub id: String,
+    pub short_id: String,
+    pub author: String,
+    /// ISO-8601, so the frontend can format it however it likes.
+    pub date: String,
+    pub subject: String,
+}
+
+/// What happened when a branch was merged in.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum MergeResult {
+    AlreadyUpToDate,
+    FastForwarded { to: CommitId },
+    Merged { to: CommitId },
+    Conflicted { paths: Vec<PathBuf> },
+}

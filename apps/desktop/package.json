@@ -18,7 +18,8 @@
     "@open-note/editor": "workspace:*",
     "@open-note/core": "workspace:*",
     "@open-note/diagrams": "workspace:*",
-    "@excalidraw/excalidraw": "^0.18.1"
+    "@excalidraw/excalidraw": "^0.18.1",
+    "@tauri-apps/plugin-opener": "^2"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",

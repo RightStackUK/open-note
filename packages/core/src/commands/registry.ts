@@ -82,8 +82,30 @@ export const COMMANDS: CommandDefinition[] = [
   },
   { id: 'sync.settings', title: 'Sync settings', category: 'Sync', binding: 'Mod-,' },
 
+  {
+    id: 'vault.clone',
+    title: 'Clone a vault…',
+    category: 'Note',
+    binding: null,
+    keywords: ['git', 'remote', 'download'],
+  },
+
   // View
   { id: 'view.toggleSidebar', title: 'Toggle sidebar', category: 'View', binding: 'Mod-\\' },
+  {
+    id: 'view.history',
+    title: 'Note history',
+    category: 'View',
+    binding: 'Mod-Shift-H',
+    keywords: ['git', 'log', 'versions', 'diff'],
+  },
+  {
+    id: 'view.branches',
+    title: 'Branches and pull requests',
+    category: 'View',
+    binding: 'Mod-Shift-G',
+    keywords: ['git', 'branch', 'merge', 'pr'],
+  },
   {
     id: 'view.toggleBacklinks',
     title: 'Toggle backlinks',
