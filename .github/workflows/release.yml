@@ -45,17 +45,19 @@ jobs:
         include:
           # One universal binary rather than two downloads, so nobody has to
           # know whether their Mac is Intel or Apple silicon.
+          # `universal-apple-darwin` is a Tauri concept, not a rustup target:
+          # it lipo's the two real ones together, so both must be installed.
           - os: macos-latest
             label: macOS (universal)
-            target: universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
             args: --target universal-apple-darwin
           - os: ubuntu-latest
             label: Linux
-            target: x86_64-unknown-linux-gnu
+            rust-targets: x86_64-unknown-linux-gnu
             args: ''
           - os: windows-latest
             label: Windows
-            target: x86_64-pc-windows-msvc
+            rust-targets: x86_64-pc-windows-msvc
             args: ''
 
     steps:
@@ -69,15 +71,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
-      - name: Add the second macOS architecture
-        if: matrix.os == 'macos-latest'
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          targets: ${{ matrix.rust-targets }}
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
-          key: release-${{ matrix.target }}
+          key: release-${{ matrix.os }}
 
       - name: Install Tauri system dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -127,6 +126,9 @@ jobs:
 
             Signing is tracked in the issues for macOS and Windows builds.
           releaseDraft: false
+          # No updater is configured yet (deliberately, until builds are signed),
+          # so an updater manifest would only be a misleading artifact.
+          includeUpdaterJson: false
           # A tag like v0.2.0-beta.1 publishes as a pre-release automatically.
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}
