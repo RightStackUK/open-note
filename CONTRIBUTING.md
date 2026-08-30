@@ -66,6 +66,22 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
 CI runs the same checks on macOS, Windows and Linux.
 
+## Running alongside an installed copy
+
+`pnpm desktop:dev` runs under a separate application identity
+(`com.theopennote.desktop.dev`, shown as **Open Note (dev)**), so a development
+build and an installed copy do not share app data. Without this they would both
+read and write the same recent-vaults list, and the dev build would never show
+the welcome screen.
+
+**Do not open the same vault in both at once.** Each running copy has its own
+sync engine, and the engine only serialises git operations within its own
+process. Two of them on one repository contend for git's index lock: commands
+fail, the engine backs off, and the result is noisy and confusing. The same
+applies to running `git` in a terminal against a vault the app is syncing.
+
+Use a different vault for development, or switch sync off in one of them.
+
 ## Troubleshooting
 
 ### macOS: `failed to bundle project: error running bundle_dmg.sh`
