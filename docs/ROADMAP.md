@@ -33,7 +33,7 @@ These are the constraints every design decision is checked against.
 |---|---|---|
 | App shell | **Tauri v2** | Single Rust core targets desktop **and** iOS/Android. ~3 MB bundles vs Electron's ~96 MB. Electron cannot reach mobile at all — choosing it would mean a rewrite at Phase 7. |
 | Frontend | **React + TypeScript + Vite** | Excalidraw ships as a React component, which pins this choice. |
-| Editor | **CodeMirror 6** | Bear's model — real Markdown source, decorated inline — is exactly CM6's decoration system. A WYSIWYG editor (ProseMirror/Lexical/Tiptap) requires a Markdown↔document round-trip that loses fidelity and produces noisy Git diffs. Same reasoning Obsidian used. |
+| Editor | **CodeMirror 6** | The model we want — real Markdown source, decorated inline — is exactly CM6's decoration system. A WYSIWYG editor (ProseMirror/Lexical/Tiptap) requires a Markdown↔document round-trip that loses fidelity and produces noisy Git diffs. Same reasoning Obsidian used. |
 | MD (editor) | `@lezer/markdown` | Incremental parsing while typing. |
 | MD (indexing) | `unified` + `remark-gfm` | Batch AST work: outline, todo extraction, wikilinks, backlinks. |
 | Monorepo | **pnpm workspaces + Turborepo** | |
@@ -236,7 +236,7 @@ is earned by actually using the previous one.
 - [x] Open an existing local Git repo as a vault; recent vaults remembered and
       the last one reopened on launch
 - [x] File tree: Markdown files openable; other files listed but inert; images previewable
-- [x] CodeMirror 6 editor with Bear-style syntax concealment
+- [x] CodeMirror 6 editor with inline syntax concealment
 - [x] Autosave to disk (write loop only, 500 ms idle)
 - [x] A single manual **Sync** button: `commit → pull --rebase → push`
 - [x] `SystemGit` fully implemented behind `GitPort`
@@ -264,7 +264,7 @@ is earned by actually using the previous one.
 - [x] Command palette, quick switcher and full-text search sharing one overlay
 - [x] Configurable keymap in `.opennote/keymap.json`, with a settings panel that
       records a real key press rather than asking for a binding string
-- [x] Preset schemes: Default and Bear. Conflict detection, tested to ensure
+- [x] Preset schemes: Default and Alternative. Conflict detection, tested to ensure
       neither shipped scheme has a clash
 - [x] Full-text search over titles, body and tags (MiniSearch, in memory)
 - [x] Tags, `[[wikilinks]]` that are clickable and create the note when missing,
@@ -337,6 +337,19 @@ folder creation, no rename, no delete, and a tag index with no view on top of it
 
 Mobile waits until those are closed — porting an app with no delete button to a
 second platform is the wrong order.
+
+### Parity — before mobile
+
+A feature audit against the established Markdown notes apps in this category
+found 72 gaps: no autocomplete of any kind, no typography settings, no note
+list, no navigation history, one export format, and nothing outside the window
+able to reach the app.
+
+Closing those is planned in **[PLAN-PARITY.md](PLAN-PARITY.md)**, in ten blocks.
+Ten items are deferred there with their reasons — two of them (multiple windows,
+stable note identifiers) because they are architecture decisions rather than
+features, and one because it needs a browser-extension build target we do not
+have.
 
 ### Phase 7 — Mobile
 - Implement `LibGit2Adapter`; swap it in on mobile targets
