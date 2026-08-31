@@ -25,3 +25,15 @@ Thumbs.db
 # Env
 .env
 .env.local
+
+# Terraform (infra/site). The lock file IS committed — it pins the provider
+# version so an apply from another machine resolves the same one.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+# Saved plans are binary and can embed attribute values from state.
+tfplan
+*.tfplan

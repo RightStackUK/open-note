@@ -1,0 +1,170 @@
+name: Deploy site
+
+# theopennote.com is a static site in an S3 bucket behind CloudFront. Pushing to
+# main rebuilds it and syncs the result.
+#
+# The infrastructure this talks to lives in infra/site and is applied by hand —
+# this workflow can replace the site's contents and invalidate the cache, and
+# deliberately nothing else. See docs/DEPLOYING-SITE.md.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/site/**'
+      - '.github/workflows/deploy-site.yml'
+      # A dependency bump changes the built output even when no page did.
+      - 'pnpm-lock.yaml'
+      - 'package.json'
+  workflow_dispatch:
+
+# Deploys are serialised, and an in-flight one is never cancelled: `aws s3 sync`
+# interrupted halfway leaves the bucket holding half of one build and half of
+# another, which is worse than being one commit behind for a minute.
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false
+
+permissions:
+  # Required to request the OIDC token that AWS exchanges for credentials.
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Cheap, and scoped to the site: a broken page fails here rather than
+      # reaching visitors. The rest of the workspace is CI's business, not this
+      # workflow's — a failing desktop build should not hold up a typo fix.
+      - run: pnpm --filter @open-note/site typecheck
+      - run: pnpm --filter @open-note/site test
+
+      - run: pnpm site:build
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: deploy-site-${{ github.run_id }}
+
+      # Four passes, and the order is the point.
+      #
+      # Cache lifetimes are set per object at upload time, and `aws s3 sync`
+      # skips files it considers unchanged — so it will not revisit an object
+      # just to correct its metadata. Each pass therefore has to own a disjoint
+      # slice of the tree, or the first pass to touch a file decides its
+      # Cache-Control forever.
+      - name: Upload fingerprinted assets
+        env:
+          BUCKET: ${{ vars.AWS_S3_BUCKET }}
+        run: |
+          # First, and without --delete: the new HTML is about to reference
+          # these, so they have to be in place before it goes live.
+          aws s3 sync apps/site/dist "s3://$BUCKET" \
+            --exclude '*' --include '_astro/*' \
+            --cache-control 'public, max-age=31536000, immutable' \
+            --no-progress
+
+          aws s3 sync apps/site/dist "s3://$BUCKET" \
+            --exclude '*' --include 'screenshots/*' \
+            --cache-control 'public, max-age=604800' \
+            --no-progress
+
+      - name: Upload pages and everything else
+        env:
+          BUCKET: ${{ vars.AWS_S3_BUCKET }}
+        run: |
+          # Everything Astro does not fingerprint: HTML, the sitemaps, robots.txt,
+          # the favicon, and Pagefind's search index. Pagefind belongs here rather
+          # than with the assets because pagefind-entry.json keeps a stable name
+          # while its contents change every build — cached hard, search would go
+          # on answering from last week's index.
+          #
+          # --delete prunes pages removed from the site. Safe here because the
+          # excludes keep it away from the asset directories, which the next step
+          # handles separately.
+          aws s3 sync apps/site/dist "s3://$BUCKET" --delete \
+            --exclude '_astro/*' --exclude 'screenshots/*' \
+            --cache-control 'public, max-age=0, must-revalidate' \
+            --no-progress
+
+      - name: Invalidate the CloudFront cache
+        env:
+          DISTRIBUTION: ${{ vars.AWS_CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          ID=$(aws cloudfront create-invalidation \
+            --distribution-id "$DISTRIBUTION" \
+            --paths '/*' \
+            --query 'Invalidation.Id' --output text)
+          echo "Invalidation $ID"
+          # Wait, so a green job means the new site is actually being served and
+          # the smoke test below is not measuring the old one.
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "$DISTRIBUTION" --id "$ID"
+
+      - name: Prune assets orphaned by this build
+        env:
+          BUCKET: ${{ vars.AWS_S3_BUCKET }}
+        run: |
+          # Last, after the invalidation: until the edge stops serving the
+          # previous HTML, that HTML's asset URLs still have to resolve. Deleting
+          # them in the first step would have blanked the site for anyone
+          # mid-visit.
+          # One pass per asset class, each repeating its own --cache-control.
+          # Nothing here should upload — the first step already did — but a pass
+          # that names a lifetime different from the one that created the object
+          # is a trap for whoever reorders these next.
+          aws s3 sync apps/site/dist "s3://$BUCKET" --delete \
+            --exclude '*' --include '_astro/*' \
+            --cache-control 'public, max-age=31536000, immutable' \
+            --no-progress
+
+          aws s3 sync apps/site/dist "s3://$BUCKET" --delete \
+            --exclude '*' --include 'screenshots/*' \
+            --cache-control 'public, max-age=604800' \
+            --no-progress
+
+      - name: Smoke test
+        env:
+          SITE: https://${{ vars.SITE_DOMAIN || 'theopennote.com' }}
+        run: |
+          set -euo pipefail
+          fail=0
+
+          expect() {
+            local path="$1" want="$2"
+            local got
+            # || echo 000 so an unreachable host reports as a failed check rather
+            # than killing the script under set -e with no indication of which URL.
+            got=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 5 "$SITE$path" || echo 000)
+            if [ "$got" = "$want" ]; then
+              echo "ok    $path -> $got"
+            else
+              echo "FAIL  $path -> $got (expected $want)"
+              fail=1
+            fi
+          }
+
+          # Extensionless paths only resolve if the CloudFront function rewrote
+          # them onto index.html, so these check the routing as much as the upload.
+          expect / 200
+          expect /features 200
+          expect /download 200
+          expect /docs/getting-started 200
+          # The REST origin answers 403 for a missing key; the distribution has to
+          # turn that into the 404 page.
+          expect /no-such-page 404
+
+          exit $fail

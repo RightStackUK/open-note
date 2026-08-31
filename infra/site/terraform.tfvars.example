@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars and edit. Every value below is already the default,
+# so an empty tfvars file works too — this exists to show what is adjustable.
+
+# domain      = "theopennote.com"
+# region      = "eu-west-2"
+# bucket_name = "theopennote-com-site"
+
+# Answer on www and 301 it to the apex.
+# www_redirect = true
+
+# North America and Europe. PriceClass_All adds the rest at higher cost.
+# price_class = "PriceClass_100"
+
+# Who may assume the deploy role.
+# github_repository  = "RightStackUK/open-note"
+# github_deploy_refs = ["refs/heads/main"]
+
+# There can be only one GitHub OIDC provider per AWS account. If the account
+# already has one, set this false and it is looked up by URL — no ARN needed.
+# create_github_oidc_provider = false
