@@ -53,11 +53,54 @@ function complete(which: 'wikiLink' | 'tag' | 'emoji', input: string, options: R
   const result = sources[which](context);
   if (!result) return null;
   return {
+    state,
     from: result.from,
     filter: result.filter,
     labels: result.options.map((o) => o.label),
-    applied: result.options.map((o) => (typeof o.apply === 'string' ? o.apply : o.label)),
+    options: result.options,
   };
+}
+
+/**
+ * Accept the option with `label` and return the document with `‸` at the
+ * caret. This drives the option's real `apply` — which is where the closing
+ * brackets are decided — through a minimal stand-in for the view.
+ */
+function accept(which: 'wikiLink' | 'tag' | 'emoji', input: string, label: string): string {
+  const result = complete(which, input);
+  if (!result) throw new Error('no completion result');
+  const option = result.options.find((o) => o.label === label);
+  if (!option) throw new Error(`no option labelled ${label}`);
+
+  const caret = input.indexOf('‸');
+  let doc = input.replace('‸', '');
+  let head = caret;
+  const view = {
+    state: result.state,
+    dispatch(spec: {
+      changes: { from: number; to: number; insert: string };
+      selection?: { anchor: number };
+    }) {
+      const { from, to, insert } = spec.changes;
+      doc = doc.slice(0, from) + insert + doc.slice(to);
+      head = spec.selection?.anchor ?? from + insert.length;
+    },
+  };
+
+  if (typeof option.apply === 'string') {
+    view.dispatch({ changes: { from: result.from, to: caret, insert: option.apply } });
+  } else if (typeof option.apply === 'function') {
+    (option.apply as (v: unknown, c: unknown, f: number, t: number) => void)(
+      view,
+      option,
+      result.from,
+      caret,
+    );
+  } else {
+    view.dispatch({ changes: { from: result.from, to: caret, insert: option.label } });
+  }
+
+  return `${doc.slice(0, head)}‸${doc.slice(head)}`;
 }
 
 describe('[[ note links', () => {
@@ -81,12 +124,44 @@ describe('[[ note links', () => {
     expect(result?.labels).toContain('Release checklist');
   });
 
+  it('closes the link on accept', () => {
+    // Inserting only the target left `[[Research` with no way out but typing
+    // the brackets yourself.
+    expect(accept('wikiLink', 'see [[res‸ now', 'Research')).toBe('see [[Research]]‸ now');
+  });
+
+  it('reuses closing brackets that are already there', () => {
+    // `edit.wikilink` inserts `[[]]` with the caret inside; accepting must not
+    // produce `]]]]`.
+    expect(accept('wikiLink', 'see [[res‸]] now', 'Research')).toBe('see [[Research]]‸ now');
+  });
+
+  it('completes a single closing bracket to a pair', () => {
+    expect(accept('wikiLink', 'see [[res‸] now', 'Research')).toBe('see [[Research]]‸ now');
+  });
+
   it('writes an alias only when the basename and title differ', () => {
-    const applied = complete('wikiLink', '[[‸')?.applied ?? [];
     // Basename equals title, so no alias is needed.
-    expect(applied).toContain('Research');
+    expect(accept('wikiLink', '[[research‸', 'Research')).toBe('[[Research]]‸');
     // Basename `Shipping` differs from the title, so the alias is carried.
-    expect(applied).toContain('notes/deep/Shipping|Release checklist');
+    expect(accept('wikiLink', '[[release‸', 'Release checklist')).toBe(
+      '[[notes/deep/Shipping|Release checklist]]‸',
+    );
+  });
+
+  it('ranks recency above match strength, as the plan specifies', () => {
+    const notes = [
+      { path: 'a.md', title: 'Notebook' },
+      { path: 'b.md', title: 'Note taking tips' },
+    ];
+    const recency = new Map([
+      ['a.md', 1],
+      ['b.md', 99],
+    ]);
+    // `Notebook` scores higher on the query, but `b.md` was edited last — and
+    // the note being linked is usually the note just worked on.
+    const result = complete('wikiLink', '[[note‸', { notes, recency });
+    expect(result?.labels).toEqual(['Note taking tips', 'Notebook']);
   });
 
   it('breaks a tie on recency', () => {
@@ -157,9 +232,16 @@ describe('# tags', () => {
     expect(complete('tag', 'https://example.com/#‸')).toBeNull();
   });
 
-  it('does not fire on a heading line', () => {
-    expect(complete('tag', '# Heading‸')).toBeNull();
-    expect(complete('tag', '### ‸')).toBeNull();
+  it('does not fire on a bare # at the start of a line', () => {
+    // That # is a heading being typed; a tag panel there interrupts it.
+    expect(complete('tag', '#‸')).toBeNull();
+    expect(complete('tag', '> #‸')).toBeNull();
+  });
+
+  it('fires for a tag written on a heading line, as the indexer records it', () => {
+    // `extractTags('# Heading #wo…')` indexes the tag, so completion offering
+    // it is agreement, not a leak.
+    expect(complete('tag', '# Heading #wo‸')?.labels).toEqual(['#work', '#work/urgent']);
   });
 
   it('does not fire inside a fenced code block', () => {
@@ -179,12 +261,19 @@ describe(': emoji', () => {
   it('offers matches once a letter follows the colon', () => {
     const result = complete('emoji', 'ship it :rocket‸');
     expect(result?.labels).toContain(':rocket:');
-    expect(result?.applied).toContain('🚀');
   });
 
   it('inserts the character, not the shortcode', () => {
-    const result = complete('emoji', 'done :white_check_mark‸');
-    expect(result?.applied[0]).toBe('✅');
+    expect(accept('emoji', 'done :white_check_mark‸', ':white_check_mark:')).toBe('done ✅‸');
+  });
+
+  it('keeps keyword matches visible by disabling the panel filter', () => {
+    // CodeMirror re-filters options against their labels: a keyword hit like
+    // `:urgent` → 🔥 would otherwise be offered and then silently removed
+    // because "urgent" is not in ":fire:".
+    const result = complete('emoji', ':urgent‸');
+    expect(result?.labels).toContain(':fire:');
+    expect(result?.filter).toBe(false);
   });
 
   it('does not fire on a bare colon', () => {
@@ -194,7 +283,7 @@ describe(': emoji', () => {
   });
 
   it('matches on a keyword as well as the shortcode', () => {
-    expect(complete('emoji', ':urgent‸')?.applied).toContain('🔥');
+    expect(complete('emoji', ':urgent‸')?.labels).toContain(':fire:');
   });
 
   it('does not fire inside a fenced code block', () => {

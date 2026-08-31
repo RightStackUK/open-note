@@ -66,19 +66,29 @@ function inCode(state: EditorState, pos: number): boolean {
   return false;
 }
 
-/** True on a line that is an ATX heading, where a leading `#` is not a tag. */
-function onHeading(state: EditorState, pos: number): boolean {
-  const line = state.doc.lineAt(pos);
-  return /^\s*#{1,6}(\s|$)/.test(line.text);
+/**
+ * A bare `#` at the start of a line's content is a heading marker being typed,
+ * not a tag — so no panel until a tag character follows it.
+ *
+ * Deliberately this narrow: a tag *with characters* at the start of a line, or
+ * anywhere on a heading line (`# Heading #work`), is a tag to `extractTags`,
+ * and completion suppressing what the indexer records would be a disagreement.
+ * Quote markers count as lead-in, so `> #` while typing a quoted heading stays
+ * quiet too.
+ */
+function atHeadingMarker(lineText: string, start: number, query: string): boolean {
+  if (query) return false;
+  return /^[\s>]*$/.test(lineText.slice(0, start));
 }
 
 /**
  * `[[` note links.
  *
- * Ranked by title match, then path match, then recency. A novel name is never
- * blocked: `validFor` is false and the panel never auto-selects, so typing a
- * title no note has yet and pressing `]]` still creates it on follow, which is
- * behaviour the app already had and completion must not take away.
+ * Ranked by recency, then title match, then path match — the order the plan
+ * specifies, because the note being linked is usually the note just worked on.
+ * A novel name is never blocked: nothing is filtered or auto-selected, so
+ * typing a title no note has yet and pressing `]]` still creates it on follow,
+ * which is behaviour the app already had and completion must not take away.
  */
 function wikiLinkSource(options: CompletionOptions) {
   return (context: CompletionContext): CompletionResult | null => {
@@ -94,23 +104,22 @@ function wikiLinkSource(options: CompletionOptions) {
     const query = typed.toLowerCase();
     const recency = options.recency?.() ?? new Map<string, number>();
 
-    const scored: Array<{ note: CompletionNote; score: number }> = [];
+    const scored: Array<{ note: CompletionNote; title: number; path: number }> = [];
     for (const note of options.notes()) {
       if (!query) {
-        scored.push({ note, score: 0 });
+        scored.push({ note, title: 0, path: 0 });
         continue;
       }
       const title = fuzzyScore(note.title.toLowerCase(), query);
       const path = fuzzyScore(note.path.toLowerCase(), query);
-      // A title match outranks a path match: the title is what people know.
-      const score = Math.max(title * 2, path);
-      if (score > 0) scored.push({ note, score });
+      if (title > 0 || path > 0) scored.push({ note, title, path });
     }
 
     scored.sort(
       (a, b) =>
-        b.score - a.score ||
         (recency.get(b.note.path) ?? 0) - (recency.get(a.note.path) ?? 0) ||
+        b.title - a.title ||
+        b.path - a.path ||
         a.note.title.localeCompare(b.note.title),
     );
 
@@ -126,13 +135,25 @@ function wikiLinkSource(options: CompletionOptions) {
     const seen = new Set<string>();
     const dedupedOptions: Completion[] = [];
     for (const { note } of scored.slice(0, 50)) {
-      const apply = noteTarget(note);
-      if (seen.has(apply)) continue;
-      seen.add(apply);
+      const target = noteTarget(note);
+      if (seen.has(target)) continue;
+      seen.add(target);
       dedupedOptions.push({
         label: note.title,
         detail: note.path,
-        apply,
+        // Accepting must close the link: inserting only the target left the
+        // user with `[[Research` and no `]]`. Any brackets already ahead of
+        // the caret — from `edit.wikilink`'s `[[]]`, or typed by hand — are
+        // reused rather than doubled, and the caret lands after them.
+        apply: (view, _completion, from, to) => {
+          const following = view.state.doc.sliceString(to, to + 2);
+          const existing = following === ']]' ? 2 : following.startsWith(']') ? 1 : 0;
+          view.dispatch({
+            changes: { from, to, insert: target + ']]'.slice(existing) },
+            selection: { anchor: from + target.length + 2 },
+            userEvent: 'input.complete',
+          });
+        },
         type: 'note',
       });
     }
@@ -164,8 +185,7 @@ function tagSource(options: CompletionOptions) {
     const partial = partialTagBefore(before);
     if (!partial) return null;
     if (inCode(context.state, context.pos)) return null;
-    // On a heading the leading `#` is the heading marker, not a tag.
-    if (onHeading(context.state, context.pos)) return null;
+    if (atHeadingMarker(line.text, partial.start, partial.query)) return null;
 
     const query = partial.query.toLowerCase();
     const matches = options
@@ -180,7 +200,10 @@ function tagSource(options: CompletionOptions) {
     return {
       from: line.from + partial.start,
       options: matches,
-      validFor: /^#[\p{L}\p{N}_/-]*$/u,
+      // No `validFor`: it would freeze this result and let CodeMirror filter
+      // it, so with more than 50 tags a tag past the cap could never surface
+      // however much of it was typed. Re-running per keystroke is cheap.
+      filter: false,
     };
   };
 }
@@ -204,7 +227,10 @@ function emojiSource() {
     }));
     if (matches.length === 0) return null;
 
-    return { from: before.from, options: matches, validFor: /^:[a-z0-9_+-]*$/ };
+    // `filter: false`, because CodeMirror re-filters options against their
+    // labels: a keyword hit like `:urgent` → 🔥 would be shown by this source
+    // and then silently removed because "urgent" is not in ":fire:".
+    return { from: before.from, options: matches, filter: false };
   };
 }
 

@@ -4,8 +4,9 @@
  * Deliberately a curated list rather than a full Unicode table. The complete
  * set is some 1,800 entries and several hundred kilobytes, and it would be
  * loaded on every keystroke of a `:` to offer choices nobody scrolls to. These
- * are the ones people actually type in notes, and the shortcodes match the
- * GitHub names so a note written here reads the same on the forge.
+ * are the ones people actually type in notes, and every (shortcode, character)
+ * pair matches GitHub's gemoji table exactly, so a shortcode learned here means
+ * the same thing on the forge.
  *
  * It lives in `core` rather than in the editor because the tag-icon picker
  * needs exactly the same table, and two lists would drift.
@@ -28,7 +29,7 @@ export const EMOJI: Emoji[] = [
   { shortcode: 'question', char: '❓', keywords: ['unsure', 'ask'] },
   { shortcode: 'exclamation', char: '❗', keywords: ['important'] },
   { shortcode: 'construction', char: '🚧', keywords: ['wip', 'progress', 'blocked'] },
-  { shortcode: 'hourglass', char: '⏳', keywords: ['waiting', 'pending'] },
+  { shortcode: 'hourglass_flowing_sand', char: '⏳', keywords: ['waiting', 'pending'] },
   { shortcode: 'checkered_flag', char: '🏁', keywords: ['finish', 'end'] },
   { shortcode: 'rocket', char: '🚀', keywords: ['ship', 'launch', 'release'] },
   { shortcode: 'fire', char: '🔥', keywords: ['urgent', 'hot'] },
@@ -55,7 +56,7 @@ export const EMOJI: Emoji[] = [
   { shortcode: 'label', char: '🏷️', keywords: ['tag'] },
   { shortcode: 'mag', char: '🔍', keywords: ['search', 'find'] },
   { shortcode: 'pushpin', char: '📌', keywords: ['pin', 'important'] },
-  { shortcode: 'calendar', char: '📅', keywords: ['date', 'schedule'] },
+  { shortcode: 'calendar', char: '📆', keywords: ['date', 'schedule'] },
   { shortcode: 'alarm_clock', char: '⏰', keywords: ['reminder', 'deadline'] },
   { shortcode: 'chart_with_upwards_trend', char: '📈', keywords: ['growth', 'metrics'] },
   { shortcode: 'bar_chart', char: '📊', keywords: ['data', 'stats'] },
@@ -66,7 +67,7 @@ export const EMOJI: Emoji[] = [
   { shortcode: 'thought_balloon', char: '💭', keywords: ['idea', 'maybe'] },
   { shortcode: 'speech_balloon', char: '💬', keywords: ['comment', 'chat'] },
   { shortcode: 'telephone', char: '☎️', keywords: ['call', 'phone'] },
-  { shortcode: 'email', char: '📧', keywords: ['mail', 'message'] },
+  { shortcode: 'email', char: '✉️', keywords: ['mail', 'message'] },
   { shortcode: 'loudspeaker', char: '📢', keywords: ['announce', 'notify'] },
   { shortcode: 'eyes', char: '👀', keywords: ['review', 'look'] },
   { shortcode: 'handshake', char: '🤝', keywords: ['agree', 'deal', 'meeting'] },
@@ -116,10 +117,10 @@ export const EMOJI: Emoji[] = [
   { shortcode: 'money_with_wings', char: '💸', keywords: ['spend', 'cost'] },
   { shortcode: 'dollar', char: '💵', keywords: ['money', 'price'] },
   { shortcode: 'sunny', char: '☀️', keywords: ['weather', 'day'] },
-  { shortcode: 'moon', char: '🌙', keywords: ['night', 'sleep'] },
+  { shortcode: 'crescent_moon', char: '🌙', keywords: ['night', 'sleep', 'moon'] },
   { shortcode: 'seedling', char: '🌱', keywords: ['grow', 'new', 'plant'] },
-  { shortcode: 'dog', char: '🐕', keywords: ['pet'] },
-  { shortcode: 'cat', char: '🐈', keywords: ['pet'] },
+  { shortcode: 'dog', char: '🐶', keywords: ['pet'] },
+  { shortcode: 'cat', char: '🐱', keywords: ['pet'] },
   { shortcode: 'heavy_plus_sign', char: '➕', keywords: ['add', 'more'] },
   { shortcode: 'heavy_minus_sign', char: '➖', keywords: ['remove', 'less'] },
   { shortcode: 'arrow_right', char: '➡️', keywords: ['next', 'then'] },
