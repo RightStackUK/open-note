@@ -660,6 +660,90 @@ export function App() {
     await ws.updatePinned(root, pinned);
   }, [ws, session]);
 
+  /** Copy the open note beside itself and open the copy. */
+  const duplicateNote = useCallback(async () => {
+    const root = ws.activeRoot;
+    const open = noteRef.current;
+    if (!root || !open) return;
+    try {
+      await flush();
+      const copy = await api.duplicateNote(root, open.path);
+      vaultIndex.updateNote(copy, open.doc);
+      ws.noteSaved(root);
+      await openNoteAt(copy);
+      setMessage(`Duplicated to ${copy}`);
+    } catch (e) {
+      ws.setError(errorText(e));
+    }
+  }, [ws, vaultIndex, flush, openNoteAt]);
+
+  /**
+   * Cut the selection into a new note, leaving a `[[wikilink]]` behind.
+   *
+   * The move people make constantly as a note outgrows itself. The title comes
+   * from the first heading in the selection when there is one, since that is
+   * what the author already chose to call it, and otherwise from its first line.
+   */
+  const noteFromSelection = useCallback(async () => {
+    const root = ws.activeRoot;
+    const open = noteRef.current;
+    if (!root || !open) return;
+
+    const range = editorRef.current?.selection();
+    const selected = range?.text ?? '';
+    if (!range || !selected.trim()) {
+      setMessage('Select the text to move into a new note first.');
+      return;
+    }
+
+    const lines = selected.split('\n');
+    const heading = lines.find((line) => /^\s*#{1,6}\s+\S/.test(line));
+    const rawTitle = heading
+      ? heading.replace(/^\s*#{1,6}\s+/, '')
+      : (lines.find((line) => line.trim()) ?? '');
+    // A note name cannot carry the characters a path separator or a wikilink
+    // delimiter would claim, so they come out rather than breaking the link.
+    const cleaned = rawTitle
+      .trim()
+      .replace(/[[\]/\\:|#^]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    // Truncate by code point: slicing UTF-16 units can cut an emoji in half and
+    // leave a lone surrogate, which the Rust side then refuses as invalid text.
+    const title = [...cleaned].slice(0, 80).join('');
+    if (!title) {
+      setMessage('That selection has no usable title.');
+      return;
+    }
+
+    const slash = open.path.lastIndexOf('/');
+    const folder = slash === -1 ? '' : open.path.slice(0, slash + 1);
+    const path = `${folder}${title}.md`;
+
+    try {
+      const body = heading ? `${selected.trim()}\n` : `# ${title}\n\n${selected.trim()}\n`;
+      await api.createNote(root, path, body);
+      vaultIndex.updateNote(path, body);
+      // The note may have been switched, or the text edited, while the write
+      // was in flight. Replacing "the selection" blindly would then cut from a
+      // different note, or from text the user has since typed — so the exact
+      // range is re-checked and the link is only left where the text still is.
+      const sameNote = noteRef.current?.path === open.path && noteRef.current?.root === root;
+      const linked =
+        sameNote &&
+        editorRef.current?.replaceRangeIfUnchanged(range.from, range.to, selected, `[[${title}]]`);
+
+      ws.noteSaved(root);
+      setMessage(
+        linked
+          ? `Moved into ${path}`
+          : `Created ${path}. The original text moved on, so no link was inserted.`,
+      );
+    } catch (e) {
+      ws.setError(errorText(e));
+    }
+  }, [ws, vaultIndex]);
+
   const openPalette = useCallback((mode: PaletteMode) => {
     setPaletteQuery('');
     setPalette(mode);
@@ -693,6 +777,8 @@ export function App() {
       'view.outline': () => togglePanel('outline'),
       'note.export': () => void exportNote(),
       'note.togglePin': () => void togglePin(),
+      'note.duplicate': () => void duplicateNote(),
+      'note.fromSelection': () => void noteFromSelection(),
       // Editing commands are implemented in the editor package and reached
       // through the handle, so there is still exactly one key dispatcher.
       ...Object.fromEntries(
@@ -707,7 +793,7 @@ export function App() {
       'view.branches': () => togglePanel('branches'),
       'vault.clone': () => setShowClone(true),
     }),
-    [openPalette, createNote, sync, ws, paused, togglePanel],
+    [openPalette, createNote, sync, ws, paused, togglePanel, duplicateNote, noteFromSelection],
   );
 
   useCommandKeys(vaultIndex.keymap, handlers, palette === null);
@@ -1076,6 +1162,7 @@ export function App() {
               onFollowLink={followLink}
               dark={dark}
               attachments={attachments}
+              sortTodosOnCompletion={session.sortTodosOnCompletion}
               ref={editorRef}
             />
           ) : drawing ? (
@@ -1214,8 +1301,12 @@ export function App() {
           <SettingsPanel
             settings={session.settings}
             paused={paused}
+            sortTodosOnCompletion={session.sortTodosOnCompletion}
             onChange={(next) => void ws.updateSettings(session.info.root, next)}
             onPausedChange={(p) => ws.setPaused(session.info.root, p)}
+            onSortTodosOnCompletionChange={(v) =>
+              void ws.updateSortTodosOnCompletion(session.info.root, v)
+            }
             onClose={() => setPanel(null)}
           />
         )}

@@ -379,6 +379,11 @@ fn create_note(root: String, path: String, contents: String) -> Result<(), Vault
 }
 
 #[tauri::command]
+fn duplicate_note(root: String, path: String) -> Result<String, VaultError> {
+    vault::duplicate_note(&PathBuf::from(root), &path)
+}
+
+#[tauri::command]
 fn rename_entry(root: String, from: String, to: String) -> Result<(), VaultError> {
     vault::rename_entry(&PathBuf::from(root), &from, &to)
 }
@@ -537,6 +542,7 @@ pub fn run() {
             write_attachment,
             create_folder,
             create_note,
+            duplicate_note,
             rename_entry,
             delete_entry,
             is_tracked,

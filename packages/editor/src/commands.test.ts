@@ -200,6 +200,197 @@ describe('task', () => {
   });
 });
 
+describe('heading 4-6', () => {
+  it('applies and clears like the other heading levels', () => {
+    expect(run('edit.heading4', 'Ti‸tle')).toBe('#### Ti‸tle');
+    expect(run('edit.heading5', '##### Ti‸tle')).toBe('Ti‸tle');
+    expect(run('edit.heading6', 'Ti‸tle')).toBe('###### Ti‸tle');
+  });
+});
+
+describe('list', () => {
+  it('turns a plain line into a bulleted list item', () => {
+    expect(run('edit.list', 'buy mil‸k')).toBe('- buy mil‸k');
+  });
+
+  it('toggles off when already a list item', () => {
+    expect(runDoc('edit.list', '- buy milk')).toBe('buy milk');
+  });
+
+  it('replaces a quote rather than stacking', () => {
+    expect(runDoc('edit.list', '> buy milk')).toBe('- buy milk');
+  });
+
+  it('applies to every line of a selection', () => {
+    expect(runDoc('edit.list', '«one\ntwo»')).toBe('- one\n- two');
+  });
+});
+
+describe('ordered list', () => {
+  it('numbers a selection sequentially from one', () => {
+    expect(runDoc('edit.orderedList', '«one\ntwo\nthree»')).toBe('1. one\n2. two\n3. three');
+  });
+
+  it('toggles off when already an ordered list item', () => {
+    expect(runDoc('edit.orderedList', '1. buy milk')).toBe('buy milk');
+  });
+
+  it('replaces a bulleted list rather than stacking', () => {
+    expect(runDoc('edit.orderedList', '- buy milk')).toBe('1. buy milk');
+  });
+});
+
+describe('quote', () => {
+  it('turns a plain line into a quote', () => {
+    expect(run('edit.quote', 'buy mil‸k')).toBe('> buy mil‸k');
+  });
+
+  it('toggles off when already a quote', () => {
+    expect(runDoc('edit.quote', '> buy milk')).toBe('buy milk');
+  });
+
+  it('replaces a list rather than stacking', () => {
+    expect(runDoc('edit.quote', '- buy milk')).toBe('> buy milk');
+  });
+});
+
+describe('code block', () => {
+  it('wraps the selected lines in a fence, caret on the info string', () => {
+    expect(runDoc('edit.codeBlock', '«const x = 1;»')).toBe('```\nconst x = 1;\n```');
+    expect(run('edit.codeBlock', '«const x = 1;»')).toBe('```‸\nconst x = 1;\n```');
+  });
+
+  it('removes the fence when already inside one', () => {
+    expect(runDoc('edit.codeBlock', '```\n«const x = 1;»\n```')).toBe('const x = 1;');
+  });
+
+  it('removes a tilde fence pair', () => {
+    expect(runDoc('edit.codeBlock', '~~~\n«text»\n~~~')).toBe('text');
+  });
+
+  it('does not pair fences of different characters', () => {
+    // `~~~` above and ``` below are not a pair, and treating them as one
+    // deleted two unrelated lines.
+    expect(runDoc('edit.codeBlock', '~~~\n«text»\n```')).toBe('~~~\n```\ntext\n```\n```');
+  });
+
+  it('does not pair a long opening fence with a shorter closing one', () => {
+    const result = runDoc('edit.codeBlock', '````\n«text»\n```');
+    expect(result).toContain('````');
+    expect(result.split('\n')).toHaveLength(5);
+  });
+});
+
+describe('line separator', () => {
+  it('inserts a thematic break and leaves the caret after it', () => {
+    expect(run('edit.lineSeparator', 'abc‸def')).toBe('abc\n---\n\n‸def');
+  });
+});
+
+describe('move line', () => {
+  it('moves the current line up', () => {
+    expect(runDoc('edit.moveLineUp', 'one\ntw‸o')).toBe('two\none');
+  });
+
+  it('moves the current line down', () => {
+    expect(runDoc('edit.moveLineDown', 'on‸e\ntwo')).toBe('two\none');
+  });
+});
+
+describe('indent and outdent', () => {
+  it('indents every selected line by one step', () => {
+    expect(runDoc('edit.indentLine', '«- one\n- two»')).toBe('  - one\n  - two');
+  });
+
+  it('outdents a line that has room', () => {
+    expect(runDoc('edit.outdentLine', '  - one')).toBe('- one');
+  });
+
+  it('does nothing to a line with no leading whitespace', () => {
+    expect(runDoc('edit.outdentLine', 'one')).toBe('one');
+  });
+
+  it('carries a list item continuation line with the item', () => {
+    // Indenting only the marker line detached the wrapped text from its bullet.
+    expect(runDoc('edit.indentLine', '- pa‸rent\n  continuation')).toBe(
+      '  - parent\n    continuation',
+    );
+  });
+
+  it('outdents a list item and its continuation together', () => {
+    expect(runDoc('edit.outdentLine', '  - pa‸rent\n    continuation')).toBe(
+      '- parent\n  continuation',
+    );
+  });
+
+  it('does not drag a nested list item along as a continuation', () => {
+    // A nested item is its own item and indents on its own.
+    expect(runDoc('edit.indentLine', '- pa‸rent\n  - child')).toBe('  - parent\n  - child');
+  });
+
+  it('stops at a blank line', () => {
+    expect(runDoc('edit.indentLine', '- pa‸rent\n\n  not mine')).toBe('  - parent\n\n  not mine');
+  });
+});
+
+describe('insert date and time', () => {
+  it('inserts an ISO date at the caret', () => {
+    const result = runDoc('insert.dateIso', '‸');
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('inserts an ISO time at the caret', () => {
+    const result = runDoc('insert.timeIso', '‸');
+    expect(result).toMatch(/^\d{2}:\d{2}$/);
+  });
+
+  it('inserts an ISO date and time at the caret', () => {
+    const result = runDoc('insert.dateTimeIso', '‸');
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  });
+
+  it('inserts a non-empty locale date and time', () => {
+    expect(runDoc('insert.date', '‸').length).toBeGreaterThan(0);
+    expect(runDoc('insert.time', '‸').length).toBeGreaterThan(0);
+    expect(runDoc('insert.dateTime', '‸').length).toBeGreaterThan(0);
+  });
+});
+
+describe('task list operations', () => {
+  it('marks every task in the cursor list complete', () => {
+    expect(runDoc('task.markAllComplete', `- [ ] on‸e\n- [x] two\n- [ ] three`)).toBe(
+      '- [x] one\n- [x] two\n- [x] three',
+    );
+  });
+
+  it('marks every task in the cursor list incomplete', () => {
+    expect(runDoc('task.markAllIncomplete', `- [ ] on‸e\n- [x] two\n- [ ] three`)).toBe(
+      '- [ ] one\n- [ ] two\n- [ ] three',
+    );
+  });
+
+  it('does not touch a second list separated by a blank line', () => {
+    const input = `- [ ] a‸\n\n- [ ] b`;
+    expect(runDoc('task.markAllComplete', input)).toBe('- [x] a\n\n- [ ] b');
+  });
+
+  it('does nothing when the cursor is not in a task list', () => {
+    expect(runDoc('task.markAllComplete', `just te‸xt`)).toBe('just text');
+  });
+
+  it('moves completed tasks to the bottom, keeping relative order', () => {
+    expect(
+      runDoc('task.moveCompletedToBottom', `- [x] on‸e\n- [ ] two\n- [x] three\n- [ ] four`),
+    ).toBe('- [ ] two\n- [ ] four\n- [x] one\n- [x] three');
+  });
+
+  it('leaves an already-sorted list unchanged', () => {
+    expect(runDoc('task.moveCompletedToBottom', '- [ ] on‸e\n- [x] two')).toBe(
+      '- [ ] one\n- [x] two',
+    );
+  });
+});
+
 describe('the command table', () => {
   it('implements every edit command the registry declares', () => {
     // The registry is the app's advertised surface; a gap here is a shortcut
@@ -214,7 +405,19 @@ describe('the command table', () => {
       'edit.heading1',
       'edit.heading2',
       'edit.heading3',
+      'edit.heading4',
+      'edit.heading5',
+      'edit.heading6',
       'edit.paragraph',
+      'edit.list',
+      'edit.orderedList',
+      'edit.quote',
+      'edit.codeBlock',
+      'edit.lineSeparator',
+      'edit.moveLineUp',
+      'edit.moveLineDown',
+      'edit.indentLine',
+      'edit.outdentLine',
     ];
     for (const id of declared) {
       expect(editorCommands[id], `missing implementation for ${id}`).toBeTypeOf('function');

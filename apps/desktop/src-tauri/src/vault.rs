@@ -523,6 +523,61 @@ pub fn create_note(root: &Path, relative: &str, contents: &str) -> Result<()> {
     Ok(())
 }
 
+/// Copy a note beside itself, returning the vault-relative path of the copy.
+///
+/// The name is `<name> copy`, then `copy 2` and upwards, so duplicating twice
+/// never overwrites the first copy.
+///
+/// The copy is made by creating the target with `create_new`, which fails if
+/// anything is already there, rather than by `fs::copy`, which overwrites. An
+/// `exists()` check followed by `fs::copy` looks equivalent but is not: another
+/// process — a second app window, or a terminal — can create the file in
+/// between and have its contents silently destroyed.
+pub fn duplicate_note(root: &Path, relative: &str) -> Result<String> {
+    let source = reject_protected(root, relative)?;
+    if !source.is_file() {
+        return Err(VaultError::Io(format!("{relative} is not a file")));
+    }
+    let contents = fs::read(&source)?;
+
+    let trimmed = relative.trim().trim_matches('/');
+    let (parent, name) = match trimmed.rsplit_once('/') {
+        Some((parent, name)) => (format!("{parent}/"), name),
+        None => (String::new(), trimmed),
+    };
+    let (stem, extension) = match name.rsplit_once('.') {
+        Some((stem, ext)) => (stem, format!(".{ext}")),
+        None => (name, String::new()),
+    };
+
+    for attempt in 1..1000 {
+        let suffix = if attempt == 1 {
+            " copy".to_string()
+        } else {
+            format!(" copy {attempt}")
+        };
+        let candidate = format!("{parent}{stem}{suffix}{extension}");
+        let target = reject_protected(root, &candidate)?;
+
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+        {
+            Ok(mut file) => {
+                use std::io::Write;
+                file.write_all(&contents)?;
+                return Ok(candidate);
+            }
+            // Taken since we last looked, or taken all along: try the next name.
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+
+    Err(VaultError::AlreadyExists(relative.to_string()))
+}
+
 /// Rename or move a file or folder.
 ///
 /// A plain rename: git detects renames itself and `add -A` already stages them,
@@ -1085,6 +1140,69 @@ mod tests {
             fs::read_to_string(root.join("note.md")).unwrap(),
             "original"
         );
+    }
+
+    #[test]
+    fn duplicates_a_note_beside_itself() {
+        let (_d, root) = vault();
+        create_note(&root, "notes/plan.md", "body").expect("create");
+        let copy = duplicate_note(&root, "notes/plan.md").expect("duplicate");
+        assert_eq!(copy, "notes/plan copy.md");
+        assert_eq!(fs::read_to_string(root.join(&copy)).unwrap(), "body");
+        // The original is untouched.
+        assert_eq!(
+            fs::read_to_string(root.join("notes/plan.md")).unwrap(),
+            "body"
+        );
+    }
+
+    #[test]
+    fn duplicating_twice_numbers_the_second_copy() {
+        let (_d, root) = vault();
+        create_note(&root, "plan.md", "body").expect("create");
+        assert_eq!(duplicate_note(&root, "plan.md").unwrap(), "plan copy.md");
+        assert_eq!(duplicate_note(&root, "plan.md").unwrap(), "plan copy 2.md");
+    }
+
+    #[test]
+    fn duplicating_keeps_the_extension_last() {
+        let (_d, root) = vault();
+        create_note(&root, "script.ts", "x").expect("create");
+        assert_eq!(
+            duplicate_note(&root, "script.ts").unwrap(),
+            "script copy.ts"
+        );
+    }
+
+    #[test]
+    fn duplicating_never_overwrites_an_existing_copy() {
+        // The name is taken by something unrelated, so the copy must go to the
+        // next free name rather than replacing it.
+        let (_d, root) = vault();
+        create_note(&root, "plan.md", "body").expect("create");
+        create_note(&root, "plan copy.md", "someone else's work").expect("create");
+
+        assert_eq!(duplicate_note(&root, "plan.md").unwrap(), "plan copy 2.md");
+        assert_eq!(
+            fs::read_to_string(root.join("plan copy.md")).unwrap(),
+            "someone else's work"
+        );
+    }
+
+    #[test]
+    fn refuses_to_duplicate_a_folder() {
+        let (_d, root) = vault();
+        create_folder(&root, "projects").expect("create");
+        assert!(duplicate_note(&root, "projects").is_err());
+    }
+
+    #[test]
+    fn refuses_to_duplicate_inside_git() {
+        let (_d, root) = vault();
+        assert!(matches!(
+            duplicate_note(&root, ".git/config"),
+            Err(VaultError::Protected(_))
+        ));
     }
 
     #[test]

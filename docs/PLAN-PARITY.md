@@ -14,7 +14,7 @@ This plan does **not** revisit the decisions in
 they conflict with them — recorded in [Rejected](#rejected) at the end so they
 stop coming back as feature requests.
 
-**Status:** planned, not started.
+**Status:** in progress. Block 1 landed; Block 2 next.
 
 ---
 
@@ -45,7 +45,13 @@ menu.
 
 ---
 
-## Block 1 — The missing editor verbs
+## Block 1 — The missing editor verbs ✅
+
+*Landed. Two decisions were taken during implementation and are recorded in
+[Decisions recorded](#decisions-recorded): tables are found by scanning lines
+rather than by walking the syntax tree, and the automatic todo sort is a
+deferred follow-up transaction.*
+
 
 *The cheapest block and the one that most changes how finished the app feels.
 Same shape as the stabilisation work: implementations in
@@ -703,6 +709,9 @@ Audited, and deliberately not planned. Recorded so they do not return.
 | Question | Answer |
 |---|---|
 | Register editing commands in a CodeMirror keymap? | **No.** One dispatcher, as established. Implementations in `packages/editor`, reached via `runCommand`. |
+| Find tables via the syntax tree, or by scanning lines? | **By scanning lines**, anchored on the delimiter row. Splitting a row on its unescaped pipes gives the same cell boundaries the GFM parser would, and it keeps the table commands testable against a bare `EditorState` — which is how every other command in `commands.ts` is tested. |
+| How does the automatic todo sort reach the document? | **A deferred follow-up transaction**, not a nested dispatch. Update listeners run innermost-last, so dispatching inline reports the sorted document first and the *pre-sort* document afterwards — and autosave then writes the stale one. Deferring to a microtask makes the sort a plainly separate update, and keeps the tick and the reorder as two undo steps. |
+| Does the automatic sort apply in the all-tasks pane? | **No.** That pane edits notes on disk, including notes that are not open. Reordering a note the user cannot see is a surprise rather than a feature. |
 | Where do themes live? | **`.opennote/themes/*.json`**, so they sync, version and can be shared. Built-ins use the same format and code path. |
 | Which highlight syntax? | **`==text==`**, shipping last, with settings copy stating plainly that it shows as `==` outside the app. |
 | Which underline syntax? | **`<u>text</u>`**, not `~text~`. It renders everywhere; `~text~` collides with strikethrough. |

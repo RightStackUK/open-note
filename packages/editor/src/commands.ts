@@ -1,4 +1,9 @@
+import { moveLineDown, moveLineUp } from '@codemirror/commands';
 import { type ChangeSpec, EditorSelection, type StateCommand } from '@codemirror/state';
+import { localIsoDate } from '@open-note/core';
+
+import { tableCommands } from './tables';
+import { sortCompletedTasksAt, taskListAround } from './tasks';
 
 /**
  * The editing commands the command palette and keymap advertise.
@@ -248,6 +253,278 @@ const toggleTask: StateCommand = ({ state, dispatch }) => {
   return applyLineChanges(state, dispatch, changes, 'input.task');
 };
 
+const ORDERED_PREFIX = /^(\s*)(\d+)([.)])([ \t]+)/;
+const QUOTE_PREFIX = /^(\s*)(>[ \t]?)/;
+
+type BlockKind = 'list' | 'orderedList' | 'quote';
+
+function blockPrefixMatch(text: string, kind: BlockKind): RegExpExecArray | null {
+  if (kind === 'orderedList') return ORDERED_PREFIX.exec(text);
+  if (kind === 'quote') return QUOTE_PREFIX.exec(text);
+  return LIST_PREFIX.exec(text);
+}
+
+/** Which of the three block types, if any, a line is currently marked as. */
+function currentBlockKind(text: string): BlockKind | null {
+  if (ORDERED_PREFIX.test(text)) return 'orderedList';
+  if (LIST_PREFIX.test(text)) return 'list';
+  if (QUOTE_PREFIX.test(text)) return 'quote';
+  return null;
+}
+
+/**
+ * Toggle list, ordered list or quote on every selected line.
+ *
+ * Converting from one of these block types to another replaces the marker
+ * rather than stacking a second one in front of it, and re-applying the type a
+ * line already has clears it — the same two rules `setHeading` follows.
+ * Numbering an ordered list is always assigned fresh, so pasted or stale
+ * numbers are never carried over.
+ */
+function toggleBlock(kind: BlockKind): StateCommand {
+  return ({ state, dispatch }) => {
+    const changes: ChangeSpec[] = [];
+    let ordinal = 0;
+
+    for (const number of selectedLines(state)) {
+      const line = state.doc.line(number);
+      const current = currentBlockKind(line.text);
+      const indent = /^\s*/.exec(line.text)?.[0] ?? '';
+
+      if (current === kind) {
+        const existing = blockPrefixMatch(line.text, kind);
+        changes.push({
+          from: line.from + indent.length,
+          to: line.from + (existing?.[0].length ?? indent.length),
+          insert: '',
+        });
+        continue;
+      }
+
+      const existing = current ? blockPrefixMatch(line.text, current) : null;
+      const to = line.from + (existing?.[0].length ?? indent.length);
+      const marker = kind === 'list' ? '- ' : kind === 'quote' ? '> ' : `${++ordinal}. `;
+      changes.push({ from: line.from + indent.length, to, insert: marker });
+    }
+
+    return applyLineChanges(state, dispatch, changes, `input.${kind}`);
+  };
+}
+
+const CODE_FENCE = /^(\s*)(`{3,}|~{3,})/;
+
+/**
+ * Wrap the selection in a fenced code block, caret on the info string so a
+ * language can be typed straight away. Applying it again when the selection
+ * already sits inside a fence removes that fence instead.
+ *
+ * Unlike the inline and line commands this acts on the main selection only: a
+ * fence is a block, and there is no sensible reading of "wrap five separate
+ * cursors in one code block". The caret lands on the info string, which is a
+ * single position, so multiple carets could not be preserved anyway.
+ */
+const codeBlock: StateCommand = ({ state, dispatch }) => {
+  const range = state.selection.main;
+  const startLine = state.doc.lineAt(range.from);
+  const endLine = state.doc.lineAt(range.to);
+  const before = startLine.number > 1 ? state.doc.line(startLine.number - 1) : null;
+  const after = endLine.number < state.doc.lines ? state.doc.line(endLine.number + 1) : null;
+
+  // Both fences must use the same character, and the closing one must be at
+  // least as long as the opening one — that is what actually pairs them in
+  // CommonMark. Accepting any two fence-looking lines meant a `~~~` above and
+  // an unrelated ``` below were treated as a pair and both deleted.
+  const openFence = before ? CODE_FENCE.exec(before.text)?.[2] : undefined;
+  const closeFence = after ? CODE_FENCE.exec(after.text)?.[2] : undefined;
+  const paired =
+    openFence !== undefined &&
+    closeFence !== undefined &&
+    openFence[0] === closeFence[0] &&
+    closeFence.length >= openFence.length;
+
+  if (before && after && paired) {
+    const changes: ChangeSpec[] = [
+      { from: before.from, to: before.to + 1, insert: '' },
+      { from: after.from - 1, to: after.to, insert: '' },
+    ];
+    const shift = before.to + 1 - before.from;
+    dispatch(
+      state.update({
+        changes,
+        selection: EditorSelection.range(range.from - shift, range.to - shift),
+        scrollIntoView: true,
+        userEvent: 'input.codeBlock',
+      }),
+    );
+    return true;
+  }
+
+  const fence = '```';
+  const changes: ChangeSpec[] = [
+    { from: startLine.from, to: startLine.from, insert: `${fence}\n` },
+    { from: endLine.to, to: endLine.to, insert: `\n${fence}` },
+  ];
+  dispatch(
+    state.update({
+      changes,
+      selection: EditorSelection.cursor(startLine.from + fence.length),
+      scrollIntoView: true,
+      userEvent: 'input.codeBlock',
+    }),
+  );
+  return true;
+};
+
+/** Insert a thematic break, leaving the caret on a fresh line after it. */
+const lineSeparator: StateCommand = ({ state, dispatch }) => {
+  const transaction = state.changeByRange((range) => {
+    const insert = '\n---\n\n';
+    return {
+      changes: { from: range.from, to: range.to, insert },
+      range: EditorSelection.cursor(range.from + insert.length),
+    };
+  });
+  dispatch(state.update(transaction, { scrollIntoView: true, userEvent: 'input.lineSeparator' }));
+  return true;
+};
+
+const INDENT_UNIT = '  ';
+
+/** Does this line start a list item or a task? */
+function startsListItem(text: string): boolean {
+  return LIST_PREFIX.test(text) || ORDERED_PREFIX.test(text);
+}
+
+/**
+ * The selected lines, plus the continuation lines of any list item among them.
+ *
+ * A list item is its marker line and the wrapped lines beneath it, so indenting
+ * only the marker line detaches the rest of the item from it. Indent has to
+ * move the whole item, which is what §1.2 of the plan asks for and what makes
+ * the operation reversible.
+ */
+function linesToIndent(state: Parameters<StateCommand>[0]['state']): number[] {
+  const selected = new Set(selectedLines(state));
+
+  for (const number of [...selected]) {
+    const line = state.doc.line(number);
+    if (!startsListItem(line.text)) continue;
+    const indent = (/^\s*/.exec(line.text)?.[0] ?? '').length;
+
+    // Continuations are the more-indented, non-blank, non-item lines below.
+    for (let n = number + 1; n <= state.doc.lines; n++) {
+      const next = state.doc.line(n);
+      if (next.text.trim() === '') break;
+      const nextIndent = (/^\s*/.exec(next.text)?.[0] ?? '').length;
+      if (nextIndent <= indent) break;
+      if (startsListItem(next.text)) break;
+      selected.add(n);
+    }
+  }
+
+  return [...selected].sort((a, b) => a - b);
+}
+
+/**
+ * Shift every selected line one indent step, taking list continuation lines
+ * with their item. The change touches only leading whitespace, so a bullet and
+ * its text always move together.
+ */
+function shiftIndent(delta: 1 | -1): StateCommand {
+  return ({ state, dispatch }) => {
+    const changes: ChangeSpec[] = [];
+
+    for (const number of linesToIndent(state)) {
+      const line = state.doc.line(number);
+      if (delta > 0) {
+        changes.push({ from: line.from, to: line.from, insert: INDENT_UNIT });
+        continue;
+      }
+      const removable = line.text.startsWith(INDENT_UNIT)
+        ? INDENT_UNIT.length
+        : line.text.startsWith('\t')
+          ? 1
+          : runAfter(line.text, 0, ' ');
+      if (removable > 0) changes.push({ from: line.from, to: line.from + removable, insert: '' });
+    }
+
+    return applyLineChanges(state, dispatch, changes, delta > 0 ? 'input.indent' : 'input.outdent');
+  };
+}
+
+/** `HH:MM` in local time, to match `localIsoDate`'s local-time date. */
+function isoTime(date: Date): string {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+}
+
+/**
+ * Insert the current date and/or time at the caret.
+ *
+ * Locale forms go through `Intl.DateTimeFormat`; the ISO forms take an
+ * explicit formatter so they can reuse `localIsoDate` rather than a second
+ * date-formatting implementation.
+ */
+function insertNow(
+  options: Intl.DateTimeFormatOptions,
+  format?: (date: Date) => string,
+): StateCommand {
+  return ({ state, dispatch }) => {
+    const text = format
+      ? format(new Date())
+      : new Intl.DateTimeFormat(undefined, options).format(new Date());
+    const transaction = state.changeByRange((range) => ({
+      changes: { from: range.from, to: range.to, insert: text },
+      range: EditorSelection.cursor(range.from + text.length),
+    }));
+    dispatch(state.update(transaction, { scrollIntoView: true, userEvent: 'input.insert' }));
+    return true;
+  };
+}
+
+/**
+ * Set every task in the cursor's list to done or not done.
+ *
+ * Scoped to the contiguous run of task lines around the cursor, not the whole
+ * note, so a note with more than one list only ever affects the one you are in.
+ */
+function setAllTasksDone(done: boolean): StateCommand {
+  return ({ state, dispatch }) => {
+    const range = taskListAround(state, state.selection.main.head);
+    if (!range) return true;
+
+    const { first, last } = range;
+    const changes: ChangeSpec[] = [];
+    for (let n = first; n <= last; n++) {
+      const line = state.doc.line(n);
+      const match = TASK_PREFIX.exec(line.text);
+      if (!match) continue;
+      const mark = match[3] ?? ' ';
+      const wantsX = done ? mark.toLowerCase() !== 'x' : mark !== ' ';
+      if (!wantsX) continue;
+      const box = line.from + match[0].indexOf('[') + 1;
+      changes.push({ from: box, to: box + 1, insert: done ? 'x' : ' ' });
+    }
+
+    return applyLineChanges(state, dispatch, changes, 'input.taskAll');
+  };
+}
+
+/**
+ * Move every completed task in the cursor's list to the bottom.
+ *
+ * The reordering itself lives in `tasks.ts` because the automatic sort needs
+ * exactly the same rule, and two implementations of "which list is this" would
+ * eventually disagree.
+ */
+const moveCompletedToBottom: StateCommand = ({ state, dispatch }) => {
+  const changes = sortCompletedTasksAt(state, state.selection.main.head);
+  if (!changes) return true;
+  dispatch(state.update({ changes, userEvent: 'input.taskSort' }));
+  return true;
+};
+
 /**
  * Command implementations, keyed by the ids in `@open-note/core`'s registry.
  *
@@ -264,7 +541,29 @@ export const editorCommands: Record<string, StateCommand> = {
   'edit.heading1': setHeading(1),
   'edit.heading2': setHeading(2),
   'edit.heading3': setHeading(3),
+  'edit.heading4': setHeading(4),
+  'edit.heading5': setHeading(5),
+  'edit.heading6': setHeading(6),
   'edit.paragraph': setHeading(0),
+  'edit.list': toggleBlock('list'),
+  'edit.orderedList': toggleBlock('orderedList'),
+  'edit.quote': toggleBlock('quote'),
+  'edit.codeBlock': codeBlock,
+  'edit.lineSeparator': lineSeparator,
+  'edit.moveLineUp': moveLineUp,
+  'edit.moveLineDown': moveLineDown,
+  'edit.indentLine': shiftIndent(1),
+  'edit.outdentLine': shiftIndent(-1),
+  'insert.date': insertNow({ dateStyle: 'medium' }),
+  'insert.dateIso': insertNow({}, (d) => localIsoDate(d)),
+  'insert.dateTime': insertNow({ dateStyle: 'medium', timeStyle: 'short' }),
+  'insert.dateTimeIso': insertNow({}, (d) => `${localIsoDate(d)} ${isoTime(d)}`),
+  'insert.time': insertNow({ timeStyle: 'short' }),
+  'insert.timeIso': insertNow({}, (d) => isoTime(d)),
+  'task.markAllComplete': setAllTasksDone(true),
+  'task.markAllIncomplete': setAllTasksDone(false),
+  'task.moveCompletedToBottom': moveCompletedToBottom,
+  ...tableCommands,
 };
 
 export function isEditorCommand(id: string): boolean {

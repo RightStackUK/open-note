@@ -21,6 +21,8 @@ interface NoteEditorProps {
   dark: boolean;
   /** Storing pasted images and resolving local ones for display. */
   attachments: AttachmentOptions;
+  /** Move a task to the bottom of its list when it is ticked. */
+  sortTodosOnCompletion: boolean;
 }
 
 export interface NoteEditorHandle {
@@ -28,10 +30,20 @@ export interface NoteEditorHandle {
   runCommand: (id: string) => boolean;
   /** Put the caret on a 1-based line and scroll it into view. */
   goToLine: (line: number) => void;
+  /** The current selection: its bounds and the text inside it. */
+  selection: () => { from: number; to: number; text: string };
+  /**
+   * Replace `from`–`to`, but only if it still contains `expected`.
+   *
+   * The caller may have awaited IO since reading the selection, and a blind
+   * replace would then cut text the user typed in the meantime. Returns whether
+   * the replacement happened.
+   */
+  replaceRangeIfUnchanged: (from: number, to: number, expected: string, text: string) => boolean;
 }
 
 export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
-  { path, doc, onChange, resolveLink, onFollowLink, dark, attachments },
+  { path, doc, onChange, resolveLink, onFollowLink, dark, attachments, sortTodosOnCompletion },
   ref,
 ) {
   const host = useRef<HTMLDivElement>(null);
@@ -44,6 +56,8 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
   linkRef.current = { resolveLink, onFollowLink };
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  const sortTodosRef = useRef(sortTodosOnCompletion);
+  sortTodosRef.current = sortTodosOnCompletion;
 
   useEffect(() => {
     if (!host.current) return;
@@ -62,6 +76,8 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
         store: (file) => attachmentsRef.current.store(file),
         resolveImage: (path) => attachmentsRef.current.resolveImage(path),
       },
+      // Read through a ref so toggling the setting does not rebuild the editor.
+      sortTodosOnCompletion: () => sortTodosRef.current,
       diagrams: {
         languages: knownLanguages(),
         dark,
@@ -106,6 +122,25 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
         const { from } = view.state.doc.line(target);
         view.dispatch({ selection: { anchor: from }, scrollIntoView: true });
         view.focus();
+      },
+      selection() {
+        const view = editorView.current;
+        if (!view) return { from: 0, to: 0, text: '' };
+        const { from, to } = view.state.selection.main;
+        return { from, to, text: view.state.doc.sliceString(from, to) };
+      },
+      replaceRangeIfUnchanged(from: number, to: number, expected: string, text: string) {
+        const view = editorView.current;
+        if (!view) return false;
+        if (to > view.state.doc.length) return false;
+        if (view.state.doc.sliceString(from, to) !== expected) return false;
+        view.dispatch({
+          changes: { from, to, insert: text },
+          selection: { anchor: from + text.length },
+          scrollIntoView: true,
+        });
+        view.focus();
+        return true;
       },
     }),
     [],

@@ -19,6 +19,8 @@ export interface VaultSession {
   attachmentFolder: string;
   /** Vault-relative paths kept at the top of the tree. */
   pinned: string[];
+  /** Move a completed task to the bottom of its list automatically. */
+  sortTodosOnCompletion: boolean;
 }
 
 /**
@@ -92,6 +94,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             settings,
             attachmentFolder: vaultSettings.attachmentFolder,
             pinned: vaultSettings.pinned,
+            sortTodosOnCompletion: vaultSettings.sortTodosOnCompletion,
           },
         }));
         setActiveRoot(info.root);
@@ -162,6 +165,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             sync: merged,
             attachmentFolder: session?.attachmentFolder ?? 'assets',
             pinned: session?.pinned ?? [],
+            sortTodosOnCompletion: session?.sortTodosOnCompletion ?? false,
           }),
         );
       } catch (e) {
@@ -183,6 +187,29 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             sync: session.settings,
             attachmentFolder: session.attachmentFolder,
             pinned,
+            sortTodosOnCompletion: session.sortTodosOnCompletion,
+          }),
+        );
+      } catch (e) {
+        setError(errorText(e));
+      }
+    },
+    [patch],
+  );
+
+  const updateSortTodosOnCompletion = useCallback(
+    async (root: string, sortTodosOnCompletion: boolean) => {
+      const session = sessionsRef.current[root];
+      if (!session) return;
+      patch(root, { sortTodosOnCompletion });
+      try {
+        await api.writeSettings(
+          root,
+          serialiseVaultSettings({
+            sync: session.settings,
+            attachmentFolder: session.attachmentFolder,
+            pinned: session.pinned,
+            sortTodosOnCompletion,
           }),
         );
       } catch (e) {
@@ -232,6 +259,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
     conflictResolved,
     refreshStatus,
     updatePinned,
+    updateSortTodosOnCompletion,
     refreshFiles,
     isPaused: (root: string) => engines.current.get(root)?.isPaused() ?? false,
   };

@@ -15,7 +15,7 @@ import {
 import { type AttachmentOptions, attachmentPaste, inlineImages } from './attachments';
 import { concealMarkdownSyntax } from './conceal';
 import { type DiagramOptions, diagramBlocks } from './diagrams';
-import { taskCheckboxes } from './tasks';
+import { autoSortCompletedTasks, taskCheckboxes } from './tasks';
 import { markdownTheme } from './theme';
 import { type WikiLinkOptions, wikiLinks } from './wikilinks';
 
@@ -26,7 +26,15 @@ export { editorCommands, isEditorCommand } from './commands';
 export { concealedRangesForTest, concealMarkdownSyntax } from './conceal';
 export type { DiagramOptions, DiagramRenderResult } from './diagrams';
 export { diagramBlocks } from './diagrams';
-export { taskCheckboxes, toggleTaskAt } from './tasks';
+export type { Alignment, ParsedTable } from './tables';
+export { parseTableAt, renderTable, tableCommands } from './tables';
+export {
+  autoSortCompletedTasks,
+  sortCompletedTasksAt,
+  taskCheckboxes,
+  taskListAround,
+  toggleTaskAt,
+} from './tasks';
 export type { CreateTextEditorOptions } from './text';
 export { codeHighlight, createTextEditor, languageForFilename } from './text';
 export { editorTheme, markdownHighlight, markdownTheme } from './theme';
@@ -48,6 +56,13 @@ export interface CreateEditorOptions {
   diagrams?: DiagramOptions;
   /** Accepts pasted images and renders local ones inline when provided. */
   attachments?: AttachmentOptions;
+  /**
+   * Move a task to the bottom of its list when it is completed.
+   *
+   * A callback rather than a boolean so the setting can change without
+   * rebuilding the editor, which would drop undo history and focus.
+   */
+  sortTodosOnCompletion?: () => boolean;
 }
 
 export function markdownEditorExtensions(options: CreateEditorOptions = { parent: null as never }) {
@@ -68,6 +83,7 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     markdownTheme,
     concealMarkdownSyntax,
     taskCheckboxes,
+    options.sortTodosOnCompletion ? autoSortCompletedTasks(options.sortTodosOnCompletion) : [],
     options.wikiLinks ? wikiLinks(options.wikiLinks) : [],
     options.diagrams ? diagramBlocks(options.diagrams) : [],
     options.attachments

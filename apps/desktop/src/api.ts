@@ -113,6 +113,8 @@ export const api = {
   createFolder: (root: string, path: string) => invoke<void>('create_folder', { root, path }),
   createNote: (root: string, path: string, contents: string) =>
     invoke<void>('create_note', { root, path, contents }),
+  /** Returns the vault-relative path of the copy. */
+  duplicateNote: (root: string, path: string) => invoke<string>('duplicate_note', { root, path }),
   renameEntry: (root: string, from: string, to: string) =>
     invoke<void>('rename_entry', { root, from, to }),
   deleteEntry: (root: string, path: string) => invoke<void>('delete_entry', { root, path }),

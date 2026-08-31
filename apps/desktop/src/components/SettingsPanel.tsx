@@ -3,8 +3,10 @@ import type { SyncSettings } from '@open-note/core';
 interface SettingsPanelProps {
   settings: SyncSettings;
   paused: boolean;
+  sortTodosOnCompletion: boolean;
   onChange: (next: Partial<SyncSettings>) => void;
   onPausedChange: (paused: boolean) => void;
+  onSortTodosOnCompletionChange: (value: boolean) => void;
   onClose: () => void;
 }
 
@@ -18,8 +20,10 @@ const SECONDS: Array<{ key: keyof SyncSettings; label: string; hint: string }> =
 export function SettingsPanel({
   settings,
   paused,
+  sortTodosOnCompletion,
   onChange,
   onPausedChange,
+  onSortTodosOnCompletionChange,
   onClose,
 }: SettingsPanelProps) {
   return (
@@ -103,6 +107,20 @@ export function SettingsPanel({
           </label>
         ))}
       </div>
+
+      <h2 className="settings-section">Editing</h2>
+
+      <label className="setting-row">
+        <input
+          type="checkbox"
+          checked={sortTodosOnCompletion}
+          onChange={(e) => onSortTodosOnCompletionChange(e.target.checked)}
+        />
+        <span>
+          <strong>Sort completed tasks down</strong>
+          <small>Move a task to the bottom of its list when you tick it</small>
+        </span>
+      </label>
 
       <p className="settings-note">
         Saved to <code>.opennote/settings.json</code> in this vault, so it follows the repo.

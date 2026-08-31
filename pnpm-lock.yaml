@@ -159,6 +159,9 @@ importers:
       '@lezer/highlight':
         specifier: ^1.2.3
         version: 1.2.3
+      '@open-note/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       jsdom:
         specifier: ^30.0.1

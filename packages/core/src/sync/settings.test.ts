@@ -78,9 +78,31 @@ describe('parseVaultSettings', () => {
       sync: DEFAULT_SYNC_SETTINGS,
       attachmentFolder: 'assets',
       pinned: [],
+      sortTodosOnCompletion: false,
     });
     expect(text.endsWith('\n')).toBe(true);
     expect(text).toContain('\n  "sync"');
+  });
+});
+
+describe('sortTodosOnCompletion', () => {
+  it('defaults to off', () => {
+    expect(parseVaultSettings(null).sortTodosOnCompletion).toBe(false);
+  });
+
+  it('reads an explicit true', () => {
+    expect(parseVaultSettings('{"sortTodosOnCompletion":true}').sortTodosOnCompletion).toBe(true);
+  });
+
+  it('degrades a non-boolean to the default', () => {
+    expect(parseVaultSettings('{"sortTodosOnCompletion":"yes"}').sortTodosOnCompletion).toBe(false);
+  });
+
+  it('survives a malformed sync block', () => {
+    // Field-by-field degradation: one bad key must not lose the other seven.
+    const parsed = parseVaultSettings('{"sync":42,"sortTodosOnCompletion":true}');
+    expect(parsed.sortTodosOnCompletion).toBe(true);
+    expect(parsed.sync).toEqual(DEFAULT_SYNC_SETTINGS);
   });
 });
 
