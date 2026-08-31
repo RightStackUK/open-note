@@ -19,8 +19,8 @@ export default defineConfig({
   output: 'static',
   // Astro's default directory format (`features/index.html`). It is what
   // Starlight is built around, and what an S3 *website* endpoint serves without
-  // help. Behind CloudFront's REST origin it needs a small rewrite function —
-  // see docs/DEPLOYING.md.
+  // help. This deploys behind CloudFront's REST origin instead, so a CloudFront
+  // Function does the rewrite — see docs/DEPLOYING-SITE.md.
   integrations: [
     sitemap(),
     starlight({

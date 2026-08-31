@@ -1,0 +1,59 @@
+// Viewer-request function. Two jobs, both of which have to happen before
+// CloudFront looks anything up in S3.
+//
+// 1. Canonical host. www and the apex both resolve here; answering on both
+//    would split the CDN cache and the search index, so www is redirected.
+// 2. Directory indexes. Astro emits `/features` as `features/index.html`. An S3
+//    *website* endpoint resolves that itself, but this origin is the REST
+//    endpoint — which is what lets the bucket stay private behind Origin Access
+//    Control — and the REST endpoint serves keys literally. Nothing else maps
+//    the request onto the file, so this does.
+//
+// Generated from infra/site/functions/router.js.tftpl. Edit the template.
+
+function handler(event) {
+  var request = event.request;
+%{ if www_redirect ~}
+
+  var host = request.headers.host && request.headers.host.value;
+
+  if (host === 'www.${domain}') {
+    // Rebuild the query string by hand: CloudFront hands it over parsed, and a
+    // redirect that quietly dropped ?utm_source would break every inbound link.
+    var query = [];
+    for (var name in request.querystring) {
+      var param = request.querystring[name];
+      if (param.multiValue) {
+        for (var i = 0; i < param.multiValue.length; i++) {
+          query.push(name + '=' + param.multiValue[i].value);
+        }
+      } else if (param.value) {
+        query.push(name + '=' + param.value);
+      } else {
+        query.push(name);
+      }
+    }
+
+    var suffix = query.length > 0 ? '?' + query.join('&') : '';
+
+    return {
+      statusCode: 301,
+      statusDescription: 'Moved Permanently',
+      headers: { location: { value: 'https://${domain}' + request.uri + suffix } },
+    };
+  }
+%{ endif ~}
+
+  var uri = request.uri;
+
+  if (uri.endsWith('/')) {
+    request.uri = uri + 'index.html';
+  } else if (!uri.includes('.')) {
+    // No dot means no extension, so this is a page rather than an asset.
+    // Everything under /_astro and /pagefind carries one and falls through
+    // untouched.
+    request.uri = uri + '/index.html';
+  }
+
+  return request;
+}

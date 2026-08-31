@@ -161,6 +161,19 @@ Screenshots under `apps/site/public/screenshots/` are captured from the real app
 photographs it with headless Chrome. Regenerate them after a UI change rather than
 letting them drift.
 
+`infra/site` is Terraform for the hosting — a private bucket, CloudFront, DNS, and the IAM
+role GitHub Actions assumes over OIDC — and it is applied **by hand**. `deploy-site.yml`
+runs on push to `main` and can replace the site's contents and invalidate the cache, and
+deliberately nothing else.
+
+The bucket is private, so CloudFront hits the S3 **REST** endpoint, which serves keys
+literally and answers 403 for a missing one. A CloudFront Function therefore maps
+`/features` onto `features/index.html` (and 301s `www` to the apex), and the distribution
+maps 403 as well as 404 onto `/404.html`. The deploy uploads in ordered passes because
+`Cache-Control` is set per object at upload time and `aws s3 sync` will not revisit an
+unchanged object to correct it — the passes must partition `dist/` exactly. See
+[docs/DEPLOYING-SITE.md](docs/DEPLOYING-SITE.md).
+
 **No analytics, ever.** The product's argument is that it does not phone home; the
 website must not undercut it.
 

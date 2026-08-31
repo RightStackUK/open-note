@@ -9,79 +9,131 @@ pnpm install
 pnpm site:build          # → apps/site/dist
 ```
 
-Upload the contents of `dist/` to any static host. Nothing about the site is
-host-specific.
+It is hosted from a private S3 bucket behind CloudFront. Pushing to `main`
+deploys it; nothing is deployed by hand.
 
-## S3 + CloudFront
+| | |
+|---|---|
+| Infrastructure | [`infra/site`](../infra/site) — Terraform, applied manually |
+| Deploy | [`.github/workflows/deploy-site.yml`](../.github/workflows/deploy-site.yml) — on push to `main` |
+| Credentials | GitHub OIDC → a scoped IAM role. No stored AWS keys. |
 
-The one thing worth getting right.
+## The moving parts
 
-Astro emits **directory-style** pages: `/features` is `features/index.html`.
-Something has to map a request for `/features` onto that file, and where that
-happens depends on which S3 endpoint you point CloudFront at.
+Nothing about the *site* is host-specific — `dist/` will work on any static
+host. Two things about **this** host are not obvious, and both are solved in
+`infra/site`:
 
-### Option A — the S3 *website* endpoint (simplest)
+**Astro emits directory-style pages.** `/features` is `features/index.html`.
+An S3 *website* endpoint would resolve that itself, but a website endpoint is
+HTTP-only and public, so it cannot be locked to CloudFront with Origin Access
+Control. This uses the REST endpoint with a private bucket instead, and a
+CloudFront Function on viewer request maps `/features` onto the file. The same
+function 301s `www` to the apex, so there is one canonical hostname.
 
-Enable **Static website hosting** on the bucket, set the index document to
-`index.html` and the error document to `404.html`, then use the website endpoint
-(`bucket.s3-website-region.amazonaws.com`) as CloudFront's origin, as a **custom
-origin**.
+**The REST endpoint returns 403, not 404,** for a key that does not exist — S3
+will not confirm absence to a caller that cannot list the bucket. The
+distribution maps both 403 and 404 onto `/404.html`, or a mistyped URL would
+render as an S3 XML error.
 
-S3 does the index-document resolution itself. Nothing else is needed.
+## First-time setup
 
-The trade-off: a website endpoint is HTTP-only and public, so it cannot be locked
-to CloudFront with Origin Access Control.
+The domain is registered in Route 53, which means the hosted zone already
+exists; Terraform looks it up rather than creating one. Everything else it
+creates: the bucket, the certificate, the distribution, the DNS records, and the
+IAM role GitHub Actions assumes.
 
-### Option B — the S3 REST endpoint with OAC (private bucket)
-
-Keep the bucket private and attach a CloudFront Function on **viewer request**:
-
-```js
-function handler(event) {
-  var request = event.request;
-  var uri = request.uri;
-
-  if (uri.endsWith('/')) {
-    request.uri = uri + 'index.html';
-  } else if (!uri.includes('.')) {
-    request.uri = uri + '/index.html';
-  }
-
-  return request;
-}
+```bash
+cd infra/site
+terraform init
+terraform apply
 ```
 
-Add a custom error response mapping **404 → `/404.html`** with a 404 status code.
+The certificate is validated over DNS, so the apply pauses for a few minutes
+while ACM checks the records Terraform just wrote, and again while CloudFront
+distributes. Fifteen to twenty minutes end to end is normal for the first apply.
+
+If the AWS account has ever run a GitHub Actions workflow it already has an OIDC
+provider, and an account can hold only one per URL. Set
+`create_github_oidc_provider = false` in `terraform.tfvars` and the existing one
+is looked up by URL — you do not need its ARN. Leaving this true against an
+account that already has one fails the apply with `EntityAlreadyExists`.
+
+### Repository variables
+
+The deploy reads four **variables** — not secrets. None is sensitive, and a
+variable prints its value in the run log, which makes a misconfigured deploy
+obvious instead of silent.
+
+| Variable | Value | Source |
+|---|---|---|
+| `AWS_REGION` | `eu-west-2` | fixed |
+| `AWS_S3_BUCKET` | `theopennote-com-site` | `terraform output bucket_name` |
+| `SITE_DOMAIN` | `theopennote.com` | fixed; only the smoke test reads it |
+| `AWS_DEPLOY_ROLE_ARN` | — | `terraform output deploy_role_arn` |
+| `AWS_CLOUDFRONT_DISTRIBUTION_ID` | — | `terraform output cloudfront_distribution_id` |
+
+The first three are fixed and already set. The last two exist only once the
+stack does, so set them straight after the first apply:
+
+```bash
+cd infra/site
+gh variable set AWS_DEPLOY_ROLE_ARN            --body "$(terraform output -raw deploy_role_arn)"
+gh variable set AWS_CLOUDFRONT_DISTRIBUTION_ID --body "$(terraform output -raw cloudfront_distribution_id)"
+```
+
+Then trigger a deploy without waiting for a commit:
+
+```bash
+gh workflow run deploy-site.yml
+```
+
+State is local by default, which is fine while one person owns the stack. Point
+the commented backend in `versions.tf` at a bucket before a second person
+applies — two local states diverge silently, and the second apply starts trying
+to recreate everything.
+
+## What the deploy does
+
+It runs on push to `main` when `apps/site/**`, the lockfile or the workflow
+changes, and on `workflow_dispatch`. Deploys are serialised and an in-flight one
+is never cancelled: `aws s3 sync` interrupted halfway leaves the bucket holding
+half of one build and half of another.
+
+After building, it uploads in passes, and **the order is deliberate**:
+
+1. **Fingerprinted assets first, without `--delete`.** The HTML about to go live
+   references them, so they have to exist before it does.
+2. **Pages and everything else, with `--delete`.** The new site goes live here.
+3. **Invalidate `/*`, and wait for it.** Waiting means a green job implies the
+   new site is actually being served.
+4. **Prune orphaned assets, with `--delete`.** Last, because until the edge stops
+   serving the previous HTML, that HTML's asset URLs still have to resolve.
+5. **Smoke test.** Fetches four real pages and one bogus one. Since extensionless
+   paths only resolve if the CloudFront Function rewrote them, this checks the
+   routing as much as the upload.
 
 ## Cache headers
 
-Astro fingerprints its own assets, so they can be cached hard. HTML must not be.
+Astro fingerprints its own assets, so they can be cached forever. Nothing else
+can be.
 
 | Path | `Cache-Control` |
 |---|---|
 | `/_astro/*` | `public, max-age=31536000, immutable` |
 | `/screenshots/*` | `public, max-age=604800` |
-| `*.html`, `/` | `public, max-age=0, must-revalidate` |
-| `/pagefind/*` | `public, max-age=604800` |
+| everything else | `public, max-age=0, must-revalidate` |
 
-Invalidate `/*` on deploy, or just the HTML paths if you would rather not pay for
-a full invalidation.
+"Everything else" includes `/pagefind/*`. Pagefind's fragments are
+content-hashed, but `pagefind-entry.json` keeps a stable name while its contents
+change every build — cached hard, docs search would go on answering from last
+week's index.
 
-## A sketch of the upload
-
-```bash
-aws s3 sync apps/site/dist s3://$BUCKET --delete \
-  --exclude '*.html' --cache-control 'public, max-age=31536000, immutable'
-
-aws s3 sync apps/site/dist s3://$BUCKET --delete \
-  --exclude '*' --include '*.html' \
-  --cache-control 'public, max-age=0, must-revalidate'
-
-aws cloudfront create-invalidation --distribution-id "$DIST" --paths '/*'
-```
-
-The two passes matter: the first would otherwise stamp `immutable` onto HTML and
-leave visitors on a stale page until their browser cache expired.
+Cache lifetimes are set per object **at upload time**, and `aws s3 sync` skips
+files it considers unchanged, so it will not revisit an object just to correct
+its metadata. Each pass therefore has to own a disjoint slice of the tree, or
+the first pass to touch a file decides its `Cache-Control` permanently. If you
+add a pass, check the includes and excludes still partition `dist/` exactly.
 
 ## The download page needs no deploy
 
