@@ -199,10 +199,66 @@ jobs:
 
             SmartScreen will warn before running the installer; choose
             **More info** → **Run anyway**. Signing is tracked in the issues.
-          releaseDraft: false
+          # Draft until every leg has finished and the macOS DMG has been
+          # notarised and checked. tauri-action publishes the moment it uploads,
+          # which would put an un-notarised DMG in front of people for the two
+          # minutes the fix-up takes. The publish job below flips this off.
+          releaseDraft: true
           # No updater is configured yet (deliberately, until builds are signed),
           # so an updater manifest would only be a misleading artifact.
           includeUpdaterJson: false
           # A tag like v0.2.0-beta.1 publishes as a pre-release automatically.
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ steps.bundles.outputs.args }}
+
+      # Tauri notarises the .app and staples it, then builds the DMG from it and
+      # only *signs* the DMG. Gatekeeper assesses the DMG first when someone
+      # downloads it, so an un-notarised container still shows the warning even
+      # though the app inside is perfect. Submit the DMG too.
+      - name: Notarise and staple the DMG
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+
+          DMG=$(find target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)
+          [ -n "$DMG" ] || { echo "::error::No .dmg found to notarise."; exit 1; }
+          echo "Notarising $DMG"
+
+          xcrun notarytool submit "$DMG" \
+            --key "$RUNNER_TEMP/AuthKey.p8" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait --timeout 30m
+
+          xcrun stapler staple "$DMG"
+
+          # Verify rather than trust. The previous release built green while
+          # producing a DMG Gatekeeper rejected, because nothing checked.
+          xcrun stapler validate "$DMG"
+          if ! spctl -a -vv -t open --context context:primary-signature "$DMG" 2>&1 | tee /dev/stderr | grep -q "source=Notarized Developer ID"; then
+            echo "::error::The DMG is not notarised. Refusing to publish it."
+            exit 1
+          fi
+
+          # Replace the copy tauri-action already uploaded with the stapled one.
+          gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
+          echo "Stapled DMG uploaded."
+
+  # Nothing is public until every platform built and the DMG passed its
+  # Gatekeeper check.
+  publish:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Undraft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "$GITHUB_REF_NAME" --draft=false --repo "$GITHUB_REPOSITORY"
+          echo "Published $GITHUB_REF_NAME."

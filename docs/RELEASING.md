@@ -120,6 +120,23 @@ gh secret set APPLE_API_ISSUER      --body "<issuer-uuid>"
 gh secret set APPLE_API_KEY_ID      --body "<key-id>"
 ```
 
+### Two things get notarised, not one
+
+Tauri notarises the **`.app`** and staples it, then builds the `.dmg` from that
+and only *signs* the DMG. That is not enough. Gatekeeper assesses the **DMG**
+first, because that is what the browser downloaded and quarantined, so an
+un-notarised container shows the warning even when the app inside is perfect.
+
+`release.yml` therefore submits the DMG separately after `tauri-action`, staples
+it, and **verifies the result before publishing** — the first signed release
+built green while producing a DMG that `spctl` rejected, because nothing
+checked.
+
+That is also why the release is created as a **draft**. `tauri-action` publishes
+the moment it uploads, which would put the un-notarised DMG in front of people
+for the two minutes the fix-up takes. The `publish` job undrafts it once every
+platform is done.
+
 ### Checking it worked
 
 The signature travels in the `.dmg`, so this works on any Mac:
@@ -129,12 +146,21 @@ spctl -a -vv -t install /Volumes/Open\ Note/Open\ Note.app
 codesign -dv --verbose=4 /Volumes/Open\ Note/Open\ Note.app 2>&1 | grep -E 'Authority|TeamIdentifier'
 ```
 
-`spctl` should say **accepted** with `source=Notarized Developer ID`. Anything
-mentioning *no usable signature* or *Unnotarized* means the build did not
-actually get signed, whatever the workflow reported.
+Check the **DMG itself**, not only the app inside it — they can disagree, and
+the DMG is what Gatekeeper sees first:
 
-To confirm the ticket is stapled — which is what lets a first launch work
-offline — use `xcrun stapler validate`.
+```bash
+xcrun stapler validate Open.Note_*_universal.dmg
+spctl -a -vv -t open --context context:primary-signature Open.Note_*_universal.dmg
+```
+
+Both should say `accepted` / `source=Notarized Developer ID`. *Unnotarized
+Developer ID* means it was signed but never submitted; *no usable signature*
+means it was not even signed.
+
+`stapler validate` is the one that matters for a first launch with no network:
+without a stapled ticket the machine has to ask Apple, and an offline machine
+cannot.
 
 ### Expiry
 
