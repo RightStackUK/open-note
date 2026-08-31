@@ -17,7 +17,10 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "desktop:dev": "pnpm --filter @open-note/desktop dev",
-    "desktop:build": "pnpm --filter @open-note/desktop build"
+    "desktop:build": "pnpm --filter @open-note/desktop build",
+    "site:dev": "pnpm --filter @open-note/site dev",
+    "site:build": "pnpm --filter @open-note/site build",
+    "site:screenshots": "pnpm --filter @open-note/site screenshots"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",

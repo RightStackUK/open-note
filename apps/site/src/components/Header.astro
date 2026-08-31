@@ -1,0 +1,36 @@
+---
+const path = Astro.url.pathname.replace(/\.html$/, '').replace(/\/$/, '') || '/';
+const links = [
+  { href: '/features', label: 'Features' },
+  { href: '/docs/getting-started', label: 'Docs' },
+  { href: 'https://github.com/RightStackUK/open-note', label: 'GitHub', external: true },
+];
+---
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="3" y="2" width="14" height="20" rx="2.5" fill="var(--accent)" />
+        <path d="M7 7h6M7 11h6M7 15h3.5" stroke="var(--bg)" stroke-width="1.6" stroke-linecap="round" />
+        <circle cx="19" cy="17.5" r="3.2" fill="var(--bg)" stroke="var(--accent)" stroke-width="1.6" />
+      </svg>
+      Open Note
+    </a>
+
+    <nav class="site-nav">
+      {
+        links.map((link) => (
+          <a
+            href={link.href}
+            aria-current={!link.external && path.startsWith(link.href) ? 'page' : undefined}
+            {...(link.external ? { rel: 'noopener' } : {})}
+          >
+            {link.label}
+          </a>
+        ))
+      }
+      <a class="button" href="/download">Download</a>
+    </nav>
+  </div>
+</header>

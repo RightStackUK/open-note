@@ -1,0 +1,372 @@
+---
+import Page from '../layouts/Page.astro';
+---
+
+<Page
+  title="Features — Open Note"
+  description="What Open Note does in detail: a Markdown editor that decorates real source, Git sync that never resolves a conflict for you, wikilinks and backlinks, GFM tasks, tags, diagrams, note history and a fully rebindable keymap."
+>
+  <section class="hero" style="padding-bottom: 1rem">
+    <div class="wrap">
+      <h1 style="font-size: clamp(2.1rem, 5vw, 3rem)">Everything it does</h1>
+      <p class="lede">
+        In detail, and with the reasoning — because most of these are decisions, not just features.
+      </p>
+    </div>
+  </section>
+
+  <section class="section plain">
+    <div class="wrap">
+      <!-- Editor -->
+      <div class="feature">
+        <div class="feature-text">
+          <h3>An editor over real Markdown</h3>
+          <p>
+            The text in the window <em>is</em> the file. Open Note decorates it in place — headings
+            grow, bold goes bold, syntax markers fade — but it never converts your note into a
+            document model and back again.
+          </p>
+          <p>
+            That matters for two reasons. A round-trip through a rich-text model quietly rewrites
+            formatting it does not understand, and it turns every edit into a noisy diff. Here a
+            one-word change is a one-word change in Git.
+          </p>
+          <ul>
+            <li>
+              <strong>The line you are on shows its source.</strong> Move the caret onto a heading and
+              the <code>#</code> comes back, ready to edit. Every other line reads as prose.
+            </li>
+            <li>
+              <strong>Wikilink brackets disappear while reading</strong> and return while editing.
+              <code>[[note|label]]</code> shows just the label.
+            </li>
+            <li><strong>Find and replace</strong> inside the open note.</li>
+            <li>
+              <strong>Paste an image</strong> and it is written into the vault as a real file and
+              linked relatively — not embedded as base64.
+            </li>
+          </ul>
+        </div>
+        <figure class="shot">
+          <img
+            src="/screenshots/editor.png"
+            width="1280"
+            height="840"
+            alt="A note open in the editor with concealed Markdown syntax, a wikilink and a task list."
+          />
+        </figure>
+      </div>
+
+      <!-- Sync -->
+      <div class="feature flip">
+        <div class="feature-text">
+          <h3>Git sync you do not have to think about</h3>
+          <p>
+            Four independent loops run per vault: write, commit, push and fetch. Each is separately
+            configurable and separately switchable, and the current state is always on screen —
+            <em>synced</em>, <em>committing</em>, <em>pushing</em>, <em>updates available</em>,
+            <em>offline</em>, <em>conflict</em>.
+          </p>
+          <ul>
+            <li><strong>Writes</strong> land half a second after you stop typing.</li>
+            <li>
+              <strong>Commits</strong> batch up — thirty seconds idle, or five minutes elapsed — so
+              your history is readable instead of one commit per keystroke.
+            </li>
+            <li><strong>Pushes</strong> follow a commit, and back off when the network is out. Never forced.</li>
+            <li>
+              <strong>Fetches</strong> run on a timer while the window is focused. A clean worktree
+              fast-forwards silently and the open note reloads underneath you.
+            </li>
+          </ul>
+          <p>
+            It runs <strong>your own <code>git</code></strong> rather than an embedded library, so
+            SSH agents, credential helpers, GPG signing, corporate proxies and <code>git-lfs</code>
+            work because they already work on your machine.
+          </p>
+        </div>
+        <figure class="shot">
+          <img
+            src="/screenshots/sync.png"
+            width="1280"
+            height="840"
+            alt="The sync settings panel, showing toggles and intervals for the commit, push and fetch loops."
+          />
+        </figure>
+      </div>
+
+      <!-- Conflicts -->
+      <div class="feature">
+        <div class="feature-text">
+          <h3>Conflicts are never resolved for you</h3>
+          <p>
+            Because a note is one file, true conflicts are rare — but rare is not never, and one
+            silently clobbered note ends any trust in a notes app permanently.
+          </p>
+          <ul>
+            <li><strong>All automation halts.</strong> Nothing commits, pushes or pulls while a conflict stands.</li>
+            <li><strong>The affected notes are named</strong> and badged in the sidebar.</li>
+            <li>
+              <strong>You choose:</strong> keep yours, keep theirs, or open the file with Git's
+              markers intact and merge by hand.
+            </li>
+            <li>
+              <strong>A claimed resolution is verified.</strong> If Git still reports unmerged paths,
+              the app does not believe you and stays put.
+            </li>
+          </ul>
+          <p>There is no auto-merge, no auto-discard and no force push. Anywhere. Ever.</p>
+        </div>
+        <figure class="shot">
+          <img
+            src="/screenshots/conflict.png"
+            width="1280"
+            height="840"
+            alt="The conflict screen listing a conflicted note with keep-mine, keep-theirs and manual merge options."
+          />
+        </figure>
+      </div>
+
+      <!-- Links -->
+      <div class="feature flip">
+        <div class="feature-text">
+          <h3>Links, backlinks and tags</h3>
+          <p>
+            Write <code>[[Another note]]</code> and it becomes clickable. Follow a link that has no
+            note behind it yet and the note is created — writing the link is how you say it should
+            exist.
+          </p>
+          <ul>
+            <li>
+              <strong>Backlinks</strong> for the open note, with the sentence each link sits in.
+            </li>
+            <li>
+              <strong>Renaming rewrites links.</strong> Rename a note and every
+              <code>[[wikilink]]</code> pointing at it is updated in the same commit, so the change
+              can be reviewed and reverted as one thing.
+            </li>
+            <li>
+              <strong>Tags</strong> are <code>#plain-text</code> in the note body, with a browser
+              listing every tag and what carries it.
+            </li>
+            <li>
+              <strong>Drag a note into a folder</strong> and its links follow it. A move is a rename
+              with a different destination.
+            </li>
+          </ul>
+        </div>
+        <figure class="shot">
+          <img
+            src="/screenshots/links.png"
+            width="1280"
+            height="840"
+            alt="The tag browser open beside a note, listing every tag in the vault with how many notes carry it."
+          />
+        </figure>
+      </div>
+
+      <!-- Tasks -->
+      <div class="feature">
+        <div class="feature-text">
+          <h3>Todos that are still Markdown</h3>
+          <p>
+            A task is a GFM checkbox. Nothing else is required, and nothing else is stored — so the
+            same note renders as a working task list on GitHub.
+          </p>
+          <pre class="sample"><code>- [ ] Write the docs @sam !high ~2026-09-14</code></pre>
+          <ul>
+            <li><strong>Click the checkbox</strong> in the editor to tick it; one character changes on disk.</li>
+            <li>
+              <strong>One list for the whole vault.</strong> Every open task from every note, with
+              the note it came from — click through and land on the exact line.
+            </li>
+            <li>
+              <strong>Optional extras in plain text:</strong> <code>@person</code>,
+              <code>!high</code>, and <code>~2026-09-14</code> for a due date. Overdue and due-today
+              are called out.
+            </li>
+            <li><strong>Filter</strong> by open, done or all.</li>
+          </ul>
+        </div>
+        <figure class="shot">
+          <img
+            src="/screenshots/tasks.png"
+            width="1280"
+            height="840"
+            alt="The task view with open tasks listed, each showing its source note."
+          />
+        </figure>
+      </div>
+
+      <!-- Diagrams -->
+      <div class="feature flip">
+        <div class="feature-text">
+          <h3>Diagrams and drawings</h3>
+          <p>
+            A fenced <code>mermaid</code> block renders inline as soon as your caret leaves it, and
+            goes back to being editable source the moment you return.
+          </p>
+          <ul>
+            <li>
+              <strong>Mermaid renders on GitHub too</strong>, so a diagram in your vault is a diagram
+              in your repo's web view.
+            </li>
+            <li><strong>Graphviz DOT</strong> for graphs that Mermaid does not cover.</li>
+            <li>
+              <strong>Excalidraw</strong> for freehand drawings, stored as plain JSON so they diff
+              and merge like anything else.
+            </li>
+            <li>
+              <strong>Rendered SVG is sanitised</strong> — scripts, event handlers and
+              <code>javascript:</code> URLs are stripped before anything reaches the screen. A vault
+              can be cloned from anywhere.
+            </li>
+          </ul>
+        </div>
+        <figure class="shot">
+          <img
+            src="/screenshots/diagram.png"
+            width="1280"
+            height="840"
+            alt="A Mermaid flowchart rendered inline beneath its source block in a note."
+          />
+        </figure>
+      </div>
+
+      <!-- History -->
+      <div class="feature">
+        <div class="feature-text">
+          <h3>History, branches and pull requests</h3>
+          <p>
+            The whole point of a Git backend is that the history is real. Open Note surfaces it
+            without asking you to open a terminal.
+          </p>
+          <ul>
+            <li>
+              <strong>Every version of a note</strong>, with the diff, and a one-click restore to any
+              of them.
+            </li>
+            <li><strong>Discard changes</strong> back to the last commit when an edit goes wrong.</li>
+            <li>
+              <strong>Branches</strong> — create, switch, merge and delete. Draft a reorganisation on
+              a branch and merge it when it works.
+            </li>
+            <li>
+              <strong>Open a pull request</strong> on GitHub, GitLab or Bitbucket for the current
+              branch, in your real browser where you are already signed in.
+            </li>
+          </ul>
+        </div>
+        <figure class="shot">
+          <img
+            src="/screenshots/history.png"
+            width="1280"
+            height="840"
+            alt="The history panel listing commits that touched the open note, with a diff."
+          />
+        </figure>
+      </div>
+
+      <!-- Navigation -->
+      <div class="feature flip">
+        <div class="feature-text">
+          <h3>Finding things</h3>
+          <ul>
+            <li>
+              <strong>Full-text search</strong> across every note, with the matching line as the
+              preview.
+            </li>
+            <li>
+              <strong>Quick switcher</strong> that fuzzy-matches titles and opens on Enter — and
+              offers to create the note when nothing matches.
+            </li>
+            <li>
+              <strong>Command palette</strong> listing every command with its current shortcut.
+            </li>
+            <li>
+              <strong>Sidebar filter</strong>, pinned notes, and an outline of the open note's
+              headings.
+            </li>
+            <li>
+              <strong>Today's note</strong> on a shortcut, from a template, filed by date.
+            </li>
+          </ul>
+        </div>
+        <figure class="shot">
+          <img
+            src="/screenshots/palette.png"
+            width="1280"
+            height="840"
+            alt="The command palette open over a note, listing commands with their keyboard shortcuts."
+          />
+        </figure>
+      </div>
+
+      <!-- Everything else -->
+      <div class="feature">
+        <div class="feature-text">
+          <h3>The rest of the repository</h3>
+          <p>
+            A vault is an ordinary Git repo, so it holds more than notes — and the app stops
+            pretending otherwise.
+          </p>
+          <ul>
+            <li>
+              <strong>Text files open properly.</strong> A <code>.txt</code>, a
+              <code>config.json</code>, a shell script — all editable, with line numbers and syntax
+              highlighting for around 150 languages.
+            </li>
+            <li><strong>Images</strong> get a preview. Binaries are listed but never opened.</li>
+            <li>
+              <strong>Multiple vaults</strong> open at once, each with its own sync state, settings
+              and branch.
+            </li>
+            <li><strong>Export a note</strong> as a self-contained HTML page, images inlined.</li>
+            <li>
+              <strong>Every shortcut is rebindable</strong>, with a Bear-style preset. The keymap
+              lives in the vault, so it travels between machines.
+            </li>
+          </ul>
+        </div>
+        <figure class="shot">
+          <img
+            src="/screenshots/code.png"
+            width="1280"
+            height="840"
+            alt="A TypeScript file open in the plain text editor with line numbers and syntax highlighting."
+          />
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Where things are kept</h2>
+      </div>
+      <div class="prose">
+        <p>
+          Per-vault settings and your keymap live in <code>.opennote/</code> inside the repository,
+          so they travel with the vault between machines. Both are hand-editable JSON, and a broken
+          field falls back to its default rather than taking the app down with it.
+        </p>
+        <p>
+          Machine-local state — which vaults you have opened recently — stays in your OS config
+          directory and is never committed.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="wrap">
+      <h2>Try it against a repository you already have.</h2>
+      <p>Nothing to sign up for, and nothing to migrate.</p>
+      <div class="hero-actions">
+        <a class="button big" href="/download">Download Open Note</a>
+        <a class="button big ghost" href="/docs/getting-started">Getting started</a>
+      </div>
+    </div>
+  </section>
+</Page>

@@ -1,0 +1,228 @@
+---
+import Page from '../layouts/Page.astro';
+---
+
+<Page
+  title="Open Note — Markdown notes, backed by Git"
+  description="A local-first Markdown notes and todo app that uses any Git repository as its backend. Your notes are ordinary .md files in a repo you own. No server, no account, no lock-in."
+>
+  <section class="hero">
+    <div class="wrap">
+      <span class="eyebrow">Free and open source · macOS, Windows, Linux</span>
+      <h1>Markdown notes,<br />backed by Git.</h1>
+      <p class="lede">
+        Your notes are ordinary <code>.md</code> files in a repository you own. Open Note writes
+        them, commits them and syncs them — and every one of them still opens in any other editor.
+      </p>
+      <div class="hero-actions">
+        <a class="button big" href="/download">Download</a>
+        <a class="button big ghost" href="/features">See what it does</a>
+      </div>
+      <p class="hero-note">MIT licensed. No account. No server. Nothing to sign up for.</p>
+    </div>
+  </section>
+
+  <section class="section plain">
+    <div class="wrap">
+      <figure class="shot">
+        <img
+          src="/screenshots/editor.png"
+          width="1280"
+          height="840"
+          alt="The Open Note editor: a folder tree on the left, a Markdown note with a ticked task list in the middle, and links and tags on the right."
+        />
+        <figcaption>
+          A note in the editor. The Markdown underneath is exactly what is written to disk.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head centred">
+        <h2>The argument</h2>
+        <p>
+          Every notes app promises your data is yours. This one is built so that claim needs no
+          trust.
+        </p>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <span class="glyph" aria-hidden="true">◆</span>
+          <h3>The files are the product</h3>
+          <p>
+            A vault is a normal Git repository full of normal Markdown files. Read them on
+            github.com, edit them in Vim, grep them from a terminal. Open Note invents no storage
+            format of its own.
+          </p>
+        </div>
+        <div class="card">
+          <span class="glyph" aria-hidden="true">⑂</span>
+          <h3>Git is the sync layer</h3>
+          <p>
+            There is no Open Note server, so there is nothing to subscribe to and nothing to be
+            breached. Your notes sync through the same remote your code does — GitHub, GitLab, a
+            box in your loft.
+          </p>
+        </div>
+        <div class="card">
+          <span class="glyph" aria-hidden="true">↺</span>
+          <h3>Every version is kept</h3>
+          <p>
+            Autosave writes, and the app commits on your behalf. Any note can be read as it was at
+            any point in its history, and restored from there.
+          </p>
+        </div>
+        <div class="card">
+          <span class="glyph" aria-hidden="true">⚿</span>
+          <h3>Your Git setup, unchanged</h3>
+          <p>
+            It runs your own <code>git</code> binary, so SSH keys, credential helpers, commit
+            signing, proxies and LFS all work exactly as you configured them.
+          </p>
+        </div>
+        <div class="card">
+          <span class="glyph" aria-hidden="true">☑</span>
+          <h3>Tasks that are just Markdown</h3>
+          <p>
+            A todo is a GFM checkbox — <code>- [ ] thing</code>. Tick it in the editor or in the
+            task view; it renders as a task list on GitHub either way.
+          </p>
+        </div>
+        <div class="card">
+          <span class="glyph" aria-hidden="true">◫</span>
+          <h3>Nothing is phoned home</h3>
+          <p>
+            No telemetry, no analytics, no crash reporting, no account. The app talks to your Git
+            remote and to nothing else. This website does not track you either.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>What a note actually is</h2>
+        <p>Open the file in any editor and this is all that is there.</p>
+      </div>
+      <pre class="sample"><code><span class="c"># Projects/Open Note.md</span>
+
+<span class="k"># Open Note</span>
+
+#idea #project
+
+A local-first markdown app backed by git. See [[Reading/Books]].
+
+<span class="k">## Tasks</span>
+
+- [x] Ship the editor
+- [ ] Write the docs @sam !high ~2026-09-14</code></pre>
+      <p class="prose" style="margin-top: 1.25rem; color: var(--muted)">
+        Tags, wikilinks, people, priorities and due dates are plain text conventions. Strip Open
+        Note away and the file still reads perfectly.
+      </p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head centred">
+        <h2>Built for the way notes actually get used</h2>
+      </div>
+
+      <div style="display: grid; gap: 2rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr))">
+        <figure class="shot">
+          <img
+            src="/screenshots/tasks.png"
+            width="1280"
+            height="840"
+            alt="The task view, listing every open checkbox from across the vault with the note each one came from."
+          />
+          <figcaption>Every open task in the vault, in one list.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img
+            src="/screenshots/diagram.png"
+            width="1280"
+            height="840"
+            alt="A Mermaid flowchart rendered inline in a note, directly below its fenced code block."
+          />
+          <figcaption>Mermaid diagrams render in place — and on GitHub.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>When two machines disagree</h2>
+        <p>
+          The one thing a notes app must never do is lose a note. Open Note will not resolve a
+          conflict for you.
+        </p>
+      </div>
+      <figure class="shot">
+        <img
+          src="/screenshots/conflict.png"
+          width="1280"
+          height="840"
+          alt="The conflict screen, listing the conflicted file with options to keep either side or merge by hand."
+        />
+        <figcaption>
+          Automation stops, the affected notes are named, and nothing moves until you say so.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>What Open Note is not</h2>
+        <p>Worth knowing before you download it.</p>
+      </div>
+      <ul class="honest">
+        <li>
+          <strong>Not a hosted service.</strong>
+          There is no account and no cloud to sign into. If you want your notes on two machines, you
+          bring the Git remote.
+        </li>
+        <li>
+          <strong>Not zero-setup.</strong>
+          A vault is a Git repository. If you have never used Git, you will need to create one first
+          — the docs walk through it, but it is a real step.
+        </li>
+        <li>
+          <strong>Not a collaboration tool.</strong>
+          Two people can share a vault the way two people share a repo: branches, pulls, the
+          occasional conflict. There is no live cursor.
+        </li>
+        <li>
+          <strong>Not signed yet.</strong>
+          macOS and Windows will warn before opening the download. The
+          <a href="/download">download page</a> explains exactly what you will see and why.
+        </li>
+        <li>
+          <strong>Not finished.</strong>
+          Mobile, split view and note templates are planned, not shipped. The roadmap is public.
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="wrap">
+      <h2>Point it at a repository and start writing.</h2>
+      <p>Free, MIT licensed, and the files stay yours whatever happens to the app.</p>
+      <div class="hero-actions">
+        <a class="button big" href="/download">Download Open Note</a>
+        <a class="button big ghost" href="/docs/getting-started">Read the docs</a>
+      </div>
+    </div>
+  </section>
+</Page>

@@ -29,6 +29,9 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      # The website is static and cheap to build, so a broken page fails here
+      # rather than at deploy time.
+      - run: pnpm site:build
 
   rust:
     name: Rust checks

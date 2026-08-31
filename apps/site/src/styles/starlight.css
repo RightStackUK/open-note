@@ -1,0 +1,37 @@
+/*
+ * Starlight, wearing the app's palette.
+ *
+ * Starlight themes through its own custom properties, so this maps them onto
+ * the tokens the marketing pages already use rather than restating any colours.
+ */
+:root {
+  --sl-font: var(--ui-font);
+  --sl-font-mono: var(--mono-font);
+  --sl-color-accent: var(--accent);
+  --sl-color-accent-low: var(--accent-soft);
+  --sl-color-accent-high: var(--accent);
+  --sl-color-white: var(--fg);
+  --sl-color-gray-1: var(--fg);
+  --sl-color-gray-2: var(--muted);
+  --sl-color-gray-3: var(--muted);
+  --sl-color-gray-4: var(--border);
+  --sl-color-gray-5: var(--border);
+  --sl-color-gray-6: var(--bg-raised);
+  --sl-color-black: var(--bg);
+  --sl-color-bg: var(--bg);
+  --sl-color-bg-nav: var(--bg-raised);
+  --sl-color-bg-sidebar: var(--bg-raised);
+  --sl-color-hairline: var(--border);
+  --sl-color-hairline-light: var(--border);
+  --sl-color-text: var(--fg);
+  --sl-color-text-accent: var(--accent);
+}
+
+/* Docs prose reads better at the app's own measure. */
+.sl-markdown-content {
+  font-size: 1rem;
+}
+
+.sl-markdown-content :is(h2, h3) {
+  letter-spacing: -0.015em;
+}

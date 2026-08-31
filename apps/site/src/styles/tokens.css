@@ -1,0 +1,43 @@
+/*
+ * The app's own palette, so the site and the product read as one thing.
+ * Kept in step with `apps/desktop/src/styles.css`.
+ */
+:root {
+  --bg: #fbfaf8;
+  --bg-raised: #f3f1ed;
+  --bg-sunk: #efece6;
+  --fg: #1c1b19;
+  --muted: #6f6a64;
+  --border: #e2ded7;
+  --accent: #c2410c;
+  --accent-soft: #f8d9c6;
+  --code-bg: #ece8e1;
+  --danger: #b91c1c;
+  --ok: #2f855a;
+
+  --ui-font: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --prose-font: ui-serif, Charter, Georgia, Cambria, serif;
+  --mono-font: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --measure: 42rem;
+  --page: 68rem;
+  --radius: 10px;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171614;
+    --bg-raised: #1f1e1b;
+    --bg-sunk: #121110;
+    --fg: #eae7e2;
+    --muted: #9c958c;
+    --border: #302e2a;
+    --accent: #fb923c;
+    --accent-soft: #45301f;
+    --code-bg: #26241f;
+    --danger: #f87171;
+    --ok: #6ee7b7;
+  }
+}

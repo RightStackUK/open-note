@@ -39,7 +39,7 @@ These are the constraints every design decision is checked against.
 | Monorepo | **pnpm workspaces + Turborepo** | |
 | Lint/format | **Biome** | One tool, no ESLint+Prettier config negotiation. |
 | Tests | **Vitest** (TS), `cargo test` (Rust) | |
-| Website | **Astro + Starlight**, Cloudflare Pages | Docs + download page for theopennote.com. |
+| Website | **Astro**, with **Starlight** for `/docs` | Static output only, so `dist/` uploads to any object store. Marketing pages are hand-built; Starlight owns the docs, for its sidebar and search. See [DEPLOYING-SITE.md](DEPLOYING-SITE.md). |
 | License | **MIT** | See §7. |
 
 ---
@@ -52,7 +52,7 @@ These are the constraints every design decision is checked against.
 open-note/
 ├── apps/
 │   ├── desktop/            # Tauri v2 app (React frontend + src-tauri)
-│   └── site/               # theopennote.com (Phase 6)
+│   └── site/               # theopennote.com — static Astro
 ├── packages/
 │   ├── core/               # Platform-agnostic domain logic. NO Tauri imports.
 │   ├── editor/             # CodeMirror 6 Markdown editor + keymap registry
@@ -322,7 +322,8 @@ would be a worse product, not a more complete one.
 - [x] Linux: AppImage, `.deb`, `.rpm`
 - [ ] macOS Developer ID signing and notarisation — [#1](https://github.com/RightStackUK/open-note/issues/1)
 - [ ] Windows signing — [#2](https://github.com/RightStackUK/open-note/issues/2)
-- [ ] theopennote.com — [#3](https://github.com/RightStackUK/open-note/issues/3)
+- [x] theopennote.com — landing, features, download and docs — [#3](https://github.com/RightStackUK/open-note/issues/3)
+- [ ] Deploy the site (S3 + CloudFront) — [#3](https://github.com/RightStackUK/open-note/issues/3)
 - [ ] Tauri updater plugin against GitHub Releases. Deliberately after signing:
       an updater that installs unsigned binaries is a worse problem than having
       no updater

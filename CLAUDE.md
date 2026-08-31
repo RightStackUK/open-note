@@ -144,6 +144,26 @@ A vault can be cloned from anywhere, so `packages/diagrams` strips scripts, even
 configured with `htmlLabels: false` because it otherwise draws labels inside `foreignObject`, which
 sanitisation removes — silently blanking every label.
 
+### The website is static, and its downloads are not
+
+`apps/site` is Astro with `output: 'static'` — `pnpm site:build` writes `dist/`,
+and that directory is the whole website. Nothing runs at request time, because the
+deploy target is an object store behind a CDN.
+
+The download page fetches GitHub Releases **in the visitor's browser**, not at build
+time: a build-time fetch would freeze the version at the last deploy. `/releases/latest`
+is unusable — GitHub omits pre-releases from it — so `pickRelease` takes the newest
+stable and falls back to a pre-release. The response is cached in `localStorage` for an
+hour, because the anonymous API allows 60 requests per hour per IP.
+
+Screenshots under `apps/site/public/screenshots/` are captured from the real app by
+`pnpm site:screenshots`, which serves the desktop web build with a stubbed IPC and
+photographs it with headless Chrome. Regenerate them after a UI change rather than
+letting them drift.
+
+**No analytics, ever.** The product's argument is that it does not phone home; the
+website must not undercut it.
+
 ## Conventions
 
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`). A Jira ticket number goes

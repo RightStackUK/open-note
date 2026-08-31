@@ -1,0 +1,11 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  // Only our own source. Astro's own config imports integrations from source,
+  // and typechecking those drags in the integrations' transitive dependencies —
+  // whose type errors are neither ours to fix nor meaningful here.
+  "include": [".astro/types.d.ts", "src/**/*", "scripts/**/*"],
+  "exclude": ["dist", "node_modules"]
+}

@@ -1,0 +1,289 @@
+---
+import Page from '../layouts/Page.astro';
+import { RELEASES_PAGE } from '../lib/releases';
+---
+
+<Page
+  title="Download Open Note"
+  description="Download Open Note for macOS, Windows or Linux. Always the latest release, straight from GitHub."
+>
+  <section class="hero" style="padding-bottom: 2rem">
+    <div class="wrap">
+      <h1 style="font-size: clamp(2.1rem, 5vw, 3rem)">Download Open Note</h1>
+      <p class="lede">
+        Free and MIT licensed. The links below come straight from the latest GitHub release, so this
+        page is never out of date.
+      </p>
+    </div>
+  </section>
+
+  <section class="section plain">
+    <div class="wrap">
+      <!-- Rendered by the script below. The no-JS fallback is a real link to a
+           real page, not an error message. -->
+      <div id="downloads" class="downloads" data-state="loading">
+        <p class="downloads-status">Finding the latest release…</p>
+      </div>
+
+      <noscript>
+        <div class="notice">
+          <h3>JavaScript is off</h3>
+          <p>
+            This page asks GitHub for the newest release when it loads. With JavaScript disabled,
+            the downloads are one click away instead:
+            <a href={RELEASES_PAGE} rel="noopener">all releases on GitHub</a>.
+          </p>
+        </div>
+      </noscript>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>These builds are not signed yet</h2>
+        <p>
+          Your operating system will say so, in fairly alarming terms. Here is exactly what you will
+          see and why.
+        </p>
+      </div>
+
+      <div class="prose" style="max-width: none">
+        <div class="notice" style="margin-bottom: 1.25rem">
+          <h3>Why</h3>
+          <p>
+            Code signing certificates are a recurring cost — an Apple Developer Program membership
+            for macOS, and a signing service or EV certificate for Windows. Until those are in
+            place, the installers are unsigned. The builds themselves are produced by a public
+            GitHub Actions workflow from a public commit, and you can read both.
+          </p>
+          <p>
+            Signing is tracked in the open:
+            <a href="https://github.com/RightStackUK/open-note/issues/1" rel="noopener">macOS</a>
+            and
+            <a href="https://github.com/RightStackUK/open-note/issues/2" rel="noopener">Windows</a>.
+          </p>
+        </div>
+
+        <div class="grid">
+          <div class="card">
+            <h3>macOS</h3>
+            <p>
+              You will see <em>“Open Note cannot be opened because the developer cannot be
+              verified.”</em>
+            </p>
+            <ol class="steps">
+              <li>Open the <code>.dmg</code> and drag Open Note to Applications.</li>
+              <li>In Applications, <strong>right-click</strong> Open Note and choose <strong>Open</strong>.</li>
+              <li>Click <strong>Open</strong> in the dialog. macOS remembers, so this is once only.</li>
+            </ol>
+            <p class="small">
+              Double-clicking gives you a dialog with no Open button. The right-click is what makes
+              the difference.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>Windows</h3>
+            <p>SmartScreen will show <em>“Windows protected your PC.”</em></p>
+            <ol class="steps">
+              <li>Run the <code>.exe</code>.</li>
+              <li>Click <strong>More info</strong>.</li>
+              <li>Click <strong>Run anyway</strong>.</li>
+            </ol>
+            <p class="small">
+              The <code>.msi</code> is there for managed deployment. For a normal install, take the
+              <code>.exe</code>. Pre-releases ship no <code>.msi</code>, because Windows Installer
+              versions cannot express a tag like <code>0.2.0-beta.1</code>.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>Linux</h3>
+            <p>No warning — Linux does not gate unsigned binaries this way.</p>
+            <ol class="steps">
+              <li>
+                <strong>AppImage:</strong> <code>chmod +x Open*.AppImage</code> then run it.
+              </li>
+              <li><strong>Debian, Ubuntu:</strong> <code>sudo apt install ./Open*.deb</code></li>
+              <li><strong>Fedora, RHEL:</strong> <code>sudo dnf install ./Open*.rpm</code></li>
+            </ol>
+            <p class="small">
+              Builds are x86-64. On Wayland, WebKitGTK is the weakest of the three webviews — if
+              text input misbehaves, try <code>GDK_BACKEND=x11</code>.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Before you open it</h2>
+        <p>Two things worth knowing, because neither is a bug.</p>
+      </div>
+      <ul class="honest">
+        <li>
+          <strong>You need Git installed.</strong>
+          Open Note runs your own <code>git</code> so that your keys, credential helpers and signing
+          config keep working. macOS ships it with the Xcode command line tools; most Linux distros
+          have it already; on Windows, install Git for Windows.
+        </li>
+        <li>
+          <strong>You need a repository to point it at.</strong>
+          Any Git repo works, empty or not. Clone one from a URL inside the app, or open a folder
+          you have already run <code>git init</code> in.
+          <a href="/docs/getting-started">The getting started guide</a> walks through both.
+        </li>
+      </ul>
+    </div>
+  </section>
+</Page>
+
+<script>
+  import {
+    detectPlatform,
+    downloadsFor,
+    formatDate,
+    formatSize,
+    orderForVisitor,
+    pickRelease,
+    RELEASES_PAGE,
+    RELEASES_URL,
+    type Release,
+    versionOf,
+  } from '../lib/releases';
+
+  /**
+   * The anonymous GitHub API allows 60 requests per hour per IP, which a shared
+   * office or a CGNAT range can exhaust between them. Cache the answer: a
+   * release lands every few weeks, so an hour-old response costs nothing and the
+   * page keeps working for everyone behind the same address.
+   */
+  const CACHE_KEY = 'open-note:releases:v1';
+  const CACHE_TTL_MS = 60 * 60 * 1000;
+
+  function readCache(): Release[] | null {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      const cached = JSON.parse(raw) as { at: number; releases: Release[] };
+      if (Date.now() - cached.at > CACHE_TTL_MS) return null;
+      return cached.releases;
+    } catch {
+      // Private browsing, blocked storage, or something we did not write.
+      return null;
+    }
+  }
+
+  function writeCache(releases: Release[]) {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), releases }));
+    } catch {
+      // Storage is a convenience here, never a requirement.
+    }
+  }
+
+  async function loadReleases(): Promise<Release[]> {
+    const cached = readCache();
+    if (cached) return cached;
+
+    const response = await fetch(RELEASES_URL, {
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+    if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
+    const releases = (await response.json()) as Release[];
+    writeCache(releases);
+    return releases;
+  }
+
+  /**
+   * Escape anything that came back from the API before it goes into markup.
+   *
+   * Only this project can publish a release here, so this is not defending
+   * against an attacker so much as against a stray `&` in a version string —
+   * but interpolating a network response into HTML unescaped is a habit worth
+   * not having.
+   */
+  function escape(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function render(release: Release) {
+    const host = document.getElementById('downloads');
+    if (!host) return;
+
+    const platforms = orderForVisitor(downloadsFor(release), detectPlatform(navigator.userAgent));
+    if (platforms.length === 0) {
+      showError('That release has no installers attached.');
+      return;
+    }
+
+    const mine = detectPlatform(navigator.userAgent);
+    const version = versionOf(release);
+    const published = formatDate(release.published_at);
+
+    const header = `
+      <p class="release-line">
+        Version <strong>${escape(version)}</strong>${published ? ` · released ${escape(published)}` : ''}
+        ${release.prerelease ? '· <span class="prerelease">Pre-release — no stable version yet</span>' : ''}
+      </p>`;
+
+    const cards = platforms
+      .map((platform) => {
+        const isYours = platform.id === mine;
+        const buttons = platform.downloads
+          .map(
+            (download, index) => `
+              <a class="dl ${index > 0 ? 'secondary' : ''}" href="${escape(download.url)}">
+                <span class="button">${download.label}</span>
+                <span class="dl-note">${download.note}${
+                  formatSize(download.size) ? ` · ${formatSize(download.size)}` : ''
+                }</span>
+              </a>`,
+          )
+          .join('');
+
+        return `
+          <div class="platform ${isYours ? 'is-yours' : ''}">
+            <h2>${platform.name}${isYours ? '<span class="yours-tag">Your system</span>' : ''}</h2>
+            ${buttons}
+          </div>`;
+      })
+      .join('');
+
+    host.dataset.state = 'ready';
+    host.innerHTML = header + cards;
+  }
+
+  function showError(reason: string) {
+    const host = document.getElementById('downloads');
+    if (!host) return;
+    host.dataset.state = 'error';
+    host.innerHTML = `
+      <div class="notice">
+        <h3>Could not reach GitHub</h3>
+        <p>${escape(reason)} The downloads are still one click away:</p>
+        <p><a class="button" href="${RELEASES_PAGE}" rel="noopener">All releases on GitHub</a></p>
+      </div>`;
+  }
+
+  loadReleases()
+    .then((releases) => {
+      const release = pickRelease(releases);
+      if (!release) {
+        showError('There is no published release with installers yet.');
+        return;
+      }
+      render(release);
+    })
+    .catch((error: unknown) => {
+      showError(error instanceof Error ? `${error.message}.` : 'The request failed.');
+    });
+</script>
