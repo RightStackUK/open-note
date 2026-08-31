@@ -41,45 +41,42 @@ import { RELEASES_PAGE } from '../lib/releases';
   <section class="section">
     <div class="wrap">
       <div class="section-head">
-        <h2>These builds are not signed yet</h2>
+        <h2>Installing</h2>
         <p>
-          Your operating system will say so, in fairly alarming terms. Here is exactly what you will
-          see and why.
+          macOS builds are signed and notarised, so they just open. Windows still warns. Here is
+          exactly what you will see and why.
         </p>
       </div>
 
       <div class="prose" style="max-width: none">
         <div class="notice" style="margin-bottom: 1.25rem">
-          <h3>Why</h3>
+          <h3>Why Windows still warns</h3>
           <p>
-            Code signing certificates are a recurring cost — an Apple Developer Program membership
-            for macOS, and a signing service or EV certificate for Windows. Until those are in
-            place, the installers are unsigned. The builds themselves are produced by a public
-            GitHub Actions workflow from a public commit, and you can read both.
+            Code signing certificates are a recurring cost. macOS is covered: every build is signed
+            with a Developer ID certificate and notarised by Apple. Windows needs a separate signing
+            service or EV certificate, and until that is in place SmartScreen will warn about the
+            installer.
           </p>
           <p>
-            Signing is tracked in the open:
-            <a href="https://github.com/RightStackUK/open-note/issues/1" rel="noopener">macOS</a>
-            and
-            <a href="https://github.com/RightStackUK/open-note/issues/2" rel="noopener">Windows</a>.
+            The builds are produced by a public GitHub Actions workflow from a public commit, and
+            you can read both. Windows signing is tracked
+            <a href="https://github.com/RightStackUK/open-note/issues/2" rel="noopener">in the open</a>.
           </p>
         </div>
 
         <div class="grid">
           <div class="card">
             <h3>macOS</h3>
-            <p>
-              You will see <em>“Open Note cannot be opened because the developer cannot be
-              verified.”</em>
-            </p>
+            <p>No warning. Signed and notarised, so it opens like anything else.</p>
             <ol class="steps">
-              <li>Open the <code>.dmg</code> and drag Open Note to Applications.</li>
-              <li>In Applications, <strong>right-click</strong> Open Note and choose <strong>Open</strong>.</li>
-              <li>Click <strong>Open</strong> in the dialog. macOS remembers, so this is once only.</li>
+              <li>Open the <code>.dmg</code>.</li>
+              <li>Drag Open Note to Applications.</li>
+              <li>Launch it.</li>
             </ol>
             <p class="small">
-              Double-clicking gives you a dialog with no Open button. The right-click is what makes
-              the difference.
+              The notarisation ticket is stapled to the download, so Gatekeeper clears it without
+              asking Apple — it works on a machine that has never been online. Requires macOS 10.13
+              or later.
             </p>
           </div>
 
