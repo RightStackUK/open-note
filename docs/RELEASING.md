@@ -58,6 +58,24 @@ Signing needs paid accounts:
   and notarisation.
 - **Windows** — Azure Trusted Signing (~$10/month) or an EV certificate.
 
+## Local builds: the DMG step fails on macOS
+
+`pnpm desktop:build` can fail at the very end with a `bundle_dmg.sh` error and
+an AppleScript timeout (`-1712`). The `.app` is already built and fine at that
+point — only the disk image is missing.
+
+The cause is that `bundle_dmg.sh` drives Finder over AppleScript to position the
+icons in the DMG window, and Finder automation needs a permission macOS only
+grants to an app the user has approved. Skip that cosmetic step:
+
+```bash
+CI=true pnpm desktop:build
+```
+
+This does not affect releases. The GitHub runners set `CI` themselves, so the
+release workflow already takes this path and produces a plain, correctly built
+`.dmg`.
+
 ## Nightly builds
 
 [`nightly.yml`](../.github/workflows/nightly.yml) builds every night and uploads

@@ -196,6 +196,17 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
     await engines.current.get(root)?.conflictResolved();
   }, []);
 
+  /**
+   * Re-read git's status for a vault.
+   *
+   * Branch switches and history restores run git behind the engine's back, so
+   * the badge and the branch label would otherwise sit stale until the next
+   * fetch tick — which, with automatic fetching off, never comes.
+   */
+  const refreshStatus = useCallback(async (root: string) => {
+    await engines.current.get(root)?.refresh();
+  }, []);
+
   // Stop every engine when the window goes away, so no timer fires into a
   // torn-down app.
   useEffect(() => {
@@ -219,6 +230,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
     setPaused,
     updateSettings,
     conflictResolved,
+    refreshStatus,
     updatePinned,
     refreshFiles,
     isPaused: (root: string) => engines.current.get(root)?.isPaused() ?? false,

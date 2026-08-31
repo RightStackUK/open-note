@@ -577,6 +577,40 @@ describe('safety', () => {
   });
 });
 
+describe('refresh', () => {
+  it('picks up a branch switched outside the engine', async () => {
+    const port = new FakePort();
+    const { engine } = makeEngine(port);
+    await engine.start();
+    expect(engine.getState().branch).toBe('main');
+
+    // The app switched branches through its own git command; nothing told the
+    // engine, so without an explicit refresh the badge would keep saying main
+    // until the next fetch tick — and there is none when autoFetch is off.
+    port.statusValue = status({ branch: 'codex/desktop-smoke', upstream: null, ahead: 2 });
+    await engine.refresh();
+
+    expect(engine.getState().branch).toBe('codex/desktop-smoke');
+    expect(engine.getState().ahead).toBe(2);
+    engine.stop();
+  });
+
+  it('waits its turn rather than racing another git command', async () => {
+    const port = new FakePort();
+    port.statusValue = status({ changes: [{ path: 'note.md', state: 'modified' }] });
+    const { engine } = makeEngine(port);
+    await engine.start();
+
+    engine.noteChanged();
+    const both = Promise.all([engine.syncNow(), engine.refresh()]);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await both;
+
+    expect(port.overlaps).toEqual([]);
+    engine.stop();
+  });
+});
+
 describe('defaultCommitMessage', () => {
   it('names a single note', () => {
     expect(defaultCommitMessage(['daily/2026-08-29.md'])).toBe('notes: update daily/2026-08-29.md');

@@ -104,6 +104,18 @@ export class VaultSync {
     if (!this.settings.autoPush) this.clear('push');
   }
 
+  /**
+   * Re-read git's status without touching the working tree.
+   *
+   * Anything outside the engine that runs git — switching branches, restoring
+   * a file from history — changes what the badge and the branch label should
+   * say, and nothing else would notice until the next fetch tick.
+   */
+  async refresh(): Promise<SyncState> {
+    await this.enqueue(() => this.refreshStatus());
+    return this.getState();
+  }
+
   async start() {
     if (this.started) return;
     this.started = true;

@@ -51,6 +51,14 @@ const CREATE_PREFIX = 'create:';
 type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 
 interface OpenNote {
+  /**
+   * The vault this document came from.
+   *
+   * Carried on the note rather than read from `activeRoot` at write time: a
+   * queued autosave outlives a vault switch, and without this it would land in
+   * whichever vault happened to be active when the timer fired.
+   */
+  root: string;
   path: string;
   doc: string;
   /**
@@ -97,13 +105,17 @@ export function App() {
   const editorRef = useRef<NoteEditorHandle>(null);
   /** Line to jump to once the editor has mounted the incoming note. */
   const pendingLine = useRef<number | null>(null);
+  /** Which vault the editor is currently showing, to spot a tab switch. */
+  const lastActiveRoot = useRef<string | null>(null);
+  /** The note each vault was last on, so switching back resumes it. */
+  const lastNoteByVault = useRef(new Map<string, string>());
   noteRef.current = note;
 
   // When a pull rewrites the open note underneath us, reload it rather than
   // letting the user keep typing into a stale document.
   const onExternalChange = useCallback((root: string) => {
     const open = noteRef.current;
-    if (!open) return;
+    if (!open || open.root !== root) return;
     void api
       .readNote(root, open.path)
       .then((fresh) => {
@@ -151,8 +163,11 @@ export function App() {
 
   const flush = useCallback(async () => {
     const outstanding = pending.current;
-    const root = ws.activeRoot;
-    if (!outstanding || !root) return;
+    if (!outstanding) return;
+    // The write goes to the vault the document was opened from, never to
+    // whichever vault is active now — the two differ for a save queued just
+    // before a tab switch.
+    const root = outstanding.root;
     pending.current = null;
     setSaveState('saving');
     try {
@@ -164,12 +179,13 @@ export function App() {
       // app re-renders when typing pauses, not on every character; `revision`
       // deliberately does not change, so the editor is not torn down.
       setNote((prev) =>
-        prev && prev.path === outstanding.path && prev.doc !== outstanding.doc
+        prev && prev.root === root && prev.path === outstanding.path && prev.doc !== outstanding.doc
           ? { ...prev, doc: outstanding.doc }
           : prev,
       );
-      // Search, backlinks and tasks must reflect what was just written.
-      vaultIndex.updateNote(outstanding.path, outstanding.doc);
+      // Search, backlinks and tasks must reflect what was just written — but
+      // the index belongs to the active vault, so only when they are the same.
+      if (root === ws.activeRoot) vaultIndex.updateNote(outstanding.path, outstanding.doc);
       // Tell the sync engine a file landed; it owns the commit decision.
       ws.noteSaved(root);
     } catch (e) {
@@ -215,6 +231,7 @@ export function App() {
         setPreview(null);
         setDrawing(null);
         setNote({
+          root,
           path: file.path,
           doc: await api.readNote(root, file.path),
           kind: file.kind === 'text' ? 'text' : 'markdown',
@@ -235,7 +252,7 @@ export function App() {
       try {
         // Raw, so git's markers are visible and can be merged by hand.
         setPreview(null);
-        setNote({ path, doc: await api.readRaw(root, path), kind: 'markdown', revision: 0 });
+        setNote({ root, path, doc: await api.readRaw(root, path), kind: 'markdown', revision: 0 });
       } catch (e) {
         ws.setError(errorText(e));
       }
@@ -268,7 +285,7 @@ export function App() {
         setPreview(null);
         setDrawing(null);
         pendingLine.current = line ?? null;
-        setNote({ path, doc: await api.readNote(root, path), kind: 'markdown', revision: 0 });
+        setNote({ root, path, doc: await api.readNote(root, path), kind: 'markdown', revision: 0 });
         setSaveState('saved');
       } catch (e) {
         ws.setError(errorText(e));
@@ -276,6 +293,45 @@ export function App() {
     },
     [ws, flush],
   );
+
+  /**
+   * Follow the active vault: park the outgoing note and restore this vault's.
+   *
+   * Without this the editor kept showing a note from the vault you just left,
+   * and typing into it created that file in the new repository. Which note was
+   * last open is remembered per vault, so switching tabs returns you to where
+   * you were rather than to an empty pane.
+   */
+  useEffect(() => {
+    const root = ws.activeRoot;
+    if (lastActiveRoot.current === root) return;
+    const leaving = lastActiveRoot.current;
+    lastActiveRoot.current = root;
+
+    const open = noteRef.current;
+    if (leaving) {
+      if (open && open.root === leaving) lastNoteByVault.current.set(leaving, open.path);
+      else lastNoteByVault.current.delete(leaving);
+    }
+
+    // A queued save still belongs to the vault being left; land it there.
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    void flush();
+
+    setNote(null);
+    setPreview(null);
+    setDrawing(null);
+    setShowTodos(false);
+    setPanel(null);
+    setSaveState('saved');
+
+    if (!root) return;
+    const remembered = lastNoteByVault.current.get(root);
+    // Only if it is still there: the note may have been deleted, or the vault
+    // may have moved to a branch without it.
+    const stillThere = ws.sessions[root]?.files.some((file) => file.path === remembered);
+    if (remembered && stillThere) void openNoteAt(remembered);
+  }, [ws.activeRoot, ws.sessions, flush, openNoteAt]);
 
   useEffect(() => {
     const line = pendingLine.current;
@@ -342,7 +398,9 @@ export function App() {
   const reloadFromDisk = useCallback(async () => {
     const root = ws.activeRoot;
     if (!root) return;
-    await ws.refreshFiles(root);
+    // Branch switches and restores run git outside the engine, so the status
+    // it publishes — the branch name in particular — is stale until asked.
+    await Promise.all([ws.refreshFiles(root), ws.refreshStatus(root)]);
     const open = noteRef.current;
     if (!open) return;
     try {
