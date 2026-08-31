@@ -7,6 +7,8 @@ interface SidebarProps {
   activePath: string | null;
   changedPaths: Set<string>;
   onSelect: (file: VaultFile) => void;
+  /** Right-click on a row, or on the empty space below the tree. */
+  onContext: (path: string, kind: 'file' | 'folder' | 'root', x: number, y: number) => void;
 }
 
 /** A glyph per file kind, so the tree reads at a glance. */
@@ -23,12 +25,14 @@ function Node({
   activePath,
   changedPaths,
   onSelect,
+  onContext,
 }: {
   node: TreeNode;
   depth: number;
   activePath: string | null;
   changedPaths: Set<string>;
   onSelect: (file: VaultFile) => void;
+  onContext: SidebarProps['onContext'];
 }) {
   const [open, setOpen] = useState(true);
   const indent = { paddingLeft: `${0.5 + depth * 0.75}rem` };
@@ -41,6 +45,11 @@ function Node({
           className="tree-row tree-folder"
           style={indent}
           onClick={() => setOpen((v) => !v)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onContext(node.path, 'folder', e.clientX, e.clientY);
+          }}
           aria-expanded={open}
         >
           <span className="tree-caret">{open ? '▾' : '▸'}</span>
@@ -56,6 +65,7 @@ function Node({
                 activePath={activePath}
                 changedPaths={changedPaths}
                 onSelect={onSelect}
+                onContext={onContext}
               />
             ))}
           </ul>
@@ -84,7 +94,11 @@ function Node({
           .join(' ')}
         style={indent}
         onClick={() => openable && onSelect(file)}
-        disabled={!openable}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onContext(file.path, 'file', e.clientX, e.clientY);
+        }}
         title={openable ? file.path : `${file.path} — not a note, cannot be opened`}
       >
         <span className="tree-icon">{kindIcon(file.kind)}</span>
@@ -95,25 +109,39 @@ function Node({
   );
 }
 
-export function Sidebar({ files, activePath, changedPaths, onSelect }: SidebarProps) {
+export function Sidebar({ files, activePath, changedPaths, onSelect, onContext }: SidebarProps) {
   const tree = buildTree(files);
 
+  // Right-clicking the empty area below the tree targets the vault root, which
+  // is how you make a note or folder at the top level.
+  const rootContext = (e: React.MouseEvent) => {
+    e.preventDefault();
+    onContext('', 'root', e.clientX, e.clientY);
+  };
+
   if (files.length === 0) {
-    return <p className="sidebar-empty">This vault has no files yet.</p>;
+    return (
+      <div className="tree-root-area" onContextMenu={rootContext}>
+        <p className="sidebar-empty">This vault has no files yet. Right-click here to make one.</p>
+      </div>
+    );
   }
 
   return (
-    <ul className="tree-list tree-root">
-      {tree.map((node) => (
-        <Node
-          key={node.path}
-          node={node}
-          depth={0}
-          activePath={activePath}
-          changedPaths={changedPaths}
-          onSelect={onSelect}
-        />
-      ))}
-    </ul>
+    <div className="tree-root-area" onContextMenu={rootContext}>
+      <ul className="tree-list tree-root">
+        {tree.map((node) => (
+          <Node
+            key={node.path}
+            node={node}
+            depth={0}
+            activePath={activePath}
+            changedPaths={changedPaths}
+            onSelect={onSelect}
+            onContext={onContext}
+          />
+        ))}
+      </ul>
+    </div>
   );
 }

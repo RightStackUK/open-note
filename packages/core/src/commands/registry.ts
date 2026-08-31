@@ -47,6 +47,13 @@ export const COMMANDS: CommandDefinition[] = [
   // Note
   { id: 'note.new', title: 'New note', category: 'Note', binding: 'Mod-N' },
   {
+    id: 'note.newFolder',
+    title: 'New folder',
+    category: 'Note',
+    binding: 'Mod-Shift-N',
+    keywords: ['directory', 'group'],
+  },
+  {
     id: 'note.daily',
     title: "Open today's note",
     category: 'Note',

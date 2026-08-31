@@ -68,6 +68,12 @@ pub trait GitPort: Send + Sync {
 
     // -- branches ----------------------------------------------------------
 
+    /// Whether git tracks this path — that is, whether it exists in a commit.
+    ///
+    /// The difference matters before a delete: a tracked note is recoverable
+    /// from history, an untracked one is gone for good.
+    fn is_tracked(&self, repo: &Path, path: &Path) -> Result<bool>;
+
     /// The configured URL for a remote, if it has one.
     fn remote_url(&self, repo: &Path, remote: &str) -> Result<Option<String>>;
 

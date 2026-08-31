@@ -2,6 +2,7 @@ import {
   COMMANDS,
   dailyNotePath,
   dailyNoteTemplate,
+  rewriteLinks,
   searchCommands,
   type TodoItem,
 } from '@open-note/core';
@@ -14,6 +15,7 @@ import { BranchMenu } from './components/BranchMenu';
 import { CloneDialog } from './components/CloneDialog';
 import { ConflictPanel } from './components/ConflictPanel';
 import { DrawingEditor } from './components/DrawingEditor';
+import { ConfirmDelete, ContextMenu, type ContextTarget, Prompt } from './components/FileActions';
 import { HistoryPanel } from './components/HistoryPanel';
 import { KeymapPanel } from './components/KeymapPanel';
 import { NoteEditor, type NoteEditorHandle } from './components/NoteEditor';
@@ -65,6 +67,11 @@ export function App() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [showTodos, setShowTodos] = useState(false);
   const [showClone, setShowClone] = useState(false);
+  const [contextTarget, setContextTarget] = useState<ContextTarget | null>(null);
+  const [prompt, setPrompt] = useState<
+    { kind: 'newNote' | 'newFolder'; parent: string } | { kind: 'rename'; path: string } | null
+  >(null);
+  const [deleting, setDeleting] = useState<{ path: string; tracked: boolean | null } | null>(null);
 
   const saveTimer = useRef<number | null>(null);
   const pending = useRef<OpenNote | null>(null);
@@ -304,6 +311,138 @@ export function App() {
     [],
   );
 
+  // -- file management ----------------------------------------------------
+
+  const joinPath = (parent: string, name: string) => (parent ? `${parent}/${name}` : name);
+
+  const newNote = useCallback(
+    async (parent: string, name: string) => {
+      const root = ws.activeRoot;
+      if (!root) return;
+      const fileName = name.endsWith('.md') ? name : `${name}.md`;
+      const path = joinPath(parent, fileName);
+      try {
+        const body = `# ${fileName.replace(/\.md$/, '')}\n\n`;
+        await api.createNote(root, path, body);
+        vaultIndex.updateNote(path, body);
+        ws.noteSaved(root);
+        await ws.refreshFiles(root);
+        await openNoteAt(path);
+      } catch (e) {
+        ws.setError(errorText(e));
+      }
+    },
+    [ws, vaultIndex, openNoteAt],
+  );
+
+  const newFolder = useCallback(
+    async (parent: string, name: string) => {
+      const root = ws.activeRoot;
+      if (!root) return;
+      try {
+        await api.createFolder(root, joinPath(parent, name));
+        // Git does not track empty folders, so the tree is the only place this
+        // shows up until a note is put in it.
+        await ws.refreshFiles(root);
+      } catch (e) {
+        ws.setError(errorText(e));
+      }
+    },
+    [ws],
+  );
+
+  /**
+   * Rename a note or folder, keeping `[[wikilinks]]` pointing at it.
+   *
+   * The link rewrites go in before the rename is announced, so both land in the
+   * same automatic commit and can be reviewed — and reverted — as one change.
+   */
+  const rename = useCallback(
+    async (from: string, name: string) => {
+      const root = ws.activeRoot;
+      if (!root) return;
+      const slash = from.lastIndexOf('/');
+      const parent = slash === -1 ? '' : from.slice(0, slash);
+      const isFolder = !from.includes('.') || !/\.[a-z0-9]+$/i.test(from);
+      const target = !isFolder && !name.includes('.') ? `${name}.md` : name;
+      const to = joinPath(parent, target);
+      if (to === from) return;
+
+      try {
+        await api.renameEntry(root, from, to);
+
+        let updated = 0;
+        if (!isFolder) {
+          const linkers = vaultIndex.index
+            .backlinks(from)
+            .map((link) => link.from)
+            .filter((path) => path !== from);
+
+          for (const path of linkers) {
+            const source = await api.readNote(root, path);
+            const rewrite = rewriteLinks(
+              source,
+              (candidate) => vaultIndex.index.resolveLink(candidate) === from,
+              to,
+            );
+            if (rewrite.count === 0) continue;
+            await api.writeNote(root, path, rewrite.text);
+            vaultIndex.updateNote(path, rewrite.text);
+            updated += rewrite.count;
+          }
+        }
+
+        vaultIndex.removeNote(from);
+        ws.noteSaved(root);
+        await ws.refreshFiles(root);
+        await vaultIndex.rebuild(root);
+
+        if (noteRef.current?.path === from) await openNoteAt(to);
+        if (updated > 0) {
+          setMessage(`Renamed, and updated ${updated} link${updated === 1 ? '' : 's'}.`);
+        }
+      } catch (e) {
+        ws.setError(errorText(e));
+      }
+    },
+    [ws, vaultIndex, openNoteAt],
+  );
+
+  const remove = useCallback(
+    async (path: string) => {
+      const root = ws.activeRoot;
+      if (!root) return;
+      try {
+        await api.deleteEntry(root, path);
+        vaultIndex.removeNote(path);
+        ws.noteSaved(root);
+        await ws.refreshFiles(root);
+        if (noteRef.current?.path === path) {
+          setNote(null);
+          setPreview(null);
+        }
+      } catch (e) {
+        ws.setError(errorText(e));
+      }
+    },
+    [ws, vaultIndex],
+  );
+
+  const askDelete = useCallback(
+    async (path: string) => {
+      const root = ws.activeRoot;
+      setDeleting({ path, tracked: null });
+      if (!root) return;
+      try {
+        setDeleting({ path, tracked: await api.isTracked(root, path) });
+      } catch {
+        // Unknown: the dialog keeps its cautious wording.
+        setDeleting({ path, tracked: false });
+      }
+    },
+    [ws],
+  );
+
   const openPalette = useCallback((mode: PaletteMode) => {
     setPaletteQuery('');
     setPalette(mode);
@@ -319,10 +458,8 @@ export function App() {
         setNote(null);
         setPreview(null);
       },
-      'note.new': () => {
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        void createNote(`untitled-${stamp}.md`, '# \n\n');
-      },
+      'note.new': () => setPrompt({ kind: 'newNote', parent: '' }),
+      'note.newFolder': () => setPrompt({ kind: 'newFolder', parent: '' }),
       'note.daily': () => {
         const today = new Date();
         void createNote(dailyNotePath(today), dailyNoteTemplate(today));
@@ -562,6 +699,7 @@ export function App() {
               activePath={note?.path ?? preview?.path ?? drawing?.path ?? null}
               changedPaths={new Set(session.state.conflicts)}
               onSelect={select}
+              onContext={(path, kind, x, y) => setContextTarget({ path, kind, x, y })}
             />
           </aside>
         )}
@@ -664,6 +802,83 @@ export function App() {
           />
         )}
       </div>
+
+      {contextTarget && (
+        <ContextMenu
+          target={contextTarget}
+          onClose={() => setContextTarget(null)}
+          onNewNote={(parent) => {
+            setContextTarget(null);
+            setPrompt({ kind: 'newNote', parent });
+          }}
+          onNewFolder={(parent) => {
+            setContextTarget(null);
+            setPrompt({ kind: 'newFolder', parent });
+          }}
+          onRename={(path) => {
+            setContextTarget(null);
+            setPrompt({ kind: 'rename', path });
+          }}
+          onDelete={(path) => {
+            setContextTarget(null);
+            void askDelete(path);
+          }}
+        />
+      )}
+
+      {prompt?.kind === 'newNote' && (
+        <Prompt
+          title="New note"
+          label={prompt.parent ? `Name, in ${prompt.parent}` : 'Name'}
+          hint="`.md` is added if you leave it off."
+          onClose={() => setPrompt(null)}
+          onConfirm={(name) => {
+            setPrompt(null);
+            void newNote(prompt.parent, name);
+          }}
+        />
+      )}
+
+      {prompt?.kind === 'newFolder' && (
+        <Prompt
+          title="New folder"
+          label={prompt.parent ? `Name, in ${prompt.parent}` : 'Name'}
+          onClose={() => setPrompt(null)}
+          onConfirm={(name) => {
+            setPrompt(null);
+            void newFolder(prompt.parent, name);
+          }}
+        />
+      )}
+
+      {prompt?.kind === 'rename' && (
+        <Prompt
+          title="Rename"
+          label="New name"
+          initial={prompt.path.split('/').pop() ?? ''}
+          confirmLabel="Rename"
+          hint="Notes linking here with [[wikilinks]] are updated to match."
+          onClose={() => setPrompt(null)}
+          onConfirm={(name) => {
+            const from = prompt.path;
+            setPrompt(null);
+            void rename(from, name);
+          }}
+        />
+      )}
+
+      {deleting && (
+        <ConfirmDelete
+          path={deleting.path}
+          tracked={deleting.tracked}
+          onClose={() => setDeleting(null)}
+          onConfirm={() => {
+            const path = deleting.path;
+            setDeleting(null);
+            void remove(path);
+          }}
+        />
+      )}
 
       {showClone && (
         <CloneDialog

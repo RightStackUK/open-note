@@ -1387,3 +1387,68 @@ button {
   opacity: 0.5;
   cursor: default;
 }
+
+/* ---------- Context menu ---------- */
+
+.tree-root-area {
+  min-height: 100%;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 11rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 30%);
+}
+
+.context-menu button {
+  display: block;
+  width: 100%;
+  padding: 0.35rem 0.6rem;
+  border-radius: 5px;
+  text-align: left;
+  font-size: 0.84rem;
+}
+
+.context-menu button:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.context-menu button.danger {
+  color: var(--danger);
+}
+
+.context-menu hr {
+  margin: 0.25rem 0.4rem;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+/* ---------- Prompt / confirm ---------- */
+
+.prompt {
+  width: min(26rem, 92vw);
+  padding: 1.4rem;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 35%);
+}
+
+.prompt h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+}
+
+.prompt code {
+  font-family: var(--mono-font);
+  font-size: 0.78rem;
+}
+
+.danger-button {
+  background: var(--danger);
+}

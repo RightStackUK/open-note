@@ -318,6 +318,41 @@ fn write_drawing(root: String, path: String, contents: String) -> Result<(), Vau
     vault::write_drawing(&PathBuf::from(root), &path, &contents)
 }
 
+// ---------------------------------------------------------------------------
+// File management.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn create_folder(root: String, path: String) -> Result<(), VaultError> {
+    vault::create_folder(&PathBuf::from(root), &path)
+}
+
+#[tauri::command]
+fn create_note(root: String, path: String, contents: String) -> Result<(), VaultError> {
+    vault::create_note(&PathBuf::from(root), &path, &contents)
+}
+
+#[tauri::command]
+fn rename_entry(root: String, from: String, to: String) -> Result<(), VaultError> {
+    vault::rename_entry(&PathBuf::from(root), &from, &to)
+}
+
+#[tauri::command]
+fn delete_entry(root: String, path: String) -> Result<(), VaultError> {
+    vault::delete_entry(&PathBuf::from(root), &path)
+}
+
+/// Whether git has this path in a commit.
+///
+/// The delete confirmation asks first: a tracked note can be recovered from
+/// history, an untracked one cannot be recovered at all.
+#[tauri::command]
+fn is_tracked(root: String, path: String) -> Result<bool, VaultError> {
+    let repo = PathBuf::from(root);
+    let relative = relative_within(&repo, &path)?;
+    Ok(SystemGit::new().is_tracked(&repo, &relative)?)
+}
+
 #[tauri::command]
 fn read_all_notes(root: String) -> Result<Vec<vault::NoteSource>, VaultError> {
     vault::read_all_notes(&SystemGit::new(), &PathBuf::from(root))
@@ -451,6 +486,11 @@ pub fn run() {
             read_raw,
             read_drawing,
             write_drawing,
+            create_folder,
+            create_note,
+            rename_entry,
+            delete_entry,
+            is_tracked,
             read_all_notes,
             read_vault_keymap,
             write_vault_keymap,

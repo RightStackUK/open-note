@@ -99,6 +99,15 @@ export const api = {
   rebaseInProgress: (root: string) => invoke<boolean>('rebase_in_progress', { root }),
   readRaw: (root: string, path: string) => invoke<string>('read_raw', { root, path }),
 
+  // File management.
+  createFolder: (root: string, path: string) => invoke<void>('create_folder', { root, path }),
+  createNote: (root: string, path: string, contents: string) =>
+    invoke<void>('create_note', { root, path, contents }),
+  renameEntry: (root: string, from: string, to: string) =>
+    invoke<void>('rename_entry', { root, from, to }),
+  deleteEntry: (root: string, path: string) => invoke<void>('delete_entry', { root, path }),
+  isTracked: (root: string, path: string) => invoke<boolean>('is_tracked', { root, path }),
+
   // Bulk note load, for building the search index in one round trip.
   readAllNotes: (root: string) =>
     invoke<Array<{ path: string; content: string }>>('read_all_notes', { root }),

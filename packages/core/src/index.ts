@@ -48,6 +48,8 @@ export {
   splitFrontmatter,
   toPlainText,
 } from './notes/parse';
+export type { LinkRewrite } from './notes/rename';
+export { replacementTarget, rewriteLinks } from './notes/rename';
 export type { Backlink, IndexedNote, SearchHit, TagCount, TodoItem } from './notes/vaultIndex';
 export { fuzzyScore, snippetFor, VaultIndex } from './notes/vaultIndex';
 export type { VaultSyncOptions } from './sync/engine';

@@ -7,7 +7,7 @@ table-stakes features with no implementation at all. This plan closes them.
 Mobile (Phase 7 of the [roadmap](ROADMAP.md)) waits until this is finished:
 porting an app with no delete button to a second platform is the wrong order.
 
-**Status:** Block 1 done. Blocks 2–4 in progress.
+**Status:** Blocks 1–2 done. Blocks 3–4 in progress.
 
 ---
 
@@ -87,7 +87,7 @@ shipped.
 
 ---
 
-## Block 2 — File management
+## Block 2 — File management ✅
 
 The largest gap. Everything here goes through the existing `resolve_within`
 path validation; a path from the webview is untrusted input even when it names a

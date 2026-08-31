@@ -42,6 +42,12 @@ pub enum VaultError {
     #[error("file is not valid UTF-8 text")]
     NotUtf8,
 
+    #[error("{0} already exists")]
+    AlreadyExists(String),
+
+    #[error("{0} cannot be modified")]
+    Protected(String),
+
     #[error(transparent)]
     Git(#[from] git_port::GitError),
 
@@ -69,6 +75,8 @@ impl VaultError {
             VaultError::NotEditable(_) => "notEditable",
             VaultError::TooLarge(_) => "tooLarge",
             VaultError::NotUtf8 => "notUtf8",
+            VaultError::AlreadyExists(_) => "alreadyExists",
+            VaultError::Protected(_) => "protected",
             VaultError::Io(_) => "io",
             VaultError::Git(e) => match e {
                 git_port::GitError::GitNotFound => "gitNotFound",
@@ -353,6 +361,91 @@ pub fn read_image_data_url(root: &Path, relative: &str) -> Result<String> {
     ))
 }
 
+/// Reject a path that must never be written to or removed.
+///
+/// `resolve_within` already blocks escaping the vault, but not the two ways to
+/// destroy it from the inside: naming the vault root itself, or naming `.git`.
+/// A delete is recursive, so either would be catastrophic.
+fn reject_protected(root: &Path, relative: &str) -> Result<PathBuf> {
+    let trimmed = relative.trim().trim_matches('/');
+    if trimmed.is_empty() || trimmed == "." {
+        return Err(VaultError::Protected("the vault root".into()));
+    }
+    let first = trimmed.split('/').next().unwrap_or_default();
+    if first == ".git" {
+        return Err(VaultError::Protected(".git".into()));
+    }
+
+    let resolved = resolve_within(root, trimmed)?;
+    if resolved == root.canonicalize()? {
+        return Err(VaultError::Protected("the vault root".into()));
+    }
+    Ok(resolved)
+}
+
+pub fn create_folder(root: &Path, relative: &str) -> Result<()> {
+    let path = reject_protected(root, relative)?;
+    if path.exists() {
+        return Err(VaultError::AlreadyExists(relative.to_string()));
+    }
+    fs::create_dir_all(&path)?;
+    Ok(())
+}
+
+/// Create a note, refusing to overwrite anything that is already there.
+pub fn create_note(root: &Path, relative: &str, contents: &str) -> Result<()> {
+    let path = reject_protected(root, relative)?;
+    if path.exists() {
+        return Err(VaultError::AlreadyExists(relative.to_string()));
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&path, contents)?;
+    Ok(())
+}
+
+/// Rename or move a file or folder.
+///
+/// A plain rename: git detects renames itself and `add -A` already stages them,
+/// so `git mv` would buy nothing and would fail on untracked files.
+pub fn rename_entry(root: &Path, from: &str, to: &str) -> Result<()> {
+    let source = reject_protected(root, from)?;
+    let target = reject_protected(root, to)?;
+
+    if !source.exists() {
+        return Err(VaultError::Io(format!("{from} does not exist")));
+    }
+    // Case-only renames land on the same path on a case-insensitive filesystem,
+    // and must not be mistaken for a collision.
+    if target.exists() && source != target {
+        return Err(VaultError::AlreadyExists(to.to_string()));
+    }
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::rename(&source, &target)?;
+    Ok(())
+}
+
+/// Delete a file or folder permanently.
+///
+/// There is no trash: git history is the recovery mechanism, and a second
+/// half-mechanism would be worse than one clear one. The caller is responsible
+/// for telling the user when a path is untracked and therefore unrecoverable.
+pub fn delete_entry(root: &Path, relative: &str) -> Result<()> {
+    let path = reject_protected(root, relative)?;
+    if !path.exists() {
+        return Err(VaultError::Io(format!("{relative} does not exist")));
+    }
+    if path.is_dir() {
+        fs::remove_dir_all(&path)?;
+    } else {
+        fs::remove_file(&path)?;
+    }
+    Ok(())
+}
+
 /// Per-vault settings file, relative to the vault root.
 pub const SETTINGS_PATH: &str = ".opennote/settings.json";
 /// Per-vault keymap file, relative to the vault root.
@@ -618,6 +711,183 @@ mod tests {
         let (_d, root) = vault();
         assert!(matches!(
             read_image_data_url(&root, "../secret.png"),
+            Err(VaultError::PathEscapesVault)
+        ));
+    }
+
+    // -- file operations ----------------------------------------------------
+
+    #[test]
+    fn creates_a_folder() {
+        let (_d, root) = vault();
+        create_folder(&root, "projects").expect("create");
+        assert!(root.join("projects").is_dir());
+    }
+
+    #[test]
+    fn creates_nested_folders_in_one_go() {
+        let (_d, root) = vault();
+        create_folder(&root, "a/b/c").expect("create");
+        assert!(root.join("a/b/c").is_dir());
+    }
+
+    #[test]
+    fn refuses_to_create_a_folder_that_exists() {
+        let (_d, root) = vault();
+        create_folder(&root, "projects").expect("create");
+        assert!(matches!(
+            create_folder(&root, "projects"),
+            Err(VaultError::AlreadyExists(_))
+        ));
+    }
+
+    #[test]
+    fn creates_a_note_with_its_folders() {
+        let (_d, root) = vault();
+        create_note(&root, "a/b/note.md", "# hi").expect("create");
+        assert_eq!(
+            fs::read_to_string(root.join("a/b/note.md")).unwrap(),
+            "# hi"
+        );
+    }
+
+    #[test]
+    fn refuses_to_overwrite_an_existing_note() {
+        // Creating over someone's note would destroy it with no undo.
+        let (_d, root) = vault();
+        create_note(&root, "note.md", "original").expect("create");
+        assert!(matches!(
+            create_note(&root, "note.md", "replacement"),
+            Err(VaultError::AlreadyExists(_))
+        ));
+        assert_eq!(
+            fs::read_to_string(root.join("note.md")).unwrap(),
+            "original"
+        );
+    }
+
+    #[test]
+    fn renames_a_note() {
+        let (_d, root) = vault();
+        create_note(&root, "old.md", "body").expect("create");
+        rename_entry(&root, "old.md", "new.md").expect("rename");
+        assert!(!root.join("old.md").exists());
+        assert_eq!(fs::read_to_string(root.join("new.md")).unwrap(), "body");
+    }
+
+    #[test]
+    fn renaming_into_a_new_folder_creates_it() {
+        let (_d, root) = vault();
+        create_note(&root, "note.md", "body").expect("create");
+        rename_entry(&root, "note.md", "archive/2026/note.md").expect("rename");
+        assert!(root.join("archive/2026/note.md").exists());
+    }
+
+    #[test]
+    fn refuses_a_rename_that_would_overwrite() {
+        let (_d, root) = vault();
+        create_note(&root, "a.md", "a").expect("create");
+        create_note(&root, "b.md", "b").expect("create");
+        assert!(matches!(
+            rename_entry(&root, "a.md", "b.md"),
+            Err(VaultError::AlreadyExists(_))
+        ));
+        assert_eq!(fs::read_to_string(root.join("b.md")).unwrap(), "b");
+    }
+
+    #[test]
+    fn allows_a_case_only_rename() {
+        // On a case-insensitive filesystem both names are the same path, which
+        // must not be mistaken for a collision.
+        let (_d, root) = vault();
+        create_note(&root, "note.md", "body").expect("create");
+        rename_entry(&root, "note.md", "Note.md").expect("rename");
+        assert_eq!(fs::read_to_string(root.join("Note.md")).unwrap(), "body");
+    }
+
+    #[test]
+    fn renames_a_folder_and_everything_in_it() {
+        let (_d, root) = vault();
+        create_note(&root, "old/inner.md", "body").expect("create");
+        rename_entry(&root, "old", "new").expect("rename");
+        assert_eq!(
+            fs::read_to_string(root.join("new/inner.md")).unwrap(),
+            "body"
+        );
+    }
+
+    #[test]
+    fn deletes_a_note() {
+        let (_d, root) = vault();
+        create_note(&root, "note.md", "body").expect("create");
+        delete_entry(&root, "note.md").expect("delete");
+        assert!(!root.join("note.md").exists());
+    }
+
+    #[test]
+    fn deletes_a_folder_and_its_contents() {
+        let (_d, root) = vault();
+        create_note(&root, "folder/inner.md", "body").expect("create");
+        delete_entry(&root, "folder").expect("delete");
+        assert!(!root.join("folder").exists());
+    }
+
+    #[test]
+    fn refuses_to_delete_a_path_that_is_not_there() {
+        let (_d, root) = vault();
+        assert!(delete_entry(&root, "ghost.md").is_err());
+    }
+
+    // -- the guards that matter ---------------------------------------------
+
+    #[test]
+    fn refuses_to_delete_the_vault_root() {
+        // Deleting is recursive; naming the root would destroy everything.
+        let (_d, root) = vault();
+        create_note(&root, "note.md", "body").expect("create");
+        for attempt in ["", ".", "/", "   "] {
+            assert!(
+                matches!(delete_entry(&root, attempt), Err(VaultError::Protected(_))),
+                "root delete not blocked for {attempt:?}"
+            );
+        }
+        assert!(root.join("note.md").exists());
+    }
+
+    #[test]
+    fn refuses_to_touch_the_git_directory() {
+        let (_d, root) = vault();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join(".git/HEAD"), "ref: refs/heads/main").unwrap();
+
+        assert!(matches!(
+            delete_entry(&root, ".git"),
+            Err(VaultError::Protected(_))
+        ));
+        assert!(matches!(
+            delete_entry(&root, ".git/HEAD"),
+            Err(VaultError::Protected(_))
+        ));
+        assert!(matches!(
+            create_note(&root, ".git/hooks/evil", "x"),
+            Err(VaultError::Protected(_))
+        ));
+        assert!(root.join(".git/HEAD").exists());
+    }
+
+    #[test]
+    fn refuses_operations_outside_the_vault() {
+        let (_d, root) = vault();
+        assert!(matches!(
+            create_note(&root, "../escape.md", "x"),
+            Err(VaultError::PathEscapesVault)
+        ));
+        assert!(matches!(
+            delete_entry(&root, "../escape.md"),
+            Err(VaultError::PathEscapesVault)
+        ));
+        assert!(matches!(
+            rename_entry(&root, "../a.md", "../b.md"),
             Err(VaultError::PathEscapesVault)
         ));
     }

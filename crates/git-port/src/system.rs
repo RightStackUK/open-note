@@ -420,6 +420,18 @@ impl GitPort for SystemGit {
         Ok(())
     }
 
+    fn is_tracked(&self, repo: &Path, path: &Path) -> Result<bool> {
+        let path_str = path.to_string_lossy();
+        // `ls-files --error-unmatch` exits non-zero for anything git does not
+        // know about, which is exactly the question being asked.
+        Ok(self
+            .run_ok(
+                Some(repo),
+                &["ls-files", "--error-unmatch", "--", &path_str],
+            )
+            .is_ok())
+    }
+
     fn remote_url(&self, repo: &Path, remote: &str) -> Result<Option<String>> {
         match self.run_ok(Some(repo), &["remote", "get-url", remote]) {
             Ok(url) if !url.is_empty() => Ok(Some(url)),
@@ -1148,6 +1160,19 @@ mod tests {
             matches!(outcome, MergeOutcome::Conflicted { .. }),
             "{outcome:?}"
         );
+    }
+
+    #[test]
+    fn knows_whether_a_path_is_tracked() {
+        // The difference decides whether a delete is recoverable.
+        let (_dir, repo, git) = fixture();
+        write(&repo, "committed.md", "a");
+        git.commit(&repo, &[], "notes: seed").expect("commit");
+        write(&repo, "brand-new.md", "b");
+
+        assert!(git.is_tracked(&repo, Path::new("committed.md")).unwrap());
+        assert!(!git.is_tracked(&repo, Path::new("brand-new.md")).unwrap());
+        assert!(!git.is_tracked(&repo, Path::new("absent.md")).unwrap());
     }
 
     #[test]
