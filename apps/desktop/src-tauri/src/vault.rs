@@ -446,6 +446,64 @@ pub fn delete_entry(root: &Path, relative: &str) -> Result<()> {
     Ok(())
 }
 
+/// Longest attachment extension we will honour; anything else is suspicious.
+const MAX_EXTENSION: usize = 8;
+
+/// Store a pasted or dropped file and return its vault-relative path.
+///
+/// The name is a hash of the contents, which does two useful things at once:
+/// pasting the same screenshot twice reuses one file instead of making a second
+/// copy, and there is no collision to resolve with a counter. It also means the
+/// name can never carry anything hostile in from the clipboard.
+pub fn write_attachment(
+    root: &Path,
+    folder: &str,
+    extension: &str,
+    bytes: &[u8],
+) -> Result<String> {
+    use sha2::{Digest, Sha256};
+
+    let ext: String = extension
+        .trim_start_matches('.')
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(MAX_EXTENSION)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if ext.is_empty() {
+        return Err(VaultError::Io(
+            "attachment has no usable file extension".into(),
+        ));
+    }
+
+    let digest = Sha256::digest(bytes);
+    let name = format!("{:x}", digest);
+    let relative = match folder.trim().trim_matches('/') {
+        "" | "." => format!("{}.{ext}", &name[..16]),
+        dir => format!("{dir}/{}.{ext}", &name[..16]),
+    };
+
+    let path = reject_protected(root, &relative)?;
+    // Identical contents mean the file is already correct; leave it alone.
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, bytes)?;
+    }
+    Ok(relative)
+}
+
+/// Read any vault file as raw bytes, for previewing an attachment.
+pub fn read_bytes(root: &Path, relative: &str) -> Result<Vec<u8>> {
+    let path = resolve_within(root, relative)?;
+    let size = fs::metadata(&path)?.len();
+    if size > MAX_PREVIEW_BYTES {
+        return Err(VaultError::TooLarge(size));
+    }
+    Ok(fs::read(&path)?)
+}
+
 /// Per-vault settings file, relative to the vault root.
 pub const SETTINGS_PATH: &str = ".opennote/settings.json";
 /// Per-vault keymap file, relative to the vault root.
@@ -716,6 +774,73 @@ mod tests {
     }
 
     // -- file operations ----------------------------------------------------
+
+    #[test]
+    fn stores_an_attachment_under_a_content_hash() {
+        let (_d, root) = vault();
+        let path = write_attachment(&root, "assets", "png", b"\x89PNG fake").expect("write");
+        assert!(path.starts_with("assets/"));
+        assert!(path.ends_with(".png"));
+        assert!(root.join(&path).exists());
+    }
+
+    #[test]
+    fn the_same_bytes_reuse_one_file() {
+        // Pasting the same screenshot twice should not leave two copies behind.
+        let (_d, root) = vault();
+        let a = write_attachment(&root, "assets", "png", b"same").expect("write");
+        let b = write_attachment(&root, "assets", "png", b"same").expect("write");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn different_bytes_get_different_names() {
+        let (_d, root) = vault();
+        let a = write_attachment(&root, "assets", "png", b"one").expect("write");
+        let b = write_attachment(&root, "assets", "png", b"two").expect("write");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn an_empty_folder_setting_puts_attachments_at_the_root() {
+        let (_d, root) = vault();
+        let path = write_attachment(&root, ".", "png", b"x").expect("write");
+        assert!(!path.contains('/'), "got {path}");
+    }
+
+    #[test]
+    fn a_hostile_extension_cannot_escape_the_attachment_folder() {
+        // The extension comes from the clipboard, so it is untrusted input.
+        // Everything but alphanumerics is dropped rather than rejected, so the
+        // paste still works — it just cannot carry a path with it.
+        let (_d, root) = vault();
+        let path = write_attachment(&root, "assets", "../../evil", b"x").expect("write");
+        assert!(path.starts_with("assets/"), "escaped to {path}");
+        assert!(!path.contains(".."), "traversal survived in {path}");
+        assert!(path.ends_with(".evil"));
+    }
+
+    #[test]
+    fn an_extension_with_nothing_usable_in_it_is_refused() {
+        let (_d, root) = vault();
+        assert!(write_attachment(&root, "assets", "", b"x").is_err());
+        assert!(write_attachment(&root, "assets", "../..", b"x").is_err());
+    }
+
+    #[test]
+    fn a_long_extension_is_truncated() {
+        let (_d, root) = vault();
+        let path = write_attachment(&root, "assets", "averylongextension", b"x").expect("write");
+        let ext = path.rsplit('.').next().unwrap();
+        assert!(ext.len() <= 8, "got {ext}");
+    }
+
+    #[test]
+    fn attachments_round_trip_as_bytes() {
+        let (_d, root) = vault();
+        let path = write_attachment(&root, "assets", "png", b"payload").expect("write");
+        assert_eq!(read_bytes(&root, &path).expect("read"), b"payload");
+    }
 
     #[test]
     fn creates_a_folder() {

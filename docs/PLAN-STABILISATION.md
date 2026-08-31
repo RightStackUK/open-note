@@ -7,7 +7,7 @@ table-stakes features with no implementation at all. This plan closes them.
 Mobile (Phase 7 of the [roadmap](ROADMAP.md)) waits until this is finished:
 porting an app with no delete button to a second platform is the wrong order.
 
-**Status:** Blocks 1–2 done. Blocks 3–4 in progress.
+**Status:** Blocks 1–3 done. Block 4 in progress.
 
 ---
 
@@ -148,7 +148,7 @@ covers the need.
 
 ---
 
-## Block 3 — Tags and attachments
+## Block 3 — Tags and attachments ✅
 
 ### 3.1 Tag browser
 

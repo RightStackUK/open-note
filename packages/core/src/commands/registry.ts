@@ -100,6 +100,13 @@ export const COMMANDS: CommandDefinition[] = [
   // View
   { id: 'view.toggleSidebar', title: 'Toggle sidebar', category: 'View', binding: 'Mod-\\' },
   {
+    id: 'view.tags',
+    title: 'Browse tags',
+    category: 'View',
+    binding: 'Mod-Shift-A',
+    keywords: ['tag', 'label', 'topic'],
+  },
+  {
     id: 'view.history',
     title: 'Note history',
     category: 'View',

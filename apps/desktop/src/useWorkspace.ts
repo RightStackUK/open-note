@@ -15,6 +15,8 @@ export interface VaultSession {
   files: VaultFile[];
   state: SyncState;
   settings: SyncSettings;
+  /** Where pasted attachments go; `.` means beside the note. */
+  attachmentFolder: string;
 }
 
 /**
@@ -63,7 +65,8 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
           return info;
         }
 
-        const settings = parseVaultSettings(await api.readSettings(info.root)).sync;
+        const vaultSettings = parseVaultSettings(await api.readSettings(info.root));
+        const settings = vaultSettings.sync;
         const [files] = await Promise.all([api.listFiles(info.root)]);
 
         const engine = new VaultSync({
@@ -80,7 +83,13 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
 
         setSessions((prev) => ({
           ...prev,
-          [info.root]: { info, files, state: engine.getState(), settings },
+          [info.root]: {
+            info,
+            files,
+            state: engine.getState(),
+            settings,
+            attachmentFolder: vaultSettings.attachmentFolder,
+          },
         }));
         setActiveRoot(info.root);
         await engine.start();
@@ -143,7 +152,11 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
       try {
         // Persisted inside the repo, so the choice follows the vault between
         // machines rather than living on this one.
-        await api.writeSettings(root, serialiseVaultSettings({ sync: merged }));
+        const folder = sessionsRef.current[root]?.attachmentFolder ?? 'assets';
+        await api.writeSettings(
+          root,
+          serialiseVaultSettings({ sync: merged, attachmentFolder: folder }),
+        );
       } catch (e) {
         setError(errorText(e));
       }

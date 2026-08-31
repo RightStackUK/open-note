@@ -1,4 +1,5 @@
 import {
+  attachmentFolderFor,
   COMMANDS,
   dailyNotePath,
   dailyNoteTemplate,
@@ -29,7 +30,9 @@ import {
 import { SettingsPanel } from './components/SettingsPanel';
 import { Sidebar } from './components/Sidebar';
 import { SyncBadge } from './components/SyncBadge';
+import { TagPanel } from './components/TagPanel';
 import { TodoView } from './components/TodoView';
+import { relativeFrom, resolveAgainst } from './paths';
 import { PLATFORM, useCommandKeys } from './useCommands';
 import { useDarkMode } from './useDarkMode';
 import { useVaultIndex } from './useVaultIndex';
@@ -59,7 +62,10 @@ export function App() {
    * backlinks column and two inspectors open at once the editor was squeezed
    * off the screen entirely.
    */
-  const [panel, setPanel] = useState<'settings' | 'keymap' | 'history' | 'branches' | null>(null);
+  const [panel, setPanel] = useState<
+    'settings' | 'keymap' | 'history' | 'branches' | 'tags' | null
+  >(null);
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [palette, setPalette] = useState<PaletteMode | null>(null);
   const [paletteQuery, setPaletteQuery] = useState('');
@@ -306,7 +312,7 @@ export function App() {
   }, [ws, vaultIndex]);
 
   const togglePanel = useCallback(
-    (which: 'settings' | 'keymap' | 'history' | 'branches') =>
+    (which: 'settings' | 'keymap' | 'history' | 'branches' | 'tags') =>
       setPanel((current) => (current === which ? null : which)),
     [],
   );
@@ -443,6 +449,46 @@ export function App() {
     [ws],
   );
 
+  const attachments = useMemo(
+    () => ({
+      async store(file: File) {
+        const root = ws.activeRoot;
+        const open = noteRef.current;
+        if (!root || !open) throw new Error('no note is open');
+
+        const buffer = await file.arrayBuffer();
+        // btoa needs a binary string, and spreading a large array blows the
+        // call stack, so build it in chunks.
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        }
+
+        const extension = file.name.includes('.')
+          ? (file.name.split('.').pop() ?? '')
+          : (file.type.split('/').pop() ?? 'png');
+        const folder = attachmentFolderFor(open.path, session?.attachmentFolder ?? 'assets');
+
+        const path = await api.writeAttachment(root, folder, extension, btoa(binary));
+        void ws.refreshFiles(root);
+        ws.noteSaved(root);
+        return relativeFrom(open.path, path);
+      },
+      async resolveImage(path: string) {
+        const root = ws.activeRoot;
+        const open = noteRef.current;
+        if (!root || !open) return null;
+        try {
+          return await api.readImage(root, resolveAgainst(open.path, path));
+        } catch {
+          return null;
+        }
+      },
+    }),
+    [ws, session?.attachmentFolder],
+  );
+
   const openPalette = useCallback((mode: PaletteMode) => {
     setPaletteQuery('');
     setPalette(mode);
@@ -472,6 +518,7 @@ export function App() {
       'view.toggleSidebar': () => setShowSidebar((v) => !v),
       'view.toggleBacklinks': () => setShowBacklinks((v) => !v),
       'view.keymap': () => togglePanel('keymap'),
+      'view.tags': () => togglePanel('tags'),
       // Editing commands are implemented in the editor package and reached
       // through the handle, so there is still exactly one key dispatcher.
       ...Object.fromEntries(
@@ -732,6 +779,7 @@ export function App() {
               resolveLink={(target) => vaultIndex.index.resolveLink(target)}
               onFollowLink={followLink}
               dark={dark}
+              attachments={attachments}
               ref={editorRef}
             />
           ) : drawing ? (
@@ -758,8 +806,8 @@ export function App() {
             tags={noteTags}
             onOpen={(path) => void openNoteAt(path)}
             onSelectTag={(tag) => {
-              setPaletteQuery(tag);
-              setPalette('search');
+              setSelectedTag(tag);
+              setPanel('tags');
             }}
           />
         )}
@@ -771,6 +819,24 @@ export function App() {
             dirty={session.state.phase === 'dirty'}
             onClose={() => setPanel(null)}
             onRestored={() => void reloadFromDisk()}
+          />
+        )}
+
+        {panel === 'tags' && (
+          <TagPanel
+            tags={vaultIndex.index.tags()}
+            initialTag={selectedTag}
+            notesForTag={(tag) =>
+              vaultIndex.index.notesWithTag(tag).map((path) => ({
+                path,
+                title: vaultIndex.index.get(path)?.title ?? path,
+              }))
+            }
+            onOpen={(path) => void openNoteAt(path)}
+            onClose={() => {
+              setPanel(null);
+              setSelectedTag(null);
+            }}
           />
         )}
 

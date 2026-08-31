@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_SYNC_SETTINGS, parseVaultSettings, serialiseVaultSettings } from './settings';
+import {
+  attachmentFolderFor,
+  DEFAULT_SYNC_SETTINGS,
+  parseVaultSettings,
+  serialiseVaultSettings,
+} from './settings';
 
 describe('parseVaultSettings', () => {
   it('returns defaults when the vault has no settings file', () => {
@@ -69,8 +74,56 @@ describe('parseVaultSettings', () => {
   });
 
   it('serialises to readable, newline-terminated JSON for the repo', () => {
-    const text = serialiseVaultSettings({ sync: DEFAULT_SYNC_SETTINGS });
+    const text = serialiseVaultSettings({
+      sync: DEFAULT_SYNC_SETTINGS,
+      attachmentFolder: 'assets',
+    });
     expect(text.endsWith('\n')).toBe(true);
     expect(text).toContain('\n  "sync"');
+  });
+});
+
+describe('attachment folder', () => {
+  it('defaults to assets/', () => {
+    expect(parseVaultSettings(null).attachmentFolder).toBe('assets');
+  });
+
+  it('reads a configured folder', () => {
+    expect(parseVaultSettings('{"attachmentFolder":"files"}').attachmentFolder).toBe('files');
+  });
+
+  it('ignores a non-string value', () => {
+    expect(parseVaultSettings('{"attachmentFolder":42}').attachmentFolder).toBe('assets');
+  });
+
+  it('survives a file with no sync section', () => {
+    expect(parseVaultSettings('{"attachmentFolder":"files"}').sync).toEqual(DEFAULT_SYNC_SETTINGS);
+  });
+
+  it('round-trips', () => {
+    const original = parseVaultSettings('{"attachmentFolder":"media"}');
+    expect(parseVaultSettings(serialiseVaultSettings(original))).toEqual(original);
+  });
+});
+
+describe('attachmentFolderFor', () => {
+  it('uses the configured folder from anywhere in the vault', () => {
+    expect(attachmentFolderFor('notes/deep/a.md', 'assets')).toBe('assets');
+  });
+
+  it('puts attachments beside the note when set to .', () => {
+    expect(attachmentFolderFor('notes/deep/a.md', '.')).toBe('notes/deep');
+  });
+
+  it('resolves to the vault root for a root note set to .', () => {
+    expect(attachmentFolderFor('a.md', '.')).toBe('');
+  });
+
+  it('tolerates stray slashes', () => {
+    expect(attachmentFolderFor('a.md', '/assets/')).toBe('assets');
+  });
+
+  it('treats an empty setting as beside the note', () => {
+    expect(attachmentFolderFor('notes/a.md', '')).toBe('notes');
   });
 });

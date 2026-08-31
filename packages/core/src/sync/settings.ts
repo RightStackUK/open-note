@@ -36,9 +36,36 @@ export const DEFAULT_SYNC_SETTINGS: SyncSettings = {
 
 export interface VaultSettings {
   sync: SyncSettings;
+  /**
+   * Where pasted images and other attachments go, vault-relative.
+   *
+   * `.` means "beside the note", which is what people who keep self-contained
+   * folders want. A fixed folder would be simpler but is the kind of decision
+   * people end up fighting.
+   */
+  attachmentFolder: string;
 }
 
-export const DEFAULT_VAULT_SETTINGS: VaultSettings = { sync: DEFAULT_SYNC_SETTINGS };
+export const DEFAULT_ATTACHMENT_FOLDER = 'assets';
+
+export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
+  sync: DEFAULT_SYNC_SETTINGS,
+  attachmentFolder: DEFAULT_ATTACHMENT_FOLDER,
+};
+
+/**
+ * Resolve where an attachment for `notePath` should be written.
+ *
+ * Returns a folder path, or the empty string for the vault root.
+ */
+export function attachmentFolderFor(notePath: string, setting: string): string {
+  const folder = setting.trim().replace(/^\/+|\/+$/g, '');
+  if (folder === '.' || folder === '') {
+    const slash = notePath.lastIndexOf('/');
+    return slash === -1 ? '' : notePath.slice(0, slash);
+  }
+  return folder;
+}
 
 /** Guard against a hand-edited settings file producing a runaway timer. */
 const LIMITS: Record<string, [min: number, max: number]> = {
@@ -69,13 +96,17 @@ function bool(value: unknown, fallback: boolean): boolean {
  * defaults for whatever it got wrong.
  */
 export function parseVaultSettings(raw: string | null | undefined): VaultSettings {
-  if (!raw) return { sync: { ...DEFAULT_SYNC_SETTINGS } };
+  const defaults = (): VaultSettings => ({
+    sync: { ...DEFAULT_SYNC_SETTINGS },
+    attachmentFolder: DEFAULT_ATTACHMENT_FOLDER,
+  });
+  if (!raw) return defaults();
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { sync: { ...DEFAULT_SYNC_SETTINGS } };
+    return defaults();
   }
 
   const sync =
@@ -83,12 +114,18 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
       ? ((parsed as { sync: unknown }).sync as Record<string, unknown> | null)
       : null;
 
+  const attachmentFolder =
+    typeof (parsed as { attachmentFolder?: unknown }).attachmentFolder === 'string'
+      ? ((parsed as { attachmentFolder: string }).attachmentFolder as string)
+      : DEFAULT_ATTACHMENT_FOLDER;
+
   if (typeof sync !== 'object' || sync === null) {
-    return { sync: { ...DEFAULT_SYNC_SETTINGS } };
+    return { sync: { ...DEFAULT_SYNC_SETTINGS }, attachmentFolder };
   }
 
   const d = DEFAULT_SYNC_SETTINGS;
   return {
+    attachmentFolder,
     sync: {
       autoCommit: bool(sync.autoCommit, d.autoCommit),
       autoPush: bool(sync.autoPush, d.autoPush),

@@ -12,12 +12,15 @@ import {
   rectangularSelection,
 } from '@codemirror/view';
 
+import { type AttachmentOptions, attachmentPaste, inlineImages } from './attachments';
 import { concealMarkdownSyntax } from './conceal';
 import { type DiagramOptions, diagramBlocks } from './diagrams';
 import { markdownTheme } from './theme';
 import { type WikiLinkOptions, wikiLinks } from './wikilinks';
 
 export type { EditorView } from '@codemirror/view';
+export type { AttachmentOptions } from './attachments';
+export { attachmentPaste, inlineImages } from './attachments';
 export { editorCommands, isEditorCommand } from './commands';
 export { concealedRangesForTest, concealMarkdownSyntax } from './conceal';
 export type { DiagramOptions, DiagramRenderResult } from './diagrams';
@@ -39,6 +42,8 @@ export interface CreateEditorOptions {
   wikiLinks?: WikiLinkOptions;
   /** Renders fenced diagram blocks in place when provided. */
   diagrams?: DiagramOptions;
+  /** Accepts pasted images and renders local ones inline when provided. */
+  attachments?: AttachmentOptions;
 }
 
 export function markdownEditorExtensions(options: CreateEditorOptions = { parent: null as never }) {
@@ -60,6 +65,9 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     concealMarkdownSyntax,
     options.wikiLinks ? wikiLinks(options.wikiLinks) : [],
     options.diagrams ? diagramBlocks(options.diagrams) : [],
+    options.attachments
+      ? [attachmentPaste(options.attachments), inlineImages(options.attachments)]
+      : [],
     // markdownKeymap comes first so its Enter wins over the default one:
     // that is what continues a list instead of just breaking the line.
     keymap.of([

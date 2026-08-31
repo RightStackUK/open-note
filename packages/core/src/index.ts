@@ -56,6 +56,8 @@ export type { VaultSyncOptions } from './sync/engine';
 export { defaultCommitMessage, VaultSync } from './sync/engine';
 export type { SyncSettings, VaultSettings } from './sync/settings';
 export {
+  attachmentFolderFor,
+  DEFAULT_ATTACHMENT_FOLDER,
   DEFAULT_SYNC_SETTINGS,
   DEFAULT_VAULT_SETTINGS,
   parseVaultSettings,

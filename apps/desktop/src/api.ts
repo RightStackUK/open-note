@@ -99,6 +99,10 @@ export const api = {
   rebaseInProgress: (root: string) => invoke<boolean>('rebase_in_progress', { root }),
   readRaw: (root: string, path: string) => invoke<string>('read_raw', { root, path }),
 
+  /** Store a pasted attachment; resolves to its vault-relative path. */
+  writeAttachment: (root: string, folder: string, extension: string, data: string) =>
+    invoke<string>('write_attachment', { root, folder, extension, data }),
+
   // File management.
   createFolder: (root: string, path: string) => invoke<void>('create_folder', { root, path }),
   createNote: (root: string, path: string, contents: string) =>

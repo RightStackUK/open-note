@@ -322,6 +322,24 @@ fn write_drawing(root: String, path: String, contents: String) -> Result<(), Vau
 // File management.
 // ---------------------------------------------------------------------------
 
+/// Store a pasted or dropped attachment; returns its vault-relative path.
+///
+/// Bytes arrive base64-encoded because that is what survives the IPC bridge
+/// intact. Hashing and naming happen in Rust, where the bytes already are.
+#[tauri::command]
+fn write_attachment(
+    root: String,
+    folder: String,
+    extension: String,
+    data: String,
+) -> Result<String, VaultError> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|e| VaultError::Io(format!("attachment is not valid base64: {e}")))?;
+    vault::write_attachment(&PathBuf::from(root), &folder, &extension, &bytes)
+}
+
 #[tauri::command]
 fn create_folder(root: String, path: String) -> Result<(), VaultError> {
     vault::create_folder(&PathBuf::from(root), &path)
@@ -486,6 +504,7 @@ pub fn run() {
             read_raw,
             read_drawing,
             write_drawing,
+            write_attachment,
             create_folder,
             create_note,
             rename_entry,
