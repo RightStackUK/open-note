@@ -7,6 +7,8 @@ interface SidebarProps {
   activePath: string | null;
   changedPaths: Set<string>;
   onSelect: (file: VaultFile) => void;
+  /** Vault-relative paths shown in a pinned section above the tree. */
+  pinned?: string[];
   /** Right-click on a row, or on the empty space below the tree. */
   onContext: (path: string, kind: 'file' | 'folder' | 'root', x: number, y: number) => void;
 }
@@ -109,8 +111,19 @@ function Node({
   );
 }
 
-export function Sidebar({ files, activePath, changedPaths, onSelect, onContext }: SidebarProps) {
+export function Sidebar({
+  files,
+  activePath,
+  changedPaths,
+  onSelect,
+  onContext,
+  pinned = [],
+}: SidebarProps) {
   const tree = buildTree(files);
+  // Only pins that still exist; a deleted note should not linger in the list.
+  const pinnedFiles = pinned
+    .map((path) => files.find((file) => file.path === path))
+    .filter((file): file is VaultFile => Boolean(file));
 
   // Right-clicking the empty area below the tree targets the vault root, which
   // is how you make a note or folder at the top level.
@@ -129,6 +142,32 @@ export function Sidebar({ files, activePath, changedPaths, onSelect, onContext }
 
   return (
     <div className="tree-root-area" onContextMenu={rootContext}>
+      {pinnedFiles.length > 0 && (
+        <section className="pinned">
+          <h3>Pinned</h3>
+          <ul className="tree-list">
+            {pinnedFiles.map((file) => (
+              <li key={file.path}>
+                <button
+                  type="button"
+                  className={`tree-row tree-file ${activePath === file.path ? 'is-active' : ''}`}
+                  onClick={() => onSelect(file)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onContext(file.path, 'file', e.clientX, e.clientY);
+                  }}
+                  title={file.path}
+                >
+                  <span className="tree-icon">★</span>
+                  <span className="tree-name">{file.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <ul className="tree-list tree-root">
         {tree.map((node) => (
           <Node

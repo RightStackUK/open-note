@@ -44,6 +44,8 @@ export interface VaultSettings {
    * people end up fighting.
    */
   attachmentFolder: string;
+  /** Vault-relative paths kept at the top of the tree. */
+  pinned: string[];
 }
 
 export const DEFAULT_ATTACHMENT_FOLDER = 'assets';
@@ -51,6 +53,7 @@ export const DEFAULT_ATTACHMENT_FOLDER = 'assets';
 export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   sync: DEFAULT_SYNC_SETTINGS,
   attachmentFolder: DEFAULT_ATTACHMENT_FOLDER,
+  pinned: [],
 };
 
 /**
@@ -99,6 +102,7 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
   const defaults = (): VaultSettings => ({
     sync: { ...DEFAULT_SYNC_SETTINGS },
     attachmentFolder: DEFAULT_ATTACHMENT_FOLDER,
+    pinned: [],
   });
   if (!raw) return defaults();
 
@@ -119,13 +123,19 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
       ? ((parsed as { attachmentFolder: string }).attachmentFolder as string)
       : DEFAULT_ATTACHMENT_FOLDER;
 
+  const rawPinned = (parsed as { pinned?: unknown }).pinned;
+  const pinned = Array.isArray(rawPinned)
+    ? rawPinned.filter((entry): entry is string => typeof entry === 'string')
+    : [];
+
   if (typeof sync !== 'object' || sync === null) {
-    return { sync: { ...DEFAULT_SYNC_SETTINGS }, attachmentFolder };
+    return { sync: { ...DEFAULT_SYNC_SETTINGS }, attachmentFolder, pinned };
   }
 
   const d = DEFAULT_SYNC_SETTINGS;
   return {
     attachmentFolder,
+    pinned,
     sync: {
       autoCommit: bool(sync.autoCommit, d.autoCommit),
       autoPush: bool(sync.autoPush, d.autoPush),

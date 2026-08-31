@@ -322,6 +322,34 @@ fn write_drawing(root: String, path: String, contents: String) -> Result<(), Vau
 // File management.
 // ---------------------------------------------------------------------------
 
+/// Ask where an export should be written. `None` means the user cancelled.
+#[tauri::command]
+async fn pick_export_path(app: tauri::AppHandle, suggested: String) -> Option<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .set_title("Export note")
+        .set_file_name(&suggested)
+        .add_filter("Web page", &["html"])
+        .save_file(move |path| {
+            let _ = tx.send(path);
+        });
+    rx.recv()
+        .ok()
+        .flatten()
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.display().to_string())
+}
+
+/// Write an exported file to a path the user chose in the save dialog.
+///
+/// Deliberately not vault-scoped: the whole point of an export is to put a copy
+/// somewhere else. The path comes from the OS dialog rather than the webview.
+#[tauri::command]
+fn write_export(path: String, contents: String) -> Result<(), VaultError> {
+    std::fs::write(&path, contents).map_err(|e| VaultError::Io(e.to_string()))
+}
+
 /// Store a pasted or dropped attachment; returns its vault-relative path.
 ///
 /// Bytes arrive base64-encoded because that is what survives the IPC bridge
@@ -504,6 +532,8 @@ pub fn run() {
             read_raw,
             read_drawing,
             write_drawing,
+            pick_export_path,
+            write_export,
             write_attachment,
             create_folder,
             create_note,

@@ -8,6 +8,8 @@ export interface VaultFile {
   name: string;
   kind: FileKind;
   size: number;
+  /** Last modified, seconds since the epoch; 0 when unknown. */
+  modified: number;
 }
 
 export interface VaultInfo {
@@ -98,6 +100,10 @@ export const api = {
   rebaseAbort: (root: string) => invoke<void>('rebase_abort', { root }),
   rebaseInProgress: (root: string) => invoke<boolean>('rebase_in_progress', { root }),
   readRaw: (root: string, path: string) => invoke<string>('read_raw', { root, path }),
+
+  /** Ask where to export; resolves to null if the user cancelled. */
+  pickExportPath: (suggested: string) => invoke<string | null>('pick_export_path', { suggested }),
+  writeExport: (path: string, contents: string) => invoke<void>('write_export', { path, contents }),
 
   /** Store a pasted attachment; resolves to its vault-relative path. */
   writeAttachment: (root: string, folder: string, extension: string, data: string) =>

@@ -26,6 +26,8 @@ interface NoteEditorProps {
 export interface NoteEditorHandle {
   /** Run an `edit.*` command. Returns false when the id is unknown. */
   runCommand: (id: string) => boolean;
+  /** Put the caret on a 1-based line and scroll it into view. */
+  goToLine: (line: number) => void;
 }
 
 export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
@@ -95,6 +97,15 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
         // The editor must have focus for the caret to be where the user expects.
         view.focus();
         return command(view);
+      },
+      goToLine(line: number) {
+        const view = editorView.current;
+        if (!view) return;
+        // Clamp: the outline can lag the document by a keystroke.
+        const target = Math.max(1, Math.min(line, view.state.doc.lines));
+        const { from } = view.state.doc.line(target);
+        view.dispatch({ selection: { anchor: from }, scrollIntoView: true });
+        view.focus();
       },
     }),
     [],

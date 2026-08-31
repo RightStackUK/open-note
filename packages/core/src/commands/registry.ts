@@ -54,6 +54,20 @@ export const COMMANDS: CommandDefinition[] = [
     keywords: ['directory', 'group'],
   },
   {
+    id: 'note.export',
+    title: 'Export note as HTML…',
+    category: 'Note',
+    binding: null,
+    keywords: ['save', 'pdf', 'print', 'share'],
+  },
+  {
+    id: 'note.togglePin',
+    title: 'Pin or unpin this note',
+    category: 'Note',
+    binding: null,
+    keywords: ['favourite', 'favorite', 'star'],
+  },
+  {
     id: 'note.daily',
     title: "Open today's note",
     category: 'Note',
@@ -99,6 +113,13 @@ export const COMMANDS: CommandDefinition[] = [
 
   // View
   { id: 'view.toggleSidebar', title: 'Toggle sidebar', category: 'View', binding: 'Mod-\\' },
+  {
+    id: 'view.outline',
+    title: 'Outline and word count',
+    category: 'View',
+    binding: 'Mod-Shift-O',
+    keywords: ['headings', 'contents', 'words'],
+  },
   {
     id: 'view.tags',
     title: 'Browse tags',

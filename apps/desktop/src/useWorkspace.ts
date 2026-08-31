@@ -17,6 +17,8 @@ export interface VaultSession {
   settings: SyncSettings;
   /** Where pasted attachments go; `.` means beside the note. */
   attachmentFolder: string;
+  /** Vault-relative paths kept at the top of the tree. */
+  pinned: string[];
 }
 
 /**
@@ -89,6 +91,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             state: engine.getState(),
             settings,
             attachmentFolder: vaultSettings.attachmentFolder,
+            pinned: vaultSettings.pinned,
           },
         }));
         setActiveRoot(info.root);
@@ -152,10 +155,35 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
       try {
         // Persisted inside the repo, so the choice follows the vault between
         // machines rather than living on this one.
-        const folder = sessionsRef.current[root]?.attachmentFolder ?? 'assets';
+        const session = sessionsRef.current[root];
         await api.writeSettings(
           root,
-          serialiseVaultSettings({ sync: merged, attachmentFolder: folder }),
+          serialiseVaultSettings({
+            sync: merged,
+            attachmentFolder: session?.attachmentFolder ?? 'assets',
+            pinned: session?.pinned ?? [],
+          }),
+        );
+      } catch (e) {
+        setError(errorText(e));
+      }
+    },
+    [patch],
+  );
+
+  const updatePinned = useCallback(
+    async (root: string, pinned: string[]) => {
+      const session = sessionsRef.current[root];
+      if (!session) return;
+      patch(root, { pinned });
+      try {
+        await api.writeSettings(
+          root,
+          serialiseVaultSettings({
+            sync: session.settings,
+            attachmentFolder: session.attachmentFolder,
+            pinned,
+          }),
         );
       } catch (e) {
         setError(errorText(e));
@@ -191,6 +219,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
     setPaused,
     updateSettings,
     conflictResolved,
+    updatePinned,
     refreshFiles,
     isPaused: (root: string) => engines.current.get(root)?.isPaused() ?? false,
   };

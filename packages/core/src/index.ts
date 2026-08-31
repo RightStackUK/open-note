@@ -29,6 +29,8 @@ export {
   dailyNoteTemplate,
   localIsoDate,
 } from './notes/daily';
+export type { ExportOptions } from './notes/export';
+export { exportNoteToHtml } from './notes/export';
 export type {
   Frontmatter,
   Heading,

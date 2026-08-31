@@ -77,6 +77,7 @@ describe('parseVaultSettings', () => {
     const text = serialiseVaultSettings({
       sync: DEFAULT_SYNC_SETTINGS,
       attachmentFolder: 'assets',
+      pinned: [],
     });
     expect(text.endsWith('\n')).toBe(true);
     expect(text).toContain('\n  "sync"');

@@ -7,7 +7,7 @@ table-stakes features with no implementation at all. This plan closes them.
 Mobile (Phase 7 of the [roadmap](ROADMAP.md)) waits until this is finished:
 porting an app with no delete button to a second platform is the wrong order.
 
-**Status:** Blocks 1–3 done. Block 4 in progress.
+**Status:** complete. All four blocks done.
 
 ---
 
@@ -181,7 +181,7 @@ reusing the existing `readImage` command.
 
 ---
 
-## Block 4 — Polish
+## Block 4 — Polish ✅
 
 Cheap, because the index already parses what they need:
 
@@ -189,7 +189,9 @@ Cheap, because the index already parses what they need:
 - **Word count** — from the already-computed `plain` text.
 - **Recently edited** — file mtimes.
 - **Pinned notes** — a list in `.opennote/settings.json`.
-- **Export to PDF/HTML** — via the webview's print pipeline.
+- **Export to HTML** — a self-contained page with images inlined as data URLs.
+  Not PDF: printing from the exported page gives a better result than anything
+  the webview's own print pipeline produces, and needs no extra machinery.
 
 Templates and split view are deliberately **not** here — tracked as
 [#4](https://github.com/RightStackUK/open-note/issues/4) and

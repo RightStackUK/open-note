@@ -1504,3 +1504,74 @@ button {
   margin: 0 0 0.5rem;
   font-size: 0.8rem;
 }
+
+/* ---------- Outline ---------- */
+
+.outline {
+  width: 18rem;
+}
+
+.word-count {
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.outline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.outline-item {
+  display: block;
+  width: 100%;
+  padding: 0.25rem 0.4rem;
+  border-radius: 5px;
+  text-align: left;
+  font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outline-item:hover {
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+
+.outline-item.is-h1 {
+  font-weight: 600;
+}
+
+.outline-item.is-h2 {
+  font-weight: 550;
+}
+
+.outline-item.is-h3,
+.outline-item.is-h4,
+.outline-item.is-h5,
+.outline-item.is-h6 {
+  color: var(--muted);
+}
+
+/* ---------- Pinned ---------- */
+
+.pinned {
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.pinned h3 {
+  margin: 0 0 0.2rem;
+  padding: 0 0.75rem;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pinned .tree-icon {
+  color: var(--accent);
+}

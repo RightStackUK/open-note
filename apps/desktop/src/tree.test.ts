@@ -7,6 +7,7 @@ const file = (path: string, kind: VaultFile['kind'] = 'markdown'): VaultFile => 
   name: path.slice(path.lastIndexOf('/') + 1),
   kind,
   size: 0,
+  modified: 0,
 });
 
 describe('buildTree', () => {

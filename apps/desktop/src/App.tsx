@@ -3,6 +3,7 @@ import {
   COMMANDS,
   dailyNotePath,
   dailyNoteTemplate,
+  exportNoteToHtml,
   rewriteLinks,
   searchCommands,
   type TodoItem,
@@ -20,6 +21,7 @@ import { ConfirmDelete, ContextMenu, type ContextTarget, Prompt } from './compon
 import { HistoryPanel } from './components/HistoryPanel';
 import { KeymapPanel } from './components/KeymapPanel';
 import { NoteEditor, type NoteEditorHandle } from './components/NoteEditor';
+import { OutlinePanel } from './components/OutlinePanel';
 import {
   commandItems,
   noteItems,
@@ -63,7 +65,7 @@ export function App() {
    * off the screen entirely.
    */
   const [panel, setPanel] = useState<
-    'settings' | 'keymap' | 'history' | 'branches' | 'tags' | null
+    'settings' | 'keymap' | 'history' | 'branches' | 'tags' | 'outline' | null
   >(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -312,7 +314,7 @@ export function App() {
   }, [ws, vaultIndex]);
 
   const togglePanel = useCallback(
-    (which: 'settings' | 'keymap' | 'history' | 'branches' | 'tags') =>
+    (which: 'settings' | 'keymap' | 'history' | 'branches' | 'tags' | 'outline') =>
       setPanel((current) => (current === which ? null : which)),
     [],
   );
@@ -489,6 +491,44 @@ export function App() {
     [ws, session?.attachmentFolder],
   );
 
+  /** Export the open note as a self-contained HTML page. */
+  const exportNote = useCallback(async () => {
+    const root = ws.activeRoot;
+    const open = noteRef.current;
+    if (!root || !open) return;
+    try {
+      const suggested = `${(open.path.split('/').pop() ?? 'note').replace(/\.md$/i, '')}.html`;
+      const destination = await api.pickExportPath(suggested);
+      if (!destination) return;
+
+      const html = await exportNoteToHtml(open.doc, {
+        title: vaultIndex.index.get(open.path)?.title ?? suggested,
+        resolveImage: async (reference) => {
+          try {
+            return await api.readImage(root, resolveAgainst(open.path, reference));
+          } catch {
+            return null;
+          }
+        },
+      });
+      await api.writeExport(destination, html);
+      setMessage(`Exported to ${destination}`);
+    } catch (e) {
+      ws.setError(errorText(e));
+    }
+  }, [ws, vaultIndex]);
+
+  /** Pinned notes ride at the top of the tree; the list lives in the vault. */
+  const togglePin = useCallback(async () => {
+    const root = ws.activeRoot;
+    const open = noteRef.current;
+    if (!root || !open || !session) return;
+    const pinned = session.pinned.includes(open.path)
+      ? session.pinned.filter((p) => p !== open.path)
+      : [...session.pinned, open.path];
+    await ws.updatePinned(root, pinned);
+  }, [ws, session]);
+
   const openPalette = useCallback((mode: PaletteMode) => {
     setPaletteQuery('');
     setPalette(mode);
@@ -519,6 +559,9 @@ export function App() {
       'view.toggleBacklinks': () => setShowBacklinks((v) => !v),
       'view.keymap': () => togglePanel('keymap'),
       'view.tags': () => togglePanel('tags'),
+      'view.outline': () => togglePanel('outline'),
+      'note.export': () => void exportNote(),
+      'note.togglePin': () => void togglePin(),
       // Editing commands are implemented in the editor package and reached
       // through the handle, so there is still exactly one key dispatcher.
       ...Object.fromEntries(
@@ -616,7 +659,15 @@ export function App() {
         PLATFORM,
       );
     }
-    if (palette === 'notes') return noteItems(vaultIndex.index.quickSwitch(paletteQuery));
+    if (palette === 'notes') {
+      const matches = vaultIndex.index.quickSwitch(paletteQuery);
+      if (paletteQuery.trim()) return noteItems(matches);
+      // With nothing typed, the most useful order is what you touched last.
+      const recency = new Map(session.files.map((file) => [file.path, file.modified]));
+      return noteItems(
+        [...matches].sort((a, b) => (recency.get(b.path) ?? 0) - (recency.get(a.path) ?? 0)),
+      );
+    }
     if (palette === 'search') return searchItems(vaultIndex.index.query(paletteQuery));
     return [];
   })();
@@ -747,6 +798,7 @@ export function App() {
               changedPaths={new Set(session.state.conflicts)}
               onSelect={select}
               onContext={(path, kind, x, y) => setContextTarget({ path, kind, x, y })}
+              pinned={session.pinned}
             />
           </aside>
         )}
@@ -819,6 +871,16 @@ export function App() {
             dirty={session.state.phase === 'dirty'}
             onClose={() => setPanel(null)}
             onRestored={() => void reloadFromDisk()}
+          />
+        )}
+
+        {panel === 'outline' && note && (
+          <OutlinePanel
+            headings={vaultIndex.index.get(note.path)?.headings ?? []}
+            words={countWords(note.doc)}
+            characters={note.doc.length}
+            onGoToLine={(line) => editorRef.current?.goToLine(line)}
+            onClose={() => setPanel(null)}
           />
         )}
 
@@ -968,6 +1030,17 @@ export function App() {
       )}
     </div>
   );
+}
+
+/** Words as a person counts them, ignoring markdown punctuation. */
+function countWords(text: string): number {
+  const words = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/[#*_>`~[\]()|-]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return words.length;
 }
 
 function saveLabel(state: SaveState): string {

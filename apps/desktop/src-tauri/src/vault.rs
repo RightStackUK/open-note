@@ -147,6 +147,9 @@ pub struct VaultFile {
     pub name: String,
     pub kind: FileKind,
     pub size: u64,
+    /// Last modified, as seconds since the epoch. Zero when unknown, which
+    /// simply sorts the file last rather than failing the whole listing.
+    pub modified: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -238,6 +241,7 @@ pub fn list(git: &SystemGit, root: &Path) -> Result<Vec<VaultFile>> {
         .into_iter()
         .map(|rel| {
             let abs = root.join(&rel);
+            let metadata = fs::metadata(&abs);
             VaultFile {
                 path: to_slash(&rel),
                 name: rel
@@ -245,7 +249,14 @@ pub fn list(git: &SystemGit, root: &Path) -> Result<Vec<VaultFile>> {
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default(),
                 kind: FileKind::of(&rel),
-                size: fs::metadata(&abs).map(|m| m.len()).unwrap_or(0),
+                size: metadata.as_ref().map(|m| m.len()).unwrap_or(0),
+                modified: metadata
+                    .as_ref()
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
             }
         })
         .filter(|f| !f.path.is_empty())
