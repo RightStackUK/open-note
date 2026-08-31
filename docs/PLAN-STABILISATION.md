@@ -7,7 +7,7 @@ table-stakes features with no implementation at all. This plan closes them.
 Mobile (Phase 7 of the [roadmap](ROADMAP.md)) waits until this is finished:
 porting an app with no delete button to a second platform is the wrong order.
 
-**Status:** planned, not started.
+**Status:** Block 1 done. Blocks 2–4 in progress.
 
 ---
 
@@ -28,7 +28,7 @@ The first three are worse than missing features: the UI advertises them.
 
 ---
 
-## Block 1 — Fix what is broken
+## Block 1 — Fix what is broken ✅
 
 *Ships as `v0.1.0` before any of the later blocks start.*
 

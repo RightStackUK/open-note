@@ -1,6 +1,11 @@
 import { knownLanguages, renderDiagram } from '@open-note/diagrams';
-import { createMarkdownEditor, type EditorView, setEditorDoc } from '@open-note/editor';
-import { useEffect, useRef } from 'react';
+import {
+  createMarkdownEditor,
+  type EditorView,
+  editorCommands,
+  setEditorDoc,
+} from '@open-note/editor';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 
 interface NoteEditorProps {
   /** Identifies the open note; a change means "load a different document". */
@@ -15,16 +20,17 @@ interface NoteEditorProps {
   dark: boolean;
 }
 
-export function NoteEditor({
-  path,
-  doc,
-  onChange,
-  resolveLink,
-  onFollowLink,
-  dark,
-}: NoteEditorProps) {
+export interface NoteEditorHandle {
+  /** Run an `edit.*` command. Returns false when the id is unknown. */
+  runCommand: (id: string) => boolean;
+}
+
+export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
+  { path, doc, onChange, resolveLink, onFollowLink, dark },
+  ref,
+) {
   const host = useRef<HTMLDivElement>(null);
-  const view = useRef<EditorView | null>(null);
+  const editorView = useRef<EditorView | null>(null);
   // Keep the latest callback reachable without rebuilding the editor, which
   // would drop undo history and focus on every keystroke.
   const onChangeRef = useRef(onChange);
@@ -50,24 +56,39 @@ export function NoteEditor({
         render: (language, source, id) => renderDiagram(language, source, { dark, id }),
       },
     });
-    view.current = editor;
+    editorView.current = editor;
     editor.focus();
     return () => {
       editor.destroy();
-      view.current = null;
+      editorView.current = null;
     };
     // Built once. Document swaps are handled below so the view survives.
   }, []);
 
   // Switching notes replaces the document in place rather than remounting.
   useEffect(() => {
-    if (view.current) {
-      setEditorDoc(view.current, doc);
-      view.current.focus();
+    if (editorView.current) {
+      setEditorDoc(editorView.current, doc);
+      editorView.current.focus();
     }
     // `doc` is deliberately not a dependency: reacting to it would fight the
     // user's own typing, since every keystroke produces a new doc value.
   }, [path]);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      runCommand(id: string) {
+        const view = editorView.current;
+        const command = editorCommands[id];
+        if (!view || !command) return false;
+        // The editor must have focus for the caret to be where the user expects.
+        view.focus();
+        return command(view);
+      },
+    }),
+    [],
+  );
+
   return <div className="editor" ref={host} />;
-}
+});

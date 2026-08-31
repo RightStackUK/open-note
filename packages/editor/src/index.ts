@@ -1,7 +1,7 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { markdown, markdownKeymap, markdownLanguage } from '@codemirror/lang-markdown';
 import { bracketMatching, indentOnInput } from '@codemirror/language';
-import { searchKeymap } from '@codemirror/search';
+import { search, searchKeymap } from '@codemirror/search';
 import { EditorState, type Extension } from '@codemirror/state';
 import {
   drawSelection,
@@ -18,6 +18,7 @@ import { markdownTheme } from './theme';
 import { type WikiLinkOptions, wikiLinks } from './wikilinks';
 
 export type { EditorView } from '@codemirror/view';
+export { editorCommands, isEditorCommand } from './commands';
 export { concealedRangesForTest, concealMarkdownSyntax } from './conceal';
 export type { DiagramOptions, DiagramRenderResult } from './diagrams';
 export { diagramBlocks } from './diagrams';
@@ -51,12 +52,23 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     // `markdownLanguage` (rather than the default) enables GFM: task lists,
     // tables and strikethrough all parse.
     markdown({ base: markdownLanguage, codeLanguages: [] }),
+    // In-note find and replace. `searchKeymap` alone does nothing: its commands
+    // need this extension's state to open a panel at all.
+    search({ top: true }),
     EditorView.lineWrapping,
     markdownTheme,
     concealMarkdownSyntax,
     options.wikiLinks ? wikiLinks(options.wikiLinks) : [],
     options.diagrams ? diagramBlocks(options.diagrams) : [],
-    keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
+    // markdownKeymap comes first so its Enter wins over the default one:
+    // that is what continues a list instead of just breaking the line.
+    keymap.of([
+      ...markdownKeymap,
+      ...defaultKeymap,
+      ...historyKeymap,
+      ...searchKeymap,
+      indentWithTab,
+    ]),
     options.placeholder ? placeholderExt(options.placeholder) : [],
   ];
 }

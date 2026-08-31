@@ -5,6 +5,7 @@ import {
   searchCommands,
   type TodoItem,
 } from '@open-note/core';
+import { editorCommands } from '@open-note/editor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api, type VaultFile } from './api';
@@ -15,7 +16,7 @@ import { ConflictPanel } from './components/ConflictPanel';
 import { DrawingEditor } from './components/DrawingEditor';
 import { HistoryPanel } from './components/HistoryPanel';
 import { KeymapPanel } from './components/KeymapPanel';
-import { NoteEditor } from './components/NoteEditor';
+import { NoteEditor, type NoteEditorHandle } from './components/NoteEditor';
 import {
   commandItems,
   noteItems,
@@ -68,6 +69,7 @@ export function App() {
   const saveTimer = useRef<number | null>(null);
   const pending = useRef<OpenNote | null>(null);
   const noteRef = useRef<OpenNote | null>(null);
+  const editorRef = useRef<NoteEditorHandle>(null);
   noteRef.current = note;
 
   // When a pull rewrites the open note underneath us, reload it rather than
@@ -333,6 +335,16 @@ export function App() {
       'view.toggleSidebar': () => setShowSidebar((v) => !v),
       'view.toggleBacklinks': () => setShowBacklinks((v) => !v),
       'view.keymap': () => togglePanel('keymap'),
+      // Editing commands are implemented in the editor package and reached
+      // through the handle, so there is still exactly one key dispatcher.
+      ...Object.fromEntries(
+        Object.keys(editorCommands).map((id) => [
+          id,
+          () => {
+            editorRef.current?.runCommand(id);
+          },
+        ]),
+      ),
       'view.history': () => togglePanel('history'),
       'view.branches': () => togglePanel('branches'),
       'vault.clone': () => setShowClone(true),
@@ -582,6 +594,7 @@ export function App() {
               resolveLink={(target) => vaultIndex.index.resolveLink(target)}
               onFollowLink={followLink}
               dark={dark}
+              ref={editorRef}
             />
           ) : drawing ? (
             <DrawingEditor
