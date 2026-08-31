@@ -136,8 +136,24 @@ actually get signed, whatever the workflow reported.
 To confirm the ticket is stapled — which is what lets a first launch work
 offline — use `xcrun stapler validate`.
 
-Certificates last five years and the API key does not expire. Renewal is
-therefore rare enough to be forgotten entirely, so it is worth a calendar
+### Expiry
+
+The API key does not expire. The certificate does, and sooner than the five
+years Apple nominally issues: validity is clamped to the **membership** expiry,
+so the current one runs out on **1 February 2027**. Check with:
+
+```bash
+security find-certificate -c "Developer ID Application" -p \
+  | openssl x509 -noout -dates
+```
+
+Builds already notarised keep working past that date — the signature carries a
+trusted timestamp, so it does not rely on the certificate still being valid.
+What stops is signing *new* ones. Renewing the membership and re-issuing the
+certificate means re-doing `APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD`;
+nothing else changes.
+
+That is rare enough to be forgotten entirely, so it is worth a calendar
 reminder.
 
 ## Windows builds are not signed yet
