@@ -46,17 +46,105 @@ the NSIS `.exe` only, which has no such restriction. Stable tags get both.
 This is a Windows rule rather than a Tauri one, and there is no way around it
 short of lying about the version.
 
-## These builds are not signed yet
+## macOS signing and notarisation
 
-Until code signing is set up, macOS shows *"cannot be opened because the
-developer cannot be verified"* and Windows SmartScreen warns before running the
-installer. Both are tracked as separate issues; neither is a bug in the build.
+macOS builds are signed with a Developer ID certificate and notarised by Apple,
+so they open without a warning. Everything happens in `release.yml`; there is
+nothing to do at release time.
 
-Signing needs paid accounts:
+This matters more than it used to. Through macOS 14, an unsigned app could be
+opened with Control-click → **Open**. macOS 15 removed that: the dialog now
+offers only *Done* and *Move to Bin*, and the only way past it is a trip to
+System Settings → Privacy & Security. Notarisation is effectively required for
+an app people are meant to just download and run.
 
-- **macOS** — Apple Developer Program, $99/year, for a Developer ID certificate
-  and notarisation.
-- **Windows** — Azure Trusted Signing (~$10/month) or an EV certificate.
+### The six secrets
+
+| Secret | What it is |
+|---|---|
+| `APPLE_CERTIFICATE` | Developer ID Application certificate, `.p12`, base64 |
+| `APPLE_CERTIFICATE_PASSWORD` | The password set when exporting that `.p12` |
+| `APPLE_SIGNING_IDENTITY` | `Developer ID Application: NAME (TEAMID)` |
+| `APPLE_API_ISSUER` | App Store Connect API issuer ID (a UUID) |
+| `APPLE_API_KEY_ID` | App Store Connect API key ID |
+| `APPLE_API_KEY_P8` | The `.p8` private key, base64 |
+
+Notarisation uses an **App Store Connect API key** rather than an Apple ID and
+app-specific password. It is not tied to one person's account or their 2FA, and
+it can be revoked on its own without changing anyone's Apple password.
+
+The release build fails immediately, naming the missing secret, if any of the
+six is absent — rather than succeeding and publishing an ad-hoc-signed `.dmg`
+that Gatekeeper rejects.
+
+### Getting the certificate
+
+1. **Keychain Access** → menu **Certificate Assistant** → *Request a Certificate
+   From a Certificate Authority*. Enter your email, choose **Saved to disk**.
+   That writes a `.certSigningRequest`.
+2. [developer.apple.com certificates](https://developer.apple.com/account/resources/certificates/list)
+   → **+** → **Developer ID Application** → upload the request → download the
+   `.cer`.
+3. Double-click the `.cer` to add it to your login keychain.
+4. In **Keychain Access → My Certificates**, find
+   `Developer ID Application: NAME (TEAMID)`. Right-click → **Export** → `.p12`,
+   and set a password. That string is also `APPLE_SIGNING_IDENTITY`, verbatim.
+
+A **Developer ID Application** certificate is the one that matters. *Apple
+Development* and *Mac App Distribution* certificates cannot notarise software
+distributed outside the App Store.
+
+### Getting the API key
+
+[App Store Connect → Users and Access → Integrations](https://appstoreconnect.apple.com/access/integrations/api)
+→ **Team Keys** → **+**. Give it the **Developer** role, which is the minimum
+notarisation accepts.
+
+Download the `.p8` immediately — Apple allows it exactly once, and a lost key
+has to be revoked and replaced. The **Key ID** and the **Issuer ID** are on the
+same page.
+
+### Setting the secrets
+
+Run these yourself, from wherever the exports are. Nothing is echoed, and
+neither file needs to be kept afterwards — but do not put either one in the
+repository.
+
+```bash
+base64 -i DeveloperID.p12   | gh secret set APPLE_CERTIFICATE
+base64 -i AuthKey_ABC123.p8 | gh secret set APPLE_API_KEY_P8
+
+gh secret set APPLE_CERTIFICATE_PASSWORD          # prompts, input hidden
+gh secret set APPLE_SIGNING_IDENTITY --body "Developer ID Application: NAME (TEAMID)"
+gh secret set APPLE_API_ISSUER      --body "<issuer-uuid>"
+gh secret set APPLE_API_KEY_ID      --body "<key-id>"
+```
+
+### Checking it worked
+
+The signature travels in the `.dmg`, so this works on any Mac:
+
+```bash
+spctl -a -vv -t install /Volumes/Open\ Note/Open\ Note.app
+codesign -dv --verbose=4 /Volumes/Open\ Note/Open\ Note.app 2>&1 | grep -E 'Authority|TeamIdentifier'
+```
+
+`spctl` should say **accepted** with `source=Notarized Developer ID`. Anything
+mentioning *no usable signature* or *Unnotarized* means the build did not
+actually get signed, whatever the workflow reported.
+
+To confirm the ticket is stapled — which is what lets a first launch work
+offline — use `xcrun stapler validate`.
+
+Certificates last five years and the API key does not expire. Renewal is
+therefore rare enough to be forgotten entirely, so it is worth a calendar
+reminder.
+
+## Windows builds are not signed yet
+
+SmartScreen warns before running the installer; **More info** → **Run anyway**.
+Signing needs Azure Trusted Signing (~$10/month) or an EV certificate, and is
+tracked as its own issue.
 
 ## Local builds: the DMG step fails on macOS
 
