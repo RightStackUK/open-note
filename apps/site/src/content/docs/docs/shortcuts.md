@@ -71,9 +71,10 @@ otherwise you are left wondering why a shortcut does the wrong thing.
 
 ### Presets
 
-**Default** is the scheme above. **Bear** matches Bear's conventions for people
-coming from it: <kbd>Mod ⇧ ↵</kbd> for a task, <kbd>Mod K</kbd> for search rather
-than links, <kbd>Mod O</kbd> for the quick switcher.
+**Default** is the scheme above. **Alternative** follows the conventions several
+other notes apps use, for people arriving from one of them: <kbd>Mod ⇧ ↵</kbd> for
+a task, <kbd>Mod K</kbd> for search rather than links, <kbd>Mod O</kbd> for the
+quick switcher.
 
 A preset only states what it changes; everything else falls back to the default.
 

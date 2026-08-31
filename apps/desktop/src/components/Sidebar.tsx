@@ -31,7 +31,7 @@ function kindIcon(kind: FileKind): string {
  * What to show for a file.
  *
  * `.md` is on every other row, so it carries no information and only costs
- * width — the same call Bear, Obsidian and Notion make. Other extensions stay,
+ * width — the same call Obsidian and Notion make. Other extensions stay,
  * because there the type is the point.
  */
 function displayName(file: VaultFile): string {

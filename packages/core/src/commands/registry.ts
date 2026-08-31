@@ -165,8 +165,13 @@ export const COMMANDS: CommandDefinition[] = [
 export const KEYMAP_SCHEMES: Record<string, Record<string, string | null>> = {
   default: {},
   /**
-   * Bear puts headings on Mod-1..3 as we do, but uses Mod-Shift-Enter for a
-   * task and reserves Mod-K for search rather than links.
+   * Keeps headings on Mod-1..3 as the default scheme does, but moves the task
+   * toggle to Mod-Shift-Enter and reserves Mod-K for search rather than links,
+   * which is what several other notes apps do.
+   *
+   * The key stays `bear` because it is written into existing
+   * `.opennote/keymap.json` files; `KEYMAP_SCHEME_LABELS` owns what the UI
+   * calls it.
    */
   bear: {
     'edit.task': 'Mod-Shift-Enter',
@@ -175,6 +180,18 @@ export const KEYMAP_SCHEMES: Record<string, Record<string, string | null>> = {
     'edit.wikilink': 'Mod-Shift-K',
     'switcher.open': 'Mod-O',
   },
+};
+
+/**
+ * What the settings UI calls each scheme.
+ *
+ * Separate from the keys above because those are persisted in the vault and
+ * renaming one would silently reset somebody's keymap. Anything missing here
+ * falls back to its capitalised key.
+ */
+export const KEYMAP_SCHEME_LABELS: Record<string, string> = {
+  default: 'Default',
+  bear: 'Alternative',
 };
 
 export type Keymap = Map<string, string>;

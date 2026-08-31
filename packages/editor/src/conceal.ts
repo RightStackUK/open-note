@@ -29,7 +29,7 @@ const CONCEALED_MARKS = new Set([
 const hidden = Decoration.replace({});
 
 /**
- * Bear's central trick: show the prose, not the punctuation. Markers are
+ * The central trick: show the prose, not the punctuation. Markers are
  * revealed on whichever lines the selection touches, so editing the raw
  * Markdown is always one caret movement away — nothing is ever rewritten
  * behind the user's back, since this is presentation only.

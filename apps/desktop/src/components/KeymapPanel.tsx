@@ -3,6 +3,7 @@ import {
   COMMANDS,
   type CommandDefinition,
   formatBinding,
+  KEYMAP_SCHEME_LABELS,
   KEYMAP_SCHEMES,
   type KeymapConfig,
   type ResolvedKeymap,
@@ -86,7 +87,7 @@ export function KeymapPanel({ config, keymap, onChange, onClose }: KeymapPanelPr
         >
           {Object.keys(KEYMAP_SCHEMES).map((name) => (
             <option key={name} value={name}>
-              {name === 'default' ? 'Default' : name[0]?.toUpperCase() + name.slice(1)}
+              {KEYMAP_SCHEME_LABELS[name] ?? name[0]?.toUpperCase() + name.slice(1)}
             </option>
           ))}
         </select>

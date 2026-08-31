@@ -149,7 +149,7 @@ describe('resolveKeymap', () => {
     expect(resolveKeymap().conflicts).toEqual([]);
   });
 
-  it('ships without conflicts in the bear scheme', () => {
+  it('ships without conflicts in the alternative scheme', () => {
     expect(resolveKeymap({ scheme: 'bear', bindings: {} }).conflicts).toEqual([]);
   });
 

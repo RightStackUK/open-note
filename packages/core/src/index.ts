@@ -13,6 +13,7 @@ export type {
 export {
   COMMANDS,
   DEFAULT_KEYMAP_CONFIG,
+  KEYMAP_SCHEME_LABELS,
   KEYMAP_SCHEMES,
   parseKeymapConfig,
   resolveKeymap,
