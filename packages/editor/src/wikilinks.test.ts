@@ -105,3 +105,30 @@ describe('wikiLinks', () => {
     view.destroy();
   });
 });
+
+describe('wikiLink brackets', () => {
+  it('hides the brackets on a line being read', () => {
+    const { view, parent } = mount('see [[Ideas]] here\n\ntail', () => 'Ideas.md', 999);
+    expect(links(parent)[0]?.textContent).toBe('Ideas');
+    view.destroy();
+  });
+
+  it('shows the raw link on the line being edited', () => {
+    const { view, parent } = mount('see [[Ideas]] here\n\ntail', () => 'Ideas.md', 2);
+    expect(links(parent)[0]?.textContent).toBe('[[Ideas]]');
+    view.destroy();
+  });
+
+  it('shows only the alias when one is given', () => {
+    const { view, parent } = mount('see [[Ideas|my ideas]] here\n\ntail', () => 'Ideas.md', 999);
+    expect(links(parent)[0]?.textContent).toBe('my ideas');
+    view.destroy();
+  });
+
+  it('leaves the document untouched', () => {
+    const doc = 'see [[Ideas|my ideas]] here';
+    const { view } = mount(doc, () => 'Ideas.md', 999);
+    expect(view.state.doc.toString()).toBe(doc);
+    view.destroy();
+  });
+});

@@ -15,6 +15,7 @@ import {
 import { type AttachmentOptions, attachmentPaste, inlineImages } from './attachments';
 import { concealMarkdownSyntax } from './conceal';
 import { type DiagramOptions, diagramBlocks } from './diagrams';
+import { taskCheckboxes } from './tasks';
 import { markdownTheme } from './theme';
 import { type WikiLinkOptions, wikiLinks } from './wikilinks';
 
@@ -25,6 +26,7 @@ export { editorCommands, isEditorCommand } from './commands';
 export { concealedRangesForTest, concealMarkdownSyntax } from './conceal';
 export type { DiagramOptions, DiagramRenderResult } from './diagrams';
 export { diagramBlocks } from './diagrams';
+export { taskCheckboxes, toggleTaskAt } from './tasks';
 export { editorTheme, markdownHighlight, markdownTheme } from './theme';
 export type { WikiLinkOptions } from './wikilinks';
 export { wikiLinks } from './wikilinks';
@@ -63,6 +65,7 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     EditorView.lineWrapping,
     markdownTheme,
     concealMarkdownSyntax,
+    taskCheckboxes,
     options.wikiLinks ? wikiLinks(options.wikiLinks) : [],
     options.diagrams ? diagramBlocks(options.diagrams) : [],
     options.attachments

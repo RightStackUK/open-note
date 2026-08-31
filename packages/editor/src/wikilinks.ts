@@ -1,4 +1,4 @@
-import { type Extension, RangeSetBuilder } from '@codemirror/state';
+import type { Extension } from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
@@ -17,6 +17,9 @@ export interface WikiLinkOptions {
 
 const LINK_RE = /\[\[([^\]|#\n]+)(?:#([^\]|\n]+))?(?:\|([^\]\n]+))?\]\]/g;
 
+/** `[[`, `]]` and an alias's `target|`, hidden while the line is being read. */
+const hidden = Decoration.replace({});
+
 /**
  * Make `[[wikilinks]]` navigable.
  *
@@ -27,7 +30,7 @@ const LINK_RE = /\[\[([^\]|#\n]+)(?:#([^\]|\n]+))?(?:\|([^\]\n]+))?\]\]/g;
  */
 export function wikiLinks(options: WikiLinkOptions): Extension {
   const build = (view: EditorView): DecorationSet => {
-    const builder = new RangeSetBuilder<Decoration>();
+    const ranges: Array<{ from: number; to: number; value: Decoration }> = [];
     const { state } = view;
 
     const activeLines = new Set<number>();
@@ -50,10 +53,10 @@ export function wikiLinks(options: WikiLinkOptions): Extension {
         const resolved = options.resolve(target);
         const onActiveLine = activeLines.has(state.doc.lineAt(start).number);
 
-        builder.add(
-          start,
-          end,
-          Decoration.mark({
+        ranges.push({
+          from: start,
+          to: end,
+          value: Decoration.mark({
             class: [
               'cm-wikilink',
               resolved ? '' : 'cm-wikilink-missing',
@@ -66,10 +69,24 @@ export function wikiLinks(options: WikiLinkOptions): Extension {
               title: resolved ? `Open ${resolved}` : `${target} — no note with this name yet`,
             },
           }),
-        );
+        });
+
+        // Off the active line the brackets are punctuation, so they go the way
+        // heading hashes do. An alias hides its target too: writing
+        // `[[note|the thing]]` is a request to read "the thing".
+        if (!onActiveLine) {
+          const alias = match[3];
+          const labelStart = alias ? end - 2 - alias.length : start + 2;
+          ranges.push({ from: start, to: labelStart, value: hidden });
+          ranges.push({ from: end - 2, to: end, value: hidden });
+        }
       }
     }
-    return builder.finish();
+    // Sorted for us, because a mark and a replace can start at the same offset.
+    return Decoration.set(
+      ranges.map((range) => range.value.range(range.from, range.to)),
+      true,
+    );
   };
 
   class WikiLinkPlugin implements PluginValue {

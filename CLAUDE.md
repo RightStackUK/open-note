@@ -5,8 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Open Note is a local-first Markdown notes and todo app that uses **any Git repository as its
 backend**. There is no server. Desktop (Tauri v2) now; mobile later.
 
-Design reasoning lives in [docs/ROADMAP.md](docs/ROADMAP.md); the current work plan is
-[docs/PLAN-STABILISATION.md](docs/PLAN-STABILISATION.md). Read the roadmap's §3 before changing
+Design reasoning lives in [docs/ROADMAP.md](docs/ROADMAP.md). Read its §3 before changing
 architecture — most of the non-obvious decisions are recorded there with their rationale.
 
 ## Commands

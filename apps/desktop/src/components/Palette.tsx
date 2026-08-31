@@ -10,6 +10,8 @@ export interface PaletteItem {
   detail?: string;
   /** Right-aligned hint, typically a keyboard shortcut. */
   hint?: string;
+  /** Set apart from the matches — currently "create the note you just typed". */
+  isAction?: boolean;
 }
 
 interface PaletteProps {
@@ -96,7 +98,13 @@ export function Palette({ mode, query, items, onQueryChange, onChoose, onClose }
               <li key={item.id}>
                 <button
                   type="button"
-                  className={`palette-item ${i === active ? 'is-active' : ''}`}
+                  className={[
+                    'palette-item',
+                    i === active ? 'is-active' : '',
+                    item.isAction ? 'is-action' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
                   onMouseMove={() => setActive(i)}
                   onClick={() => onChoose(item.id)}
                 >
@@ -108,6 +116,26 @@ export function Palette({ mode, query, items, onQueryChange, onChoose, onClose }
             ))}
           </ul>
         )}
+
+        {/* The palette is the fastest path through the app, so it teaches its
+            own keys rather than leaving them to the shortcuts panel. */}
+        <footer className="palette-footer">
+          <span>
+            <kbd>↑</kbd>
+            <kbd>↓</kbd> move
+          </span>
+          <span>
+            <kbd>↵</kbd> {mode === 'commands' ? 'run' : 'open'}
+          </span>
+          <span>
+            <kbd>esc</kbd> close
+          </span>
+          {items.length > 0 && (
+            <span className="palette-count">
+              {items.length} result{items.length === 1 ? '' : 's'}
+            </span>
+          )}
+        </footer>
       </div>
     </div>
   );

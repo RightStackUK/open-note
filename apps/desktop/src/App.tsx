@@ -4,6 +4,7 @@ import {
   dailyNotePath,
   dailyNoteTemplate,
   exportNoteToHtml,
+  formatBinding,
   rewriteLinks,
   searchCommands,
   type TodoItem,
@@ -42,6 +43,9 @@ import { errorText, useWorkspace } from './useWorkspace';
 
 /** How long the editor sits idle before the note is written to disk. */
 const AUTOSAVE_IDLE_MS = 500;
+
+/** Marks a quick-switcher row that creates rather than opens. */
+const CREATE_PREFIX = 'create:';
 
 type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 
@@ -85,6 +89,8 @@ export function App() {
   const pending = useRef<OpenNote | null>(null);
   const noteRef = useRef<OpenNote | null>(null);
   const editorRef = useRef<NoteEditorHandle>(null);
+  /** Line to jump to once the editor has mounted the incoming note. */
+  const pendingLine = useRef<number | null>(null);
   noteRef.current = note;
 
   // When a pull rewrites the open note underneath us, reload it rather than
@@ -224,8 +230,14 @@ export function App() {
     await ws.syncNow(root);
   }, [ws, flush]);
 
+  /**
+   * Open a note, optionally landing the caret on a given 1-based line.
+   *
+   * The jump is deferred through a ref because the editor is remounted for the
+   * new document; calling `goToLine` here would address the outgoing view.
+   */
   const openNoteAt = useCallback(
-    async (path: string) => {
+    async (path: string, line?: number) => {
       const root = ws.activeRoot;
       if (!root) return;
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
@@ -233,6 +245,8 @@ export function App() {
       try {
         setShowTodos(false);
         setPreview(null);
+        setDrawing(null);
+        pendingLine.current = line ?? null;
         setNote({ path, doc: await api.readNote(root, path), revision: 0 });
         setSaveState('saved');
       } catch (e) {
@@ -241,6 +255,13 @@ export function App() {
     },
     [ws, flush],
   );
+
+  useEffect(() => {
+    const line = pendingLine.current;
+    if (line === null || !note) return;
+    pendingLine.current = null;
+    editorRef.current?.goToLine(line);
+  }, [note]);
 
   const createNote = useCallback(
     async (path: string, body: string) => {
@@ -360,21 +381,18 @@ export function App() {
   );
 
   /**
-   * Rename a note or folder, keeping `[[wikilinks]]` pointing at it.
+   * Move a note or folder to a new path, keeping `[[wikilinks]]` pointing at it.
    *
-   * The link rewrites go in before the rename is announced, so both land in the
-   * same automatic commit and can be reviewed — and reverted — as one change.
+   * Renaming and dragging into a folder are the same operation with a different
+   * destination, so they share this one. The link rewrites go in before the move
+   * is announced, so both land in the same automatic commit and can be reviewed
+   * — and reverted — as one change.
    */
-  const rename = useCallback(
-    async (from: string, name: string) => {
+  const relocate = useCallback(
+    async (from: string, to: string, verb: 'Renamed' | 'Moved') => {
       const root = ws.activeRoot;
-      if (!root) return;
-      const slash = from.lastIndexOf('/');
-      const parent = slash === -1 ? '' : from.slice(0, slash);
+      if (!root || to === from) return;
       const isFolder = !from.includes('.') || !/\.[a-z0-9]+$/i.test(from);
-      const target = !isFolder && !name.includes('.') ? `${name}.md` : name;
-      const to = joinPath(parent, target);
-      if (to === from) return;
 
       try {
         await api.renameEntry(root, from, to);
@@ -406,14 +424,43 @@ export function App() {
         await vaultIndex.rebuild(root);
 
         if (noteRef.current?.path === from) await openNoteAt(to);
-        if (updated > 0) {
-          setMessage(`Renamed, and updated ${updated} link${updated === 1 ? '' : 's'}.`);
-        }
+        setMessage(
+          updated > 0
+            ? `${verb}, and updated ${updated} link${updated === 1 ? '' : 's'}.`
+            : `${verb} to ${to}.`,
+        );
       } catch (e) {
         ws.setError(errorText(e));
       }
     },
     [ws, vaultIndex, openNoteAt],
+  );
+
+  const rename = useCallback(
+    (from: string, name: string) => {
+      const slash = from.lastIndexOf('/');
+      const parent = slash === -1 ? '' : from.slice(0, slash);
+      const isFolder = !from.includes('.') || !/\.[a-z0-9]+$/i.test(from);
+      const target = !isFolder && !name.includes('.') ? `${name}.md` : name;
+      return relocate(from, joinPath(parent, target), 'Renamed');
+    },
+    [relocate],
+  );
+
+  /**
+   * Drag a note or folder onto another folder.
+   *
+   * A move is a rename that keeps the name, so it goes through the same path —
+   * which is what keeps `[[wikilinks]]` pointing at the note afterwards.
+   */
+  const move = useCallback(
+    (from: string, toFolder: string) => {
+      const name = from.slice(from.lastIndexOf('/') + 1);
+      // Refuse to drop a folder inside itself; git would happily do it.
+      if (toFolder === from || toFolder.startsWith(`${from}/`)) return;
+      return relocate(from, joinPath(toFolder, name), 'Moved');
+    },
+    [relocate],
   );
 
   const remove = useCallback(
@@ -581,6 +628,14 @@ export function App() {
 
   useCommandKeys(vaultIndex.keymap, handlers, palette === null);
 
+  // Confirmations should not need dismissing; errors should, because an error
+  // the user never read is an error they will hit again.
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
+
   useEffect(() => {
     const onBeforeUnload = () => {
       if (pending.current) void flush();
@@ -661,12 +716,30 @@ export function App() {
     }
     if (palette === 'notes') {
       const matches = vaultIndex.index.quickSwitch(paletteQuery);
-      if (paletteQuery.trim()) return noteItems(matches);
-      // With nothing typed, the most useful order is what you touched last.
-      const recency = new Map(session.files.map((file) => [file.path, file.modified]));
-      return noteItems(
-        [...matches].sort((a, b) => (recency.get(b.path) ?? 0) - (recency.get(a.path) ?? 0)),
+      const typed = paletteQuery.trim();
+      if (!typed) {
+        // With nothing typed, the most useful order is what you touched last.
+        const recency = new Map(session.files.map((file) => [file.path, file.modified]));
+        return noteItems(
+          [...matches].sort((a, b) => (recency.get(b.path) ?? 0) - (recency.get(a.path) ?? 0)),
+        );
+      }
+      const rows = noteItems(matches);
+      // Searching for a note that does not exist is how people decide to write
+      // it, so the switcher offers that rather than dead-ending on "no match".
+      const exists = matches.some(
+        (match) => match.title.toLowerCase() === typed.toLowerCase() || match.path === typed,
       );
+      if (exists) return rows;
+      return [
+        ...rows,
+        {
+          id: `${CREATE_PREFIX}${typed}`,
+          title: `Create “${typed}”`,
+          detail: `${typed}.md`,
+          isAction: true,
+        },
+      ];
     }
     if (palette === 'search') return searchItems(vaultIndex.index.query(paletteQuery));
     return [];
@@ -676,6 +749,11 @@ export function App() {
     setPalette(null);
     if (palette === 'commands') {
       handlers[id as keyof typeof handlers]?.();
+      return;
+    }
+    if (id.startsWith(CREATE_PREFIX)) {
+      const name = id.slice(CREATE_PREFIX.length);
+      void createNote(`${name}.md`, `# ${name}\n\n`);
       return;
     }
     void openNoteAt(id);
@@ -705,6 +783,24 @@ export function App() {
     }
   };
 
+  /** A command's current shortcut, for tooltips. Empty when it is unbound. */
+  const shortcut = (id: string) => {
+    const binding = vaultIndex.keymap.byCommand.get(id);
+    return binding ? formatBinding(binding, PLATFORM) : 'unbound';
+  };
+
+  const stats = note ? readingStats(note.doc) : null;
+  const noteTitle = note ? (vaultIndex.index.get(note.path)?.title ?? baseName(note.path)) : null;
+  const noteFolder =
+    note && note.path.includes('/') ? note.path.slice(0, note.path.lastIndexOf('/')) : '';
+  const pinnedHere = note ? session.pinned.includes(note.path) : false;
+
+  /** Most recently touched notes, for the empty state. */
+  const recentNotes = [...session.files]
+    .filter((file) => file.kind === 'markdown')
+    .sort((a, b) => b.modified - a.modified)
+    .slice(0, 6);
+
   return (
     <div className="app">
       <header className="titlebar">
@@ -726,11 +822,15 @@ export function App() {
           </button>
         </nav>
 
+        {/* Vault-scoped actions only. Anything about the open note lives on the
+            note bar below, and anything ambient lives in the status bar. */}
         <div className="actions">
-          <span className={`save-state is-${saveState}`}>{saveLabel(saveState)}</span>
-          <SyncBadge state={session.state} paused={paused} />
-          <button type="button" onClick={() => openPalette('search')} title="Search (Mod-Shift-F)">
-            Search
+          <button
+            type="button"
+            onClick={() => openPalette('search')}
+            title={`Search in vault (${shortcut('search.open')})`}
+          >
+            <span className="glyph">⌕</span> Search
           </button>
           <button
             type="button"
@@ -739,31 +839,25 @@ export function App() {
               setShowTodos((v) => !v);
               setPreview(null);
             }}
-            title="Tasks"
+            title={`All tasks (${shortcut('todos.open')})`}
           >
-            Tasks
+            <span className="glyph">☑</span> Tasks
           </button>
           <button
             type="button"
-            className={panel === 'branches' ? 'is-on' : ''}
-            onClick={() => togglePanel('branches')}
-            title="Branches and pull requests"
+            className="primary-action"
+            onClick={sync}
+            title={`Commit, pull and push now (${shortcut('sync.now')})`}
           >
-            {session.state.branch || session.info.branch}
-          </button>
-          <button
-            type="button"
-            className={panel === 'history' ? 'is-on' : ''}
-            onClick={() => togglePanel('history')}
-            disabled={!note}
-            title={note ? 'History of this note' : 'Open a note to see its history'}
-          >
-            History
-          </button>
-          <button type="button" onClick={sync}>
             Sync now
           </button>
-          <button type="button" onClick={() => togglePanel('settings')} aria-label="Sync settings">
+          <button
+            type="button"
+            className={panel === 'settings' ? 'is-on' : ''}
+            onClick={() => togglePanel('settings')}
+            aria-label="Settings"
+            title={`Settings (${shortcut('sync.settings')})`}
+          >
             ⚙
           </button>
         </div>
@@ -788,26 +882,80 @@ export function App() {
       <div className="body">
         {showSidebar && (
           <aside className="sidebar">
-            <div className="sidebar-branch">
-              <span className="branch">{session.state.branch || session.info.branch}</span>
-              {!session.state.upstream && <span className="no-upstream">no upstream</span>}
-            </div>
             <Sidebar
               files={session.files}
               activePath={note?.path ?? preview?.path ?? drawing?.path ?? null}
               changedPaths={new Set(session.state.conflicts)}
               onSelect={select}
               onContext={(path, kind, x, y) => setContextTarget({ path, kind, x, y })}
+              onNewNote={() => setPrompt({ kind: 'newNote', parent: '' })}
+              onNewFolder={() => setPrompt({ kind: 'newFolder', parent: '' })}
+              onMove={(from, toFolder) => void move(from, toFolder)}
               pinned={session.pinned}
             />
           </aside>
         )}
 
         <section className="pane">
+          {/* Note-scoped actions sit with the note, not in the window chrome,
+              so it is never ambiguous what "History" is the history of. */}
+          {note && !conflicted && !showTodos && (
+            <div className="note-bar">
+              <div className="note-id" title={note.path}>
+                {noteFolder && <span className="note-folder">{noteFolder}/</span>}
+                <span className="note-title">{noteTitle}</span>
+              </div>
+              <div className="note-actions">
+                <button
+                  type="button"
+                  className={pinnedHere ? 'is-on' : ''}
+                  onClick={() => void togglePin()}
+                  title={pinnedHere ? 'Unpin from the sidebar' : 'Pin to the top of the sidebar'}
+                >
+                  {pinnedHere ? '★' : '☆'}
+                </button>
+                <button
+                  type="button"
+                  className={panel === 'outline' ? 'is-on' : ''}
+                  onClick={() => togglePanel('outline')}
+                  title={`Outline (${shortcut('view.outline')})`}
+                >
+                  Outline
+                </button>
+                <button
+                  type="button"
+                  className={panel === 'history' ? 'is-on' : ''}
+                  onClick={() => togglePanel('history')}
+                  title={`History of this note (${shortcut('view.history')})`}
+                >
+                  History
+                </button>
+                <button
+                  type="button"
+                  className={showBacklinks && panel === null ? 'is-on' : ''}
+                  // Nothing links here and nothing is tagged, so there is no
+                  // panel to show; saying so beats a button that does nothing.
+                  disabled={backlinks.length === 0 && noteTags.length === 0}
+                  onClick={() => {
+                    setPanel(null);
+                    setShowBacklinks((v) => !v);
+                  }}
+                  title={
+                    backlinks.length === 0 && noteTags.length === 0
+                      ? 'No tags, and no note links here yet'
+                      : `Links and tags (${shortcut('view.toggleBacklinks')})`
+                  }
+                >
+                  Links{backlinks.length > 0 ? ` ${backlinks.length}` : ''}
+                </button>
+              </div>
+            </div>
+          )}
+
           {showTodos ? (
             <TodoView
               todos={todos}
-              onOpen={(path) => void openNoteAt(path)}
+              onOpen={(path, line) => void openNoteAt(path, line)}
               onToggle={(todo) => void toggleTodo(todo)}
             />
           ) : conflicted ? (
@@ -847,22 +995,68 @@ export function App() {
               <p className="preview-caption">{preview.path} — preview only</p>
             </div>
           ) : (
-            <p className="pane-empty">Select a note to start writing.</p>
+            /* An empty pane is the first thing a new vault shows, so it does
+               the job a blank canvas cannot: name the next three moves. */
+            <div className="pane-empty">
+              <h2>{session.info.name}</h2>
+              <p className="muted-note">
+                {session.files.filter((f) => f.kind === 'markdown').length} notes in this vault.
+              </p>
+
+              <div className="empty-actions">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => setPrompt({ kind: 'newNote', parent: '' })}
+                >
+                  New note <kbd>{shortcut('note.new')}</kbd>
+                </button>
+                <button type="button" className="ghost" onClick={() => openPalette('notes')}>
+                  Go to note <kbd>{shortcut('switcher.open')}</kbd>
+                </button>
+                <button type="button" className="ghost" onClick={() => handlers['note.daily']()}>
+                  Today's note <kbd>{shortcut('note.daily')}</kbd>
+                </button>
+              </div>
+
+              {recentNotes.length > 0 && (
+                <section className="empty-recents">
+                  <h3>Recent</h3>
+                  <ul>
+                    {recentNotes.map((file) => (
+                      <li key={file.path}>
+                        <button type="button" onClick={() => void openNoteAt(file.path)}>
+                          <span className="recent-note-title">
+                            {vaultIndex.index.get(file.path)?.title ?? baseName(file.path)}
+                          </span>
+                          <span className="recent-note-path">{file.path}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
           )}
         </section>
 
-        {note && showBacklinks && !conflicted && !showTodos && panel === null && (
-          <BacklinksPanel
-            path={note.path}
-            backlinks={backlinks}
-            tags={noteTags}
-            onOpen={(path) => void openNoteAt(path)}
-            onSelectTag={(tag) => {
-              setSelectedTag(tag);
-              setPanel('tags');
-            }}
-          />
-        )}
+        {note &&
+          showBacklinks &&
+          !conflicted &&
+          !showTodos &&
+          panel === null &&
+          (backlinks.length > 0 || noteTags.length > 0) && (
+            <BacklinksPanel
+              path={note.path}
+              backlinks={backlinks}
+              tags={noteTags}
+              onOpen={(path) => void openNoteAt(path)}
+              onSelectTag={(tag) => {
+                setSelectedTag(tag);
+                setPanel('tags');
+              }}
+            />
+          )}
 
         {panel === 'history' && note && (
           <HistoryPanel
@@ -930,6 +1124,60 @@ export function App() {
           />
         )}
       </div>
+
+      {/* Ambient state, always on screen and never in the way: which branch,
+          whether the work is safe, and how long the note is. */}
+      <footer className="statusbar">
+        <div className="status-left">
+          <button
+            type="button"
+            className={`status-button ${showSidebar ? '' : 'is-off'}`}
+            onClick={() => setShowSidebar((v) => !v)}
+            title={`Toggle sidebar (${shortcut('view.toggleSidebar')})`}
+            aria-label="Toggle sidebar"
+          >
+            ▤
+          </button>
+          <button
+            type="button"
+            className={`status-button ${panel === 'branches' ? 'is-on' : ''}`}
+            onClick={() => togglePanel('branches')}
+            title={`Branches and pull requests (${shortcut('view.branches')})`}
+          >
+            ⑂ {session.state.branch || session.info.branch}
+          </button>
+          {!session.state.upstream && <span className="no-upstream">no upstream</span>}
+          <button
+            type="button"
+            className="status-button"
+            onClick={() => {
+              if (ws.activeRoot) ws.setPaused(ws.activeRoot, !paused);
+            }}
+            title={
+              paused
+                ? `Resume syncing (${shortcut('sync.togglePause')})`
+                : `Pause syncing (${shortcut('sync.togglePause')})`
+            }
+          >
+            <SyncBadge state={session.state} paused={paused} />
+          </button>
+        </div>
+
+        <div className="status-right">
+          <span className={`save-state is-${saveState}`}>{saveLabel(saveState)}</span>
+          {stats && (
+            <button
+              type="button"
+              className={`status-button ${panel === 'outline' ? 'is-on' : ''}`}
+              onClick={() => togglePanel('outline')}
+              title={`Outline (${shortcut('view.outline')})`}
+            >
+              {stats.words.toLocaleString()} word{stats.words === 1 ? '' : 's'} · {stats.minutes}{' '}
+              min read
+            </button>
+          )}
+        </div>
+      </footer>
 
       {contextTarget && (
         <ContextMenu
@@ -1030,6 +1278,22 @@ export function App() {
       )}
     </div>
   );
+}
+
+/** The last path segment, without its extension. */
+function baseName(path: string): string {
+  return (path.split('/').pop() ?? path).replace(/\.md$/i, '');
+}
+
+/**
+ * Length as a reader experiences it.
+ *
+ * 200 wpm is the conventional figure for prose; the minute count is floored at
+ * one so a short note reads "1 min" rather than "0 min".
+ */
+function readingStats(text: string): { words: number; minutes: number } {
+  const words = countWords(text);
+  return { words, minutes: Math.max(1, Math.round(words / 200)) };
 }
 
 /** Words as a person counts them, ignoring markdown punctuation. */
