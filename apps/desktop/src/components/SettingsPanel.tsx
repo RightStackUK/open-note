@@ -1,12 +1,18 @@
 import type { SyncSettings } from '@open-note/core';
 
+/** The editing preferences this panel exposes, from the vault settings file. */
+export interface EditingPrefs {
+  sortTodosOnCompletion: boolean;
+  completion: boolean;
+}
+
 interface SettingsPanelProps {
   settings: SyncSettings;
   paused: boolean;
-  sortTodosOnCompletion: boolean;
+  prefs: EditingPrefs;
   onChange: (next: Partial<SyncSettings>) => void;
   onPausedChange: (paused: boolean) => void;
-  onSortTodosOnCompletionChange: (value: boolean) => void;
+  onPrefsChange: (next: Partial<EditingPrefs>) => void;
   onClose: () => void;
 }
 
@@ -20,10 +26,10 @@ const SECONDS: Array<{ key: keyof SyncSettings; label: string; hint: string }> =
 export function SettingsPanel({
   settings,
   paused,
-  sortTodosOnCompletion,
+  prefs,
   onChange,
   onPausedChange,
-  onSortTodosOnCompletionChange,
+  onPrefsChange,
   onClose,
 }: SettingsPanelProps) {
   return (
@@ -113,8 +119,22 @@ export function SettingsPanel({
       <label className="setting-row">
         <input
           type="checkbox"
-          checked={sortTodosOnCompletion}
-          onChange={(e) => onSortTodosOnCompletionChange(e.target.checked)}
+          checked={prefs.completion}
+          onChange={(e) => onPrefsChange({ completion: e.target.checked })}
+        />
+        <span>
+          <strong>Suggest while typing</strong>
+          <small>
+            Complete <code>[[</code> note links, <code>#</code> tags and <code>:</code> emoji
+          </small>
+        </span>
+      </label>
+
+      <label className="setting-row">
+        <input
+          type="checkbox"
+          checked={prefs.sortTodosOnCompletion}
+          onChange={(e) => onPrefsChange({ sortTodosOnCompletion: e.target.checked })}
         />
         <span>
           <strong>Sort completed tasks down</strong>

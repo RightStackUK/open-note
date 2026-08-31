@@ -13,6 +13,7 @@ import {
 } from '@codemirror/view';
 
 import { type AttachmentOptions, attachmentPaste, inlineImages } from './attachments';
+import { type CompletionOptions, noteCompletion } from './completion';
 import { concealMarkdownSyntax } from './conceal';
 import { type DiagramOptions, diagramBlocks } from './diagrams';
 import { autoSortCompletedTasks, taskCheckboxes } from './tasks';
@@ -23,6 +24,8 @@ export type { EditorView } from '@codemirror/view';
 export type { AttachmentOptions } from './attachments';
 export { attachmentPaste, inlineImages } from './attachments';
 export { editorCommands, isEditorCommand } from './commands';
+export type { CompletionNote, CompletionOptions } from './completion';
+export { noteCompletion } from './completion';
 export { concealedRangesForTest, concealMarkdownSyntax } from './conceal';
 export type { DiagramOptions, DiagramRenderResult } from './diagrams';
 export { diagramBlocks } from './diagrams';
@@ -63,6 +66,8 @@ export interface CreateEditorOptions {
    * rebuilding the editor, which would drop undo history and focus.
    */
   sortTodosOnCompletion?: () => boolean;
+  /** Enables `[[`, `#` and `:` completion when provided. */
+  completion?: CompletionOptions;
 }
 
 export function markdownEditorExtensions(options: CreateEditorOptions = { parent: null as never }) {
@@ -89,6 +94,9 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     options.attachments
       ? [attachmentPaste(options.attachments), inlineImages(options.attachments)]
       : [],
+    // Before the keymaps below, so an open completion panel gets Escape and the
+    // arrow keys before the editor's own bindings claim them.
+    options.completion ? noteCompletion(options.completion) : [],
     // markdownKeymap comes first so its Enter wins over the default one:
     // that is what continues a list instead of just breaking the line.
     keymap.of([

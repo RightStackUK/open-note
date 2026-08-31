@@ -14,7 +14,7 @@ This plan does **not** revisit the decisions in
 they conflict with them — recorded in [Rejected](#rejected) at the end so they
 stop coming back as feature requests.
 
-**Status:** in progress. Block 1 landed; Block 2 next.
+**Status:** in progress. Blocks 1 and 2 landed; Block 3 next.
 
 ---
 
@@ -133,7 +133,7 @@ outgrows itself, and doing it by hand today takes six steps.
 
 ---
 
-## Block 2 — Completion
+## Block 2 — Completion ✅
 
 *One dependency, three providers, and the single largest change to how the app
 feels to type in.*
@@ -722,6 +722,8 @@ Audited, and deliberately not planned. Recorded so they do not return.
 | Fuzzy matching inside quotes? | **Off.** An exact phrase search that returns approximate matches is not one. |
 | Silent PDF writer, or the print dialog? | **The print dialog**, reusing the HTML export. A bundled PDF engine is a large dependency for a small gain. |
 | Fetch page titles for pasted URLs? | **Yes, but off by default.** It is a network request triggered by a keystroke. |
+| Where does completion decide what a `#` means? | **The tag grammar is shared with the indexer** via `partialTagBefore` in `parse.ts`, so completion can never offer a tag the index then refuses to record. Whether the caret is *in code* comes from the editor's own syntax tree rather than the indexer's regex mask — on screen, agreeing with the tree is what looks right. |
+| A full emoji table, or a curated one? | **Curated (~100 entries), GitHub shortcode names.** The full Unicode set is ~1,800 entries loaded on every `:` keystroke for choices nobody scrolls to. It lives in `core` because the Block 7 tag-icon picker needs the same table. |
 | Is anything destructive reachable by URL? | **No.** No delete, no overwrite. `append` is additive, `new` refuses to clobber. |
 | Automation surface: native frameworks or a CLI? | **A CLI plus a URL scheme.** Works on all three platforms, needs no native target, and survives the move to mobile. |
 | Multiple windows, or split view first? | **Split view first** ([#5](https://github.com/RightStackUK/open-note/issues/5)). It forces the same refactor while keeping state in one process. |

@@ -112,6 +112,28 @@ export function extractTags(body: string): string[] {
   return [...found];
 }
 
+/**
+ * A tag being typed at the end of `before`, or null if there is not one.
+ *
+ * The same lead-character and character-class rules as `TAG_RE`, anchored to
+ * the end of the text rather than scanning it — because a tag that is still
+ * being typed has no terminator yet. Tag completion goes through this so the
+ * editor and the index cannot disagree about what counts as a tag: if they did,
+ * completion would happily offer something the indexer then refuses to record.
+ *
+ * `start` is the offset of the `#`, so a caller can replace from there.
+ */
+const PARTIAL_TAG_RE = /(^|[\s(\[{])#([\p{L}\p{N}][\p{L}\p{N}_/-]*)?$/u;
+
+export function partialTagBefore(before: string): { start: number; query: string } | null {
+  const match = PARTIAL_TAG_RE.exec(before);
+  if (!match) return null;
+  const query = match[2] ?? '';
+  // A bare number is not a tag, exactly as `extractTags` decides.
+  if (/^\d+$/.test(query)) return null;
+  return { start: before.length - query.length - 1, query };
+}
+
 export function extractLinks(body: string): WikiLink[] {
   const masked = maskCode(body);
   const links: WikiLink[] = [];

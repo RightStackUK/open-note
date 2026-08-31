@@ -1,6 +1,7 @@
 import { knownLanguages, renderDiagram } from '@open-note/diagrams';
 import {
   type AttachmentOptions,
+  type CompletionOptions,
   createMarkdownEditor,
   type EditorView,
   editorCommands,
@@ -23,6 +24,8 @@ interface NoteEditorProps {
   attachments: AttachmentOptions;
   /** Move a task to the bottom of its list when it is ticked. */
   sortTodosOnCompletion: boolean;
+  /** Vault data and the on/off switch for `[[`, `#` and `:` completion. */
+  completion: CompletionOptions;
 }
 
 export interface NoteEditorHandle {
@@ -43,7 +46,17 @@ export interface NoteEditorHandle {
 }
 
 export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
-  { path, doc, onChange, resolveLink, onFollowLink, dark, attachments, sortTodosOnCompletion },
+  {
+    path,
+    doc,
+    onChange,
+    resolveLink,
+    onFollowLink,
+    dark,
+    attachments,
+    sortTodosOnCompletion,
+    completion,
+  },
   ref,
 ) {
   const host = useRef<HTMLDivElement>(null);
@@ -58,6 +71,8 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
   attachmentsRef.current = attachments;
   const sortTodosRef = useRef(sortTodosOnCompletion);
   sortTodosRef.current = sortTodosOnCompletion;
+  const completionRef = useRef(completion);
+  completionRef.current = completion;
 
   useEffect(() => {
     if (!host.current) return;
@@ -78,6 +93,14 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
       },
       // Read through a ref so toggling the setting does not rebuild the editor.
       sortTodosOnCompletion: () => sortTodosRef.current,
+      // Likewise: the sources read the index at query time, so a note added
+      // since the editor mounted is offered without rebuilding anything.
+      completion: {
+        notes: () => completionRef.current.notes(),
+        tags: () => completionRef.current.tags(),
+        recency: () => completionRef.current.recency?.() ?? new Map(),
+        enabled: () => completionRef.current.enabled?.() ?? true,
+      },
       diagrams: {
         languages: knownLanguages(),
         dark,

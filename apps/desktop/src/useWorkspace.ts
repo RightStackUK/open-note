@@ -4,11 +4,19 @@ import {
   type SyncSettings,
   type SyncState,
   serialiseVaultSettings,
+  type VaultSettings,
   VaultSync,
 } from '@open-note/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api, createSyncPort, type VaultFile, type VaultInfo } from './api';
+
+/**
+ * The per-vault preferences, as they sit in `.opennote/settings.json` beside
+ * the `sync` block. Named separately so a setter can take a partial of exactly
+ * these without also accepting `info` or `files`.
+ */
+export type VaultPrefs = Omit<VaultSettings, 'sync'> & { sync?: SyncSettings };
 
 export interface VaultSession {
   info: VaultInfo;
@@ -21,6 +29,8 @@ export interface VaultSession {
   pinned: string[];
   /** Move a completed task to the bottom of its list automatically. */
   sortTodosOnCompletion: boolean;
+  /** Offer `[[`, `#` and `:` completion while typing. */
+  completion: boolean;
 }
 
 /**
@@ -95,6 +105,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             attachmentFolder: vaultSettings.attachmentFolder,
             pinned: vaultSettings.pinned,
             sortTodosOnCompletion: vaultSettings.sortTodosOnCompletion,
+            completion: vaultSettings.completion,
           },
         }));
         setActiveRoot(info.root);
@@ -148,75 +159,64 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
     else engine.resume();
   }, []);
 
-  const updateSettings = useCallback(
-    async (root: string, next: Partial<SyncSettings>) => {
-      const engine = engines.current.get(root);
-      if (!engine) return;
-      engine.updateSettings(next);
-      const merged = engine.getSettings();
-      patch(root, { settings: merged });
+  /**
+   * Persist the whole settings file from a session plus an override.
+   *
+   * One place assembles the file so that adding a setting means adding it to
+   * `VaultPrefs` and nowhere else. Reassembling it in each setter meant every
+   * new field had to be threaded through all of them, and a setter that forgot
+   * one silently reset it on the next unrelated change.
+   */
+  const writeSettingsFile = useCallback(
+    async (root: string, session: VaultSession, override: Partial<VaultPrefs> = {}) => {
       try {
         // Persisted inside the repo, so the choice follows the vault between
         // machines rather than living on this one.
-        const session = sessionsRef.current[root];
-        await api.writeSettings(
-          root,
-          serialiseVaultSettings({
-            sync: merged,
-            attachmentFolder: session?.attachmentFolder ?? 'assets',
-            pinned: session?.pinned ?? [],
-            sortTodosOnCompletion: session?.sortTodosOnCompletion ?? false,
-          }),
-        );
-      } catch (e) {
-        setError(errorText(e));
-      }
-    },
-    [patch],
-  );
-
-  const updatePinned = useCallback(
-    async (root: string, pinned: string[]) => {
-      const session = sessionsRef.current[root];
-      if (!session) return;
-      patch(root, { pinned });
-      try {
-        await api.writeSettings(
-          root,
-          serialiseVaultSettings({
-            sync: session.settings,
-            attachmentFolder: session.attachmentFolder,
-            pinned,
-            sortTodosOnCompletion: session.sortTodosOnCompletion,
-          }),
-        );
-      } catch (e) {
-        setError(errorText(e));
-      }
-    },
-    [patch],
-  );
-
-  const updateSortTodosOnCompletion = useCallback(
-    async (root: string, sortTodosOnCompletion: boolean) => {
-      const session = sessionsRef.current[root];
-      if (!session) return;
-      patch(root, { sortTodosOnCompletion });
-      try {
         await api.writeSettings(
           root,
           serialiseVaultSettings({
             sync: session.settings,
             attachmentFolder: session.attachmentFolder,
             pinned: session.pinned,
-            sortTodosOnCompletion,
+            sortTodosOnCompletion: session.sortTodosOnCompletion,
+            completion: session.completion,
+            ...override,
           }),
         );
       } catch (e) {
         setError(errorText(e));
       }
     },
-    [patch],
+    [],
+  );
+
+  const updateSettings = useCallback(
+    async (root: string, next: Partial<SyncSettings>) => {
+      const engine = engines.current.get(root);
+      const session = sessionsRef.current[root];
+      if (!engine || !session) return;
+      engine.updateSettings(next);
+      const merged = engine.getSettings();
+      patch(root, { settings: merged });
+      await writeSettingsFile(root, session, { sync: merged });
+    },
+    [patch, writeSettingsFile],
+  );
+
+  /** Change any of the per-vault editor preferences. */
+  const updatePrefs = useCallback(
+    async (root: string, next: Partial<VaultPrefs>) => {
+      const session = sessionsRef.current[root];
+      if (!session) return;
+      patch(root, next);
+      await writeSettingsFile(root, session, next);
+    },
+    [patch, writeSettingsFile],
+  );
+
+  const updatePinned = useCallback(
+    (root: string, pinned: string[]) => updatePrefs(root, { pinned }),
+    [updatePrefs],
   );
 
   const conflictResolved = useCallback(async (root: string) => {
@@ -259,7 +259,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
     conflictResolved,
     refreshStatus,
     updatePinned,
-    updateSortTodosOnCompletion,
+    updatePrefs,
     refreshFiles,
     isPaused: (root: string) => engines.current.get(root)?.isPaused() ?? false,
   };

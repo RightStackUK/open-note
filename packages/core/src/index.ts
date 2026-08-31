@@ -30,6 +30,8 @@ export {
   dailyNoteTemplate,
   localIsoDate,
 } from './notes/daily';
+export type { Emoji } from './notes/emoji';
+export { EMOJI, searchEmoji } from './notes/emoji';
 export type { ExportOptions } from './notes/export';
 export { exportNoteToHtml } from './notes/export';
 export type {
@@ -48,6 +50,7 @@ export {
   extractTodos,
   noteTitle,
   parseNote,
+  partialTagBefore,
   splitFrontmatter,
   toPlainText,
 } from './notes/parse';

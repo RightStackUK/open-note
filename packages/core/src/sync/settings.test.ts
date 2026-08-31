@@ -79,6 +79,7 @@ describe('parseVaultSettings', () => {
       attachmentFolder: 'assets',
       pinned: [],
       sortTodosOnCompletion: false,
+      completion: true,
     });
     expect(text.endsWith('\n')).toBe(true);
     expect(text).toContain('\n  "sync"');
@@ -103,6 +104,31 @@ describe('sortTodosOnCompletion', () => {
     const parsed = parseVaultSettings('{"sync":42,"sortTodosOnCompletion":true}');
     expect(parsed.sortTodosOnCompletion).toBe(true);
     expect(parsed.sync).toEqual(DEFAULT_SYNC_SETTINGS);
+  });
+});
+
+describe('completion', () => {
+  it('defaults to on', () => {
+    expect(parseVaultSettings(null).completion).toBe(true);
+  });
+
+  it('reads an explicit false', () => {
+    expect(parseVaultSettings('{"completion":false}').completion).toBe(false);
+  });
+
+  it('degrades a non-boolean to the default', () => {
+    expect(parseVaultSettings('{"completion":"off"}').completion).toBe(true);
+  });
+
+  it('survives a malformed sync block', () => {
+    const parsed = parseVaultSettings('{"sync":42,"completion":false}');
+    expect(parsed.completion).toBe(false);
+    expect(parsed.sync).toEqual(DEFAULT_SYNC_SETTINGS);
+  });
+
+  it('round-trips', () => {
+    const original = parseVaultSettings('{"completion":false}');
+    expect(parseVaultSettings(serialiseVaultSettings(original))).toEqual(original);
   });
 });
 

@@ -7,6 +7,7 @@ import {
   extractTodos,
   noteTitle,
   parseNote,
+  partialTagBefore,
   splitFrontmatter,
   toPlainText,
 } from './parse';
@@ -82,6 +83,56 @@ describe('extractTags', () => {
 
   it('supports non-ASCII tags', () => {
     expect(extractTags('#günlük')).toEqual(['günlük']);
+  });
+});
+
+describe('partialTagBefore', () => {
+  it('finds a tag being typed at the start of a line', () => {
+    expect(partialTagBefore('#wo')).toEqual({ start: 0, query: 'wo' });
+  });
+
+  it('finds a tag after whitespace', () => {
+    expect(partialTagBefore('about #wo')).toEqual({ start: 6, query: 'wo' });
+  });
+
+  it('reports a bare # with an empty query', () => {
+    expect(partialTagBefore('about #')).toEqual({ start: 6, query: '' });
+  });
+
+  it('finds a nested tag', () => {
+    expect(partialTagBefore('#work/urg')).toEqual({ start: 0, query: 'work/urg' });
+  });
+
+  it('returns null mid-word, where a # is not a tag', () => {
+    expect(partialTagBefore('I write C#')).toBeNull();
+  });
+
+  it('returns null in a URL fragment', () => {
+    expect(partialTagBefore('https://example.com/page#sec')).toBeNull();
+  });
+
+  it('returns null with no # at all', () => {
+    expect(partialTagBefore('just prose')).toBeNull();
+  });
+
+  it('returns null once a space ends the tag', () => {
+    expect(partialTagBefore('#work and')).toBeNull();
+  });
+
+  it('returns null for a bare number, as extractTags does', () => {
+    expect(partialTagBefore('issue #123')).toBeNull();
+  });
+
+  it('agrees with extractTags about what is a tag', () => {
+    // The two must not disagree: completion offering a tag the indexer then
+    // refuses to record is exactly the bug this shared rule prevents.
+    const cases = ['#work', 'about #work', '(#work', 'C#work'];
+    for (const text of cases) {
+      const partial = partialTagBefore(text);
+      const extracted = extractTags(text);
+      expect(Boolean(partial)).toBe(extracted.length > 0);
+      if (partial) expect(extracted).toContain(partial.query);
+    }
   });
 });
 

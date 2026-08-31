@@ -48,6 +48,8 @@ export interface VaultSettings {
   pinned: string[];
   /** Move a task to the bottom of its list automatically when it is completed. */
   sortTodosOnCompletion: boolean;
+  /** Offer `[[` link, `#` tag and `:` emoji completion while typing. */
+  completion: boolean;
 }
 
 export const DEFAULT_ATTACHMENT_FOLDER = 'assets';
@@ -57,6 +59,7 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   attachmentFolder: DEFAULT_ATTACHMENT_FOLDER,
   pinned: [],
   sortTodosOnCompletion: false,
+  completion: true,
 };
 
 /**
@@ -107,6 +110,7 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     attachmentFolder: DEFAULT_ATTACHMENT_FOLDER,
     pinned: [],
     sortTodosOnCompletion: false,
+    completion: true,
   });
   if (!raw) return defaults();
 
@@ -136,9 +140,16 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     (parsed as { sortTodosOnCompletion?: unknown }).sortTodosOnCompletion,
     false,
   );
+  const completion = bool((parsed as { completion?: unknown }).completion, true);
 
   if (typeof sync !== 'object' || sync === null) {
-    return { sync: { ...DEFAULT_SYNC_SETTINGS }, attachmentFolder, pinned, sortTodosOnCompletion };
+    return {
+      sync: { ...DEFAULT_SYNC_SETTINGS },
+      attachmentFolder,
+      pinned,
+      sortTodosOnCompletion,
+      completion,
+    };
   }
 
   const d = DEFAULT_SYNC_SETTINGS;
@@ -146,6 +157,7 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     attachmentFolder,
     pinned,
     sortTodosOnCompletion,
+    completion,
     sync: {
       autoCommit: bool(sync.autoCommit, d.autoCommit),
       autoPush: bool(sync.autoPush, d.autoPush),

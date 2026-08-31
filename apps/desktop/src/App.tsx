@@ -617,6 +617,35 @@ export function App() {
     [ws, session?.attachmentFolder],
   );
 
+  /**
+   * Vault data for `[[`, `#` and `:` completion.
+   *
+   * Every field is a callback the editor calls at query time, so the editor is
+   * never rebuilt when the index or the file listing changes — and a note
+   * created a moment ago is offered immediately.
+   */
+  const completion = useMemo(
+    () => ({
+      notes: () =>
+        vaultIndex.index.paths().map((path) => ({
+          path,
+          title: vaultIndex.index.get(path)?.title ?? baseName(path),
+        })),
+      tags: () => vaultIndex.index.tags().map((t) => t.tag),
+      // Recency comes from the file listing rather than the index: the index
+      // parses note content and has no reason to know about mtimes.
+      recency: () =>
+        new Map(
+          (ws.activeRoot ? (ws.sessions[ws.activeRoot]?.files ?? []) : []).map((file) => [
+            file.path,
+            file.modified,
+          ]),
+        ),
+      enabled: () => (ws.activeRoot ? ws.sessions[ws.activeRoot]?.completion !== false : true),
+    }),
+    [vaultIndex, ws.activeRoot, ws.sessions],
+  );
+
   /** Export the open note as a self-contained HTML page. */
   const exportNote = useCallback(async () => {
     const root = ws.activeRoot;
@@ -1163,6 +1192,7 @@ export function App() {
               dark={dark}
               attachments={attachments}
               sortTodosOnCompletion={session.sortTodosOnCompletion}
+              completion={completion}
               ref={editorRef}
             />
           ) : drawing ? (
@@ -1301,12 +1331,13 @@ export function App() {
           <SettingsPanel
             settings={session.settings}
             paused={paused}
-            sortTodosOnCompletion={session.sortTodosOnCompletion}
+            prefs={{
+              sortTodosOnCompletion: session.sortTodosOnCompletion,
+              completion: session.completion,
+            }}
             onChange={(next) => void ws.updateSettings(session.info.root, next)}
             onPausedChange={(p) => ws.setPaused(session.info.root, p)}
-            onSortTodosOnCompletionChange={(v) =>
-              void ws.updateSortTodosOnCompletion(session.info.root, v)
-            }
+            onPrefsChange={(next) => void ws.updatePrefs(session.info.root, next)}
             onClose={() => setPanel(null)}
           />
         )}
