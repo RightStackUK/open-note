@@ -59,6 +59,40 @@ provider, and an account can hold only one per URL. Set
 is looked up by URL — you do not need its ARN. Leaving this true against an
 account that already has one fails the apply with `EntityAlreadyExists`.
 
+### The OIDC subject claim
+
+GitHub can issue tokens with an **immutable** subject claim, which embeds the
+numeric owner and repository IDs:
+
+```
+repo:RightStackUK@129496338/open-note@1350515140:ref:refs/heads/main
+```
+
+rather than the classic `repo:RightStackUK/open-note:ref:refs/heads/main`. It
+exists so renaming an org or repo cannot hand its AWS trust to whoever claims
+the old name. This organisation has it on, so `github_owner_id` and
+`github_repository_id` are set in `terraform.tfvars` and the role trusts **both**
+spellings, exactly. Get them with:
+
+```bash
+gh api repos/RightStackUK/open-note --jq '{owner: .owner.id, repo: .id}'
+```
+
+Trusting the wrong one fails with a bare `Not authorized to perform
+sts:AssumeRoleWithWebIdentity`, which names neither the claim it got nor the one
+it wanted. CloudTrail does — look up the `AssumeRoleWithWebIdentity` event and
+read `userIdentity.principalId`:
+
+```bash
+aws cloudtrail lookup-events --region eu-west-2 \
+  --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+  --max-results 1 --query 'Events[].CloudTrailEvent' --output text
+```
+
+Do not be tempted to fix a mismatch with `StringLike` and a wildcard:
+`repo:RightStackUK*/open-note*` also matches `RightStackUKx/open-note-evil`, an
+org name anyone can register.
+
 ### Repository variables
 
 The deploy reads four **variables** — not secrets. None is sensitive, and a

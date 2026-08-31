@@ -46,6 +46,27 @@ variable "github_deploy_refs" {
   default     = ["refs/heads/main"]
 }
 
+variable "github_owner_id" {
+  description = <<-EOT
+    Numeric ID of the repository owner, from `gh api repos/OWNER/REPO --jq .owner.id`.
+
+    GitHub can issue OIDC tokens with an *immutable* subject claim, which embeds
+    the numeric owner and repository IDs —
+    `repo:Owner@129496338/repo@1350515140:ref:refs/heads/main` — so that renaming
+    an org or repo cannot silently hand its trust to whoever claims the old name.
+    Some organisations have this on, some do not, and the two forms are not
+    interchangeable. Supply the IDs and the role trusts both spellings exactly.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "github_repository_id" {
+  description = "Numeric ID of the repository, from `gh api repos/OWNER/REPO --jq .id`. See github_owner_id."
+  type        = string
+  default     = ""
+}
+
 variable "create_github_oidc_provider" {
   description = <<-EOT
     Create the account-wide GitHub OIDC provider. There can only be one per AWS

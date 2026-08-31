@@ -30,6 +30,29 @@ locals {
   )
 }
 
+locals {
+  github_owner = split("/", var.github_repository)[0]
+  github_name  = split("/", var.github_repository)[1]
+
+  # GitHub may send either spelling of the repository in the subject claim,
+  # depending on whether the organisation has immutable OIDC subject claims
+  # turned on. Trusting both exactly costs nothing and survives the setting
+  # being flipped either way; guessing wrong fails with a bare "Not authorized
+  # to perform sts:AssumeRoleWithWebIdentity" that names neither claim.
+  github_repo_slugs = compact([
+    var.github_repository,
+    var.github_owner_id != "" && var.github_repository_id != ""
+    ? "${local.github_owner}@${var.github_owner_id}/${local.github_name}@${var.github_repository_id}"
+    : "",
+  ])
+
+  allowed_subjects = flatten([
+    for slug in local.github_repo_slugs : [
+      for ref in var.github_deploy_refs : "repo:${slug}:ref:${ref}"
+    ]
+  ])
+}
+
 data "aws_iam_policy_document" "deploy_assume_role" {
   statement {
     effect  = "Allow"
@@ -49,12 +72,15 @@ data "aws_iam_policy_document" "deploy_assume_role" {
     }
 
     # And without the subject check, any repository on GitHub could assume it.
-    # StringEquals rather than StringLike: a wildcard here is the classic way
-    # this trust policy gets accidentally opened to the whole internet.
+    # StringEquals rather than StringLike, even though a wildcard would paper
+    # over the two subject spellings: `repo:RightStackUK*/open-note*` also
+    # matches an org someone else can register, such as RightStackUKx. A
+    # wildcard here is the classic way this trust policy gets opened to the
+    # whole internet.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = [for ref in var.github_deploy_refs : "repo:${var.github_repository}:ref:${ref}"]
+      values   = local.allowed_subjects
     }
   }
 }
