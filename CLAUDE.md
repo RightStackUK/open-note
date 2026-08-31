@@ -99,6 +99,18 @@ Ten commands once shipped declared, bound and listed while doing nothing.
 `apps/desktop/src/commandCoverage.test.ts` exists to stop that recurring — any new command needs an
 app handler or an editor implementation.
 
+### Two editors, one package
+
+`createMarkdownEditor` is for notes; `createTextEditor` (`text.ts`) is for everything else a
+repository contains. They deliberately share nothing but the package: a `.ts` file wants line
+numbers, monospace and full width, and none of the note editor's concealment. Languages come from
+`@codemirror/language-data`, which describes every language without loading any — `load()` pulls in
+one parser, so a vault of Markdown never pays for the rest.
+
+`FileKind` in `vault.rs` classifies with a **denylist** of binary extensions. Anything else is
+offered as text and refused at read time if it is not UTF-8; an allowlist would have to grow
+forever to cover what people keep in a repo.
+
 ### Editor conventions (`packages/editor`)
 
 The editor is CodeMirror 6 over **real Markdown source**, decorated inline — not a WYSIWYG

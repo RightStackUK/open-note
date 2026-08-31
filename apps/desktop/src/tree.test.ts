@@ -62,3 +62,25 @@ describe('buildTree', () => {
     expect(buildTree([])).toEqual([]);
   });
 });
+
+describe('buildTree with folder entries', () => {
+  it('shows a folder that holds no files', () => {
+    // The case that has no other evidence: git cannot store an empty directory.
+    const tree = buildTree([file('a.md'), file('Ideas', 'folder')]);
+    expect(tree.map((n) => n.name)).toEqual(['Ideas', 'a.md']);
+    expect(tree[0]?.type).toBe('folder');
+    expect((tree[0] as TreeFolder).children).toEqual([]);
+  });
+
+  it('does not duplicate a folder that also has files in it', () => {
+    const tree = buildTree([file('daily/note.md'), file('daily', 'folder')]);
+    expect(tree).toHaveLength(1);
+    expect((tree[0] as TreeFolder).children.map((c) => c.name)).toEqual(['note.md']);
+  });
+
+  it('nests an empty folder inside a folder that has files', () => {
+    const tree = buildTree([file('Projects/p.md'), file('Projects/2026', 'folder')]);
+    const projects = tree[0] as TreeFolder;
+    expect(projects.children.map((c) => c.name)).toEqual(['2026', 'p.md']);
+  });
+});

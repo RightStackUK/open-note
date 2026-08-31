@@ -34,6 +34,14 @@ pub trait GitPort: Send + Sync {
     /// so we never walk `node_modules` or `target`.
     fn list_files(&self, repo: &Path) -> Result<Vec<PathBuf>>;
 
+    /// Directories `.gitignore` excludes, collapsed at their topmost level.
+    ///
+    /// Git cannot store an empty directory, so listing folders means walking the
+    /// filesystem — and a vault may be any repository, including one with a
+    /// `node_modules`. These prefixes are what lets that walk stop at the top of
+    /// an ignored tree instead of descending into it.
+    fn ignored_directories(&self, repo: &Path) -> Result<Vec<PathBuf>>;
+
     /// Stage `paths` and create a commit. An empty `paths` stages everything the
     /// vault owns (respecting `.gitignore`).
     fn commit(&self, repo: &Path, paths: &[PathBuf], message: &str) -> Result<CommitId>;

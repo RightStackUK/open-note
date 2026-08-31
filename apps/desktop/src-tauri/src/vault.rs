@@ -16,6 +16,27 @@ const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd"];
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp"];
 /// Freehand drawings. Plaintext JSON, so they diff and merge like any other file.
 const DRAWING_EXTENSIONS: &[&str] = &["excalidraw"];
+/// Formats that are definitely not text, so we never offer to edit them.
+///
+/// The list is a denylist rather than an allowlist of text extensions because a
+/// vault is an ordinary repository: it may hold a `Makefile`, a `.env`, a
+/// `Dockerfile` or any of a hundred config formats, and an allowlist would have
+/// to grow forever to keep up. Anything not listed here is offered as text and
+/// refused at read time if it turns out not to decode as UTF-8.
+const BINARY_EXTENSIONS: &[&str] = &[
+    "pdf", "zip", "gz", "tar", "bz2", "xz", "7z", "rar", "dmg", "iso", "exe", "dll", "so", "dylib",
+    "a", "o", "bin", "wasm", "class", "jar", "pyc", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+    "odt", "ods", "key", "pages", "numbers", "mp3", "wav", "flac", "aac", "ogg", "m4a", "mp4",
+    "mov", "avi", "mkv", "webm", "ttf", "otf", "woff", "woff2", "eot", "psd", "ai", "sketch",
+    "sqlite", "db", "ico", "icns", "heic", "tiff", "tif",
+];
+
+/// Per-vault configuration, hidden from the tree.
+///
+/// It is the app's own storage and the settings and shortcuts panels are the way
+/// to change it; listing it invites hand-edits that race those panels. It stays
+/// a plain committed file, so it is still there for anyone who wants it.
+const CONFIG_DIR: &str = ".opennote";
 
 /// Refuse to load anything absurd into the editor. Notes are prose, and a
 /// multi-megabyte "note" is a sign something has gone wrong.
@@ -115,8 +136,13 @@ pub enum FileKind {
     Image,
     /// Editable in the drawing canvas.
     Drawing,
+    /// Editable as plain text, with syntax highlighting where we know the format.
+    Text,
     /// Listed by name only.
     Other,
+    /// A directory. Reported so that empty folders are visible: git cannot
+    /// store one, so nothing in the file listing would imply it exists.
+    Folder,
 }
 
 impl FileKind {
@@ -132,9 +158,16 @@ impl FileKind {
             FileKind::Image
         } else if DRAWING_EXTENSIONS.contains(&ext.as_str()) {
             FileKind::Drawing
-        } else {
+        } else if BINARY_EXTENSIONS.contains(&ext.as_str()) {
             FileKind::Other
+        } else {
+            FileKind::Text
         }
+    }
+
+    /// Whether the app will open this in a text editor and write it back.
+    fn is_editable_text(self) -> bool {
+        matches!(self, FileKind::Markdown | FileKind::Text)
     }
 }
 
@@ -233,8 +266,70 @@ pub fn open(git: &SystemGit, root: &Path) -> Result<VaultInfo> {
     })
 }
 
-/// Every file in the vault, classified. Ordering is stable so the tree does not
-/// jump around between refreshes.
+/// How deep the folder walk goes, and how many folders it will report.
+///
+/// A vault is an ordinary repository and may be enormous. Both caps exist so a
+/// pathological one degrades to a shallow tree instead of freezing the window.
+const MAX_FOLDER_DEPTH: usize = 12;
+const MAX_FOLDERS: usize = 4096;
+
+/// Whether a vault-relative path is the app's own config directory.
+fn is_config_path(rel: &str) -> bool {
+    rel == CONFIG_DIR || rel.starts_with(&format!("{CONFIG_DIR}/"))
+}
+
+/// Every directory in the vault, so that empty folders are visible.
+///
+/// Git has no concept of an empty directory, so this is the one listing that has
+/// to come from the filesystem rather than from git. `ignored` prunes the walk at
+/// the top of each ignored tree, which is what keeps a `node_modules` from being
+/// walked at all.
+fn walk_folders(root: &Path, ignored: &[PathBuf]) -> Vec<VaultFile> {
+    let mut found = Vec::new();
+    let mut queue: Vec<(PathBuf, String, usize)> = vec![(root.to_path_buf(), String::new(), 0)];
+
+    while let Some((dir, rel, depth)) = queue.pop() {
+        if depth >= MAX_FOLDER_DEPTH || found.len() >= MAX_FOLDERS {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if !entry.file_type().is_ok_and(|t| t.is_dir()) {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // `.git` would be catastrophic to expose, and the config directory is
+            // ours; every other dot-directory is tooling the notes app has no
+            // business showing either.
+            if name.starts_with('.') {
+                continue;
+            }
+            let child_rel = if rel.is_empty() {
+                name.clone()
+            } else {
+                format!("{rel}/{name}")
+            };
+            if ignored.iter().any(|i| to_slash(i) == child_rel) {
+                continue;
+            }
+            found.push(VaultFile {
+                path: child_rel.clone(),
+                name,
+                kind: FileKind::Folder,
+                size: 0,
+                modified: 0,
+            });
+            queue.push((entry.path(), child_rel, depth + 1));
+        }
+    }
+
+    found
+}
+
+/// Every file and folder in the vault, classified. Ordering is stable so the tree
+/// does not jump around between refreshes.
 pub fn list(git: &SystemGit, root: &Path) -> Result<Vec<VaultFile>> {
     let mut files: Vec<VaultFile> = git
         .list_files(root)?
@@ -259,15 +354,27 @@ pub fn list(git: &SystemGit, root: &Path) -> Result<Vec<VaultFile>> {
                     .unwrap_or(0),
             }
         })
-        .filter(|f| !f.path.is_empty())
+        .filter(|f| !f.path.is_empty() && !is_config_path(&f.path))
         .collect();
+
+    // Folders never fail the listing: a walk that cannot read a directory should
+    // cost that folder, not the whole tree.
+    let ignored = git.ignored_directories(root).unwrap_or_default();
+    files.extend(walk_folders(root, &ignored));
+
     files.sort_by(|a, b| a.path.cmp(&b.path));
+    files.dedup_by(|a, b| a.path == b.path);
     Ok(files)
 }
 
+/// Read a note, or any other file the app will edit as text.
+///
+/// A vault is an ordinary repository, so it holds `.txt` scratch files and the
+/// odd script alongside the notes. Refusing to open those made the app less
+/// useful than the text editor the user already had open beside it.
 pub fn read_note(root: &Path, relative: &str) -> Result<String> {
     let path = resolve_within(root, relative)?;
-    if FileKind::of(&path) != FileKind::Markdown {
+    if !FileKind::of(&path).is_editable_text() {
         return Err(VaultError::NotEditable(relative.to_string()));
     }
     let size = fs::metadata(&path)?.len();
@@ -324,7 +431,7 @@ pub fn write_drawing(root: &Path, relative: &str, contents: &str) -> Result<()> 
 
 pub fn write_note(root: &Path, relative: &str, contents: &str) -> Result<()> {
     let path = resolve_within(root, relative)?;
-    if FileKind::of(&path) != FileKind::Markdown {
+    if !FileKind::of(&path).is_editable_text() {
         return Err(VaultError::NotEditable(relative.to_string()));
     }
     if let Some(parent) = path.parent() {
@@ -619,7 +726,85 @@ mod tests {
         assert_eq!(FileKind::of(Path::new("a.png")), FileKind::Image);
         assert_eq!(FileKind::of(Path::new("a.JPEG")), FileKind::Image);
         assert_eq!(FileKind::of(Path::new("a.pdf")), FileKind::Other);
-        assert_eq!(FileKind::of(Path::new("Makefile")), FileKind::Other);
+        assert_eq!(FileKind::of(Path::new("a.zip")), FileKind::Other);
+    }
+
+    #[test]
+    fn treats_unrecognised_extensions_as_editable_text() {
+        // A vault is an ordinary repository; an allowlist of text extensions
+        // would never keep up with what people actually keep in one.
+        assert_eq!(FileKind::of(Path::new("a.txt")), FileKind::Text);
+        assert_eq!(FileKind::of(Path::new("a.ts")), FileKind::Text);
+        assert_eq!(FileKind::of(Path::new("Makefile")), FileKind::Text);
+        assert_eq!(FileKind::of(Path::new(".gitignore")), FileKind::Text);
+        assert!(FileKind::Text.is_editable_text());
+        assert!(FileKind::Markdown.is_editable_text());
+        assert!(!FileKind::Other.is_editable_text());
+        assert!(!FileKind::Image.is_editable_text());
+    }
+
+    #[test]
+    fn reads_and_writes_a_plain_text_file() {
+        let (_d, root) = vault();
+        write_note(&root, "scripts/build.sh", "#!/bin/sh\necho hi\n").expect("write");
+        assert_eq!(
+            read_note(&root, "scripts/build.sh").expect("read"),
+            "#!/bin/sh\necho hi\n"
+        );
+    }
+
+    #[test]
+    fn refuses_to_open_a_binary_file_as_text() {
+        let (_d, root) = vault();
+        fs::write(root.join("a.pdf"), b"%PDF-1.4").unwrap();
+        assert!(matches!(
+            read_note(&root, "a.pdf"),
+            Err(VaultError::NotEditable(_))
+        ));
+    }
+
+    #[test]
+    fn hides_the_config_directory_from_the_tree() {
+        assert!(is_config_path(".opennote"));
+        assert!(is_config_path(".opennote/settings.json"));
+        assert!(!is_config_path(".opennoteworthy.md"));
+        assert!(!is_config_path("notes/.opennote.md"));
+    }
+
+    #[test]
+    fn walks_folders_including_empty_ones() {
+        let (_d, root) = vault();
+        fs::create_dir_all(root.join("Projects/2026")).unwrap();
+        fs::create_dir_all(root.join("Empty")).unwrap();
+        fs::create_dir_all(root.join(".opennote")).unwrap();
+        fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+
+        let folders = walk_folders(&root, &[PathBuf::from("node_modules")]);
+        let paths: Vec<&str> = folders.iter().map(|f| f.path.as_str()).collect();
+
+        // The point of the walk: git cannot report an empty directory at all.
+        assert!(paths.contains(&"Empty"));
+        assert!(paths.contains(&"Projects"));
+        assert!(paths.contains(&"Projects/2026"));
+        // Ignored trees are pruned at the top, and never descended into.
+        assert!(!paths.contains(&"node_modules"));
+        assert!(!paths.contains(&"node_modules/pkg"));
+        // Dot-directories are the app's own or someone's tooling.
+        assert!(!paths.contains(&".opennote"));
+        assert!(folders.iter().all(|f| f.kind == FileKind::Folder));
+    }
+
+    #[test]
+    fn folder_walk_stops_at_the_depth_cap() {
+        let (_d, root) = vault();
+        let mut deep = root.clone();
+        for i in 0..(MAX_FOLDER_DEPTH + 3) {
+            deep = deep.join(format!("d{i}"));
+        }
+        fs::create_dir_all(&deep).unwrap();
+
+        let folders = walk_folders(&root, &[]);
+        assert_eq!(folders.len(), MAX_FOLDER_DEPTH);
     }
 
     #[test]

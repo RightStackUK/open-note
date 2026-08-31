@@ -45,6 +45,12 @@ export function buildTree(files: VaultFile[]): TreeNode[] {
   };
 
   for (const file of files) {
+    // The backend reports directories so that empty ones are visible: git
+    // cannot store one, so no file path would ever imply it exists.
+    if (file.kind === 'folder') {
+      folderAt(file.path);
+      continue;
+    }
     const slash = file.path.lastIndexOf('/');
     const parent = folderAt(slash === -1 ? '' : file.path.slice(0, slash));
     parent.children.push({

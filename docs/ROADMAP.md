@@ -136,13 +136,23 @@ destroys trust in the app.
 ### 3.4 Vault model
 
 - A **vault is an entire Git repository**. No subfolder scoping.
-- **Non-Markdown files are listed but not opened.** Images (`png/jpg/gif/webp/svg`) get a
-  read-only preview; everything else shows its name, size and a "open in system editor" action.
-  This keeps the tree honest about what's in the repo without turning Open Note into an IDE.
+- **Text files are editable; binaries are listed only.** Images (`png/jpg/gif/webp/svg`) get a
+  read-only preview. Everything that is not a known binary format opens in a plain editor with
+  line numbers and syntax highlighting — a vault is an ordinary repository, and refusing to open
+  the `.txt` and the shell script sitting next to the notes made the app less useful than the
+  editor already open beside it. Classification is a **denylist** of binary extensions rather
+  than an allowlist of text ones, because an allowlist would never keep up with what people
+  actually keep in a repo; anything that turns out not to be UTF-8 is refused at read time.
+  Notes still get the note editor: concealment, wikilinks and a serif measure.
+- **Empty folders are listed from the filesystem, not from git.** Git cannot store an empty
+  directory, so nothing in `ls-files` implies one exists — a folder the user just created would
+  otherwise vanish. The walk is pruned with `git ls-files --others --ignored --directory`, so it
+  never descends into an ignored tree, and it is capped in depth and count.
 - **Multiple vaults** are open simultaneously, each with independent sync state and settings.
 - **Per-vault config lives in `.opennote/` inside the repo** (`settings.json`, `keymap.json`) so
-  it travels between machines. Machine-local state (window layout, recent files, cached index)
-  stays in the OS app-data dir and is never committed.
+  it travels between machines. It is **hidden from the file tree**: the settings and shortcuts
+  panels own it, and listing it invites hand-edits that race them. Machine-local state (window
+  layout, recent files, cached index) stays in the OS app-data dir and is never committed.
 
 ### 3.5 Todo format
 

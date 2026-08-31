@@ -34,6 +34,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { Sidebar } from './components/Sidebar';
 import { SyncBadge } from './components/SyncBadge';
 import { TagPanel } from './components/TagPanel';
+import { TextEditor } from './components/TextEditor';
 import { TodoView } from './components/TodoView';
 import { relativeFrom, resolveAgainst } from './paths';
 import { PLATFORM, useCommandKeys } from './useCommands';
@@ -52,6 +53,11 @@ type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 interface OpenNote {
   path: string;
   doc: string;
+  /**
+   * Which editor to use. A vault holds ordinary files as well as notes, and a
+   * `.ts` wants line numbers and a monospace face, not a serif measure.
+   */
+  kind: 'markdown' | 'text';
   /** Bumped to force the editor to reload, e.g. after an upstream change. */
   revision: number;
 }
@@ -152,6 +158,16 @@ export function App() {
     try {
       await api.writeNote(root, outstanding.path, outstanding.doc);
       setSaveState('saved');
+      // Adopt what was just written as the open document. Without this the
+      // counters, the outline and an export all read the text as it was when
+      // the note was opened. Doing it here rather than per keystroke means the
+      // app re-renders when typing pauses, not on every character; `revision`
+      // deliberately does not change, so the editor is not torn down.
+      setNote((prev) =>
+        prev && prev.path === outstanding.path && prev.doc !== outstanding.doc
+          ? { ...prev, doc: outstanding.doc }
+          : prev,
+      );
       // Search, backlinks and tasks must reflect what was just written.
       vaultIndex.updateNote(outstanding.path, outstanding.doc);
       // Tell the sync engine a file landed; it owns the commit decision.
@@ -198,7 +214,12 @@ export function App() {
         }
         setPreview(null);
         setDrawing(null);
-        setNote({ path: file.path, doc: await api.readNote(root, file.path), revision: 0 });
+        setNote({
+          path: file.path,
+          doc: await api.readNote(root, file.path),
+          kind: file.kind === 'text' ? 'text' : 'markdown',
+          revision: 0,
+        });
         setSaveState('saved');
       } catch (e) {
         ws.setError(errorText(e));
@@ -214,7 +235,7 @@ export function App() {
       try {
         // Raw, so git's markers are visible and can be merged by hand.
         setPreview(null);
-        setNote({ path, doc: await api.readRaw(root, path), revision: 0 });
+        setNote({ path, doc: await api.readRaw(root, path), kind: 'markdown', revision: 0 });
       } catch (e) {
         ws.setError(errorText(e));
       }
@@ -247,7 +268,7 @@ export function App() {
         setPreview(null);
         setDrawing(null);
         pendingLine.current = line ?? null;
-        setNote({ path, doc: await api.readNote(root, path), revision: 0 });
+        setNote({ path, doc: await api.readNote(root, path), kind: 'markdown', revision: 0 });
         setSaveState('saved');
       } catch (e) {
         ws.setError(errorText(e));
@@ -543,6 +564,11 @@ export function App() {
     const root = ws.activeRoot;
     const open = noteRef.current;
     if (!root || !open) return;
+    // Rendering a `.ts` file through the Markdown pipeline produces nonsense.
+    if (open.kind !== 'markdown') {
+      setMessage('Only notes can be exported as HTML.');
+      return;
+    }
     try {
       const suggested = `${(open.path.split('/').pop() ?? 'note').replace(/\.md$/i, '')}.html`;
       const destination = await api.pickExportPath(suggested);
@@ -789,7 +815,8 @@ export function App() {
     return binding ? formatBinding(binding, PLATFORM) : 'unbound';
   };
 
-  const stats = note ? readingStats(note.doc) : null;
+  const stats = note?.kind === 'markdown' ? readingStats(note.doc) : null;
+  const lineCount = note?.kind === 'text' ? note.doc.split('\n').length : null;
   const noteTitle = note ? (vaultIndex.index.get(note.path)?.title ?? baseName(note.path)) : null;
   const noteFolder =
     note && note.path.includes('/') ? note.path.slice(0, note.path.lastIndexOf('/')) : '';
@@ -914,14 +941,16 @@ export function App() {
                 >
                   {pinnedHere ? '★' : '☆'}
                 </button>
-                <button
-                  type="button"
-                  className={panel === 'outline' ? 'is-on' : ''}
-                  onClick={() => togglePanel('outline')}
-                  title={`Outline (${shortcut('view.outline')})`}
-                >
-                  Outline
-                </button>
+                {note.kind === 'markdown' && (
+                  <button
+                    type="button"
+                    className={panel === 'outline' ? 'is-on' : ''}
+                    onClick={() => togglePanel('outline')}
+                    title={`Outline (${shortcut('view.outline')})`}
+                  >
+                    Outline
+                  </button>
+                )}
                 <button
                   type="button"
                   className={panel === 'history' ? 'is-on' : ''}
@@ -930,24 +959,26 @@ export function App() {
                 >
                   History
                 </button>
-                <button
-                  type="button"
-                  className={showBacklinks && panel === null ? 'is-on' : ''}
-                  // Nothing links here and nothing is tagged, so there is no
-                  // panel to show; saying so beats a button that does nothing.
-                  disabled={backlinks.length === 0 && noteTags.length === 0}
-                  onClick={() => {
-                    setPanel(null);
-                    setShowBacklinks((v) => !v);
-                  }}
-                  title={
-                    backlinks.length === 0 && noteTags.length === 0
-                      ? 'No tags, and no note links here yet'
-                      : `Links and tags (${shortcut('view.toggleBacklinks')})`
-                  }
-                >
-                  Links{backlinks.length > 0 ? ` ${backlinks.length}` : ''}
-                </button>
+                {note.kind === 'markdown' && (
+                  <button
+                    type="button"
+                    className={showBacklinks && panel === null ? 'is-on' : ''}
+                    // Nothing links here and nothing is tagged, so there is no
+                    // panel to show; saying so beats a button that does nothing.
+                    disabled={backlinks.length === 0 && noteTags.length === 0}
+                    onClick={() => {
+                      setPanel(null);
+                      setShowBacklinks((v) => !v);
+                    }}
+                    title={
+                      backlinks.length === 0 && noteTags.length === 0
+                        ? 'No tags, and no note links here yet'
+                        : `Links and tags (${shortcut('view.toggleBacklinks')})`
+                    }
+                  >
+                    Links{backlinks.length > 0 ? ` ${backlinks.length}` : ''}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -967,6 +998,13 @@ export function App() {
                 void ws.conflictResolved(session.info.root);
                 void ws.refreshFiles(session.info.root);
               }}
+            />
+          ) : note?.kind === 'text' ? (
+            <TextEditor
+              key={`${session.info.root}:${note.path}:${note.revision}`}
+              path={note.path}
+              doc={note.doc}
+              onChange={onDocChange}
             />
           ) : note ? (
             <NoteEditor
@@ -1040,7 +1078,7 @@ export function App() {
           )}
         </section>
 
-        {note &&
+        {note?.kind === 'markdown' &&
           showBacklinks &&
           !conflicted &&
           !showTodos &&
@@ -1068,7 +1106,7 @@ export function App() {
           />
         )}
 
-        {panel === 'outline' && note && (
+        {panel === 'outline' && note?.kind === 'markdown' && (
           <OutlinePanel
             headings={vaultIndex.index.get(note.path)?.headings ?? []}
             words={countWords(note.doc)}
@@ -1165,6 +1203,11 @@ export function App() {
 
         <div className="status-right">
           <span className={`save-state is-${saveState}`}>{saveLabel(saveState)}</span>
+          {lineCount !== null && (
+            <span className="status-plain">
+              {lineCount.toLocaleString()} line{lineCount === 1 ? '' : 's'}
+            </span>
+          )}
           {stats && (
             <button
               type="button"

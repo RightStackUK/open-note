@@ -27,6 +27,8 @@ export { concealedRangesForTest, concealMarkdownSyntax } from './conceal';
 export type { DiagramOptions, DiagramRenderResult } from './diagrams';
 export { diagramBlocks } from './diagrams';
 export { taskCheckboxes, toggleTaskAt } from './tasks';
+export type { CreateTextEditorOptions } from './text';
+export { codeHighlight, createTextEditor, languageForFilename } from './text';
 export { editorTheme, markdownHighlight, markdownTheme } from './theme';
 export type { WikiLinkOptions } from './wikilinks';
 export { wikiLinks } from './wikilinks';

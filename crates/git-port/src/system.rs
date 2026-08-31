@@ -283,6 +283,33 @@ impl GitPort for SystemGit {
         Ok(files)
     }
 
+    fn ignored_directories(&self, repo: &Path) -> Result<Vec<PathBuf>> {
+        // `--directory` collapses a wholly-ignored tree to its top entry, which
+        // is exactly the prefix a caller needs in order to prune.
+        let bytes = self.run_ok_bytes(
+            Some(repo),
+            &[
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "--directory",
+                "-z",
+            ],
+        )?;
+        let text = String::from_utf8_lossy(&bytes);
+        let mut dirs: Vec<PathBuf> = text
+            .split('\0')
+            .filter(|s| !s.is_empty())
+            // Only directories; git marks them with a trailing slash.
+            .filter_map(|s| s.strip_suffix('/'))
+            .map(PathBuf::from)
+            .collect();
+        dirs.sort();
+        dirs.dedup();
+        Ok(dirs)
+    }
+
     fn commit(&self, repo: &Path, paths: &[PathBuf], message: &str) -> Result<CommitId> {
         // `add -A` honours .gitignore, so ignored files never enter a commit.
         let mut add: Vec<String> = vec!["add".into(), "-A".into(), "--".into()];
@@ -1014,6 +1041,33 @@ mod tests {
         let files = git.list_files(&repo).expect("list");
         assert!(files.contains(&PathBuf::from("tracked.md")));
         assert!(files.contains(&PathBuf::from("brand-new.md")));
+    }
+
+    #[test]
+    fn ignored_directories_reports_the_top_of_each_ignored_tree() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, ".gitignore", "node_modules/\nbuild/\n");
+        fs::create_dir_all(repo.join("node_modules/pkg")).expect("mkdir");
+        write(&repo, "node_modules/pkg/index.js", "junk");
+        fs::create_dir_all(repo.join("build/out")).expect("mkdir");
+        write(&repo, "build/out/app.js", "junk");
+        write(&repo, "notes.md", "keep");
+
+        let dirs = git.ignored_directories(&repo).expect("ignored dirs");
+        assert!(dirs.contains(&PathBuf::from("node_modules")));
+        assert!(dirs.contains(&PathBuf::from("build")));
+        // Collapsed at the top: a caller pruning on these never descends.
+        assert!(!dirs.contains(&PathBuf::from("node_modules/pkg")));
+    }
+
+    #[test]
+    fn ignored_directories_is_empty_when_nothing_is_ignored() {
+        let (_dir, repo, git) = fixture();
+        write(&repo, "notes.md", "keep");
+        assert!(git
+            .ignored_directories(&repo)
+            .expect("ignored dirs")
+            .is_empty());
     }
 
     #[test]

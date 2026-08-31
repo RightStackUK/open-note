@@ -23,6 +23,7 @@ function kindIcon(kind: FileKind): string {
   if (kind === 'markdown') return '¶';
   if (kind === 'image') return '▣';
   if (kind === 'drawing') return '◇';
+  if (kind === 'text') return '‹›';
   return '·';
 }
 
@@ -151,7 +152,7 @@ function Node({
           e.stopPropagation();
           onContext(file.path, 'file', e.clientX, e.clientY);
         }}
-        title={openable ? file.path : `${file.path} — not a note, cannot be opened`}
+        title={openable ? file.path : `${file.path} — not a text file, cannot be opened`}
       >
         <span className="tree-icon">{kindIcon(file.kind)}</span>
         <span className="tree-name">{displayName(file)}</span>

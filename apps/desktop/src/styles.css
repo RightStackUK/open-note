@@ -9,6 +9,14 @@
   --code-bg: #ece8e1;
   --danger: #b91c1c;
 
+  /* Syntax colours for the plain-text editor. Chosen to sit beside the warm
+     accent rather than compete with it, and to hold up on the raised surface. */
+  --code-string: #0f766e;
+  --code-literal: #a16207;
+  --code-callable: #1d4ed8;
+  --code-type: #7c3aed;
+  --code-property: #b45309;
+
   --ui-font: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
   --note-font: ui-serif, Charter, Georgia, Cambria, serif;
   --mono-font: ui-monospace, "SF Mono", Menlo, monospace;
@@ -28,6 +36,12 @@
     --selection: #45301f;
     --code-bg: #26241f;
     --danger: #f87171;
+
+    --code-string: #5eead4;
+    --code-literal: #fcd34d;
+    --code-callable: #93c5fd;
+    --code-type: #c4b5fd;
+    --code-property: #fbbf24;
   }
 }
 
@@ -1924,4 +1938,15 @@ button {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent);
   font-weight: 550;
+}
+
+.status-plain {
+  color: var(--muted);
+  padding: 0.15rem 0.4rem;
+  white-space: nowrap;
+}
+
+/* The plain-text editor fills the pane; a code file has no comfortable measure. */
+.text-editor .cm-content {
+  max-width: none;
 }
