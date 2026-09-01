@@ -10,7 +10,7 @@ architecture — most of the non-obvious decisions are recorded there with their
 
 ## Commands
 
-Requires Node 22+, pnpm 10+, and a stable Rust toolchain (`. "$HOME/.cargo/env"` if cargo is not
+Requires Node 24+, pnpm 10+, and a stable Rust toolchain (`. "$HOME/.cargo/env"` if cargo is not
 on PATH).
 
 ```bash

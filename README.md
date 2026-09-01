@@ -37,7 +37,7 @@ speaks Git.
 
 ## Development
 
-Requires **Node 22+**, **pnpm 10+** and a **stable Rust toolchain**.
+Requires **Node 24+**, **pnpm 10+** and a **stable Rust toolchain**.
 
 ```bash
 pnpm install
