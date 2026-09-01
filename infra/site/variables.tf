@@ -56,15 +56,20 @@ variable "github_owner_id" {
     an org or repo cannot silently hand its trust to whoever claims the old name.
     Some organisations have this on, some do not, and the two forms are not
     interchangeable. Supply the IDs and the role trusts both spellings exactly.
+
+    Defaulted here rather than left to terraform.tfvars, which is gitignored:
+    without these the trust policy silently loses the immutable spelling, and
+    the next apply from a fresh clone breaks every deploy. They are public
+    GitHub identifiers, not secrets.
   EOT
   type        = string
-  default     = ""
+  default     = "129496338"
 }
 
 variable "github_repository_id" {
   description = "Numeric ID of the repository, from `gh api repos/OWNER/REPO --jq .id`. See github_owner_id."
   type        = string
-  default     = ""
+  default     = "1350515140"
 }
 
 variable "create_github_oidc_provider" {
