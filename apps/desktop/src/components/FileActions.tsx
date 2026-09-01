@@ -18,6 +18,11 @@ interface ContextMenuProps {
   onExportFolder: (folder: string, mode: 'files' | 'merged') => void;
   onReveal: (path: string) => void;
   onOpenWith: (path: string) => void;
+  /** Move into (or back out of) the archive folder. */
+  onArchive: (path: string) => void;
+  isArchived: (path: string) => boolean;
+  /** Merge every note under a folder into one. */
+  onMergeFolder: (folder: string) => void;
   onClose: () => void;
 }
 
@@ -38,6 +43,9 @@ export function ContextMenu({
   onExportFolder,
   onReveal,
   onOpenWith,
+  onArchive,
+  isArchived,
+  onMergeFolder,
   onClose,
 }: ContextMenuProps) {
   const menu = useRef<HTMLDivElement>(null);
@@ -86,7 +94,15 @@ export function ContextMenu({
           <button type="button" onClick={() => onExportFolder(parent, 'merged')}>
             Export as one HTML file…
           </button>
+          <button type="button" onClick={() => onMergeFolder(parent)}>
+            Merge notes into one…
+          </button>
         </>
+      )}
+      {target.kind === 'file' && /\.(md|markdown|mdown|mkd)$/i.test(target.path) && (
+        <button type="button" onClick={() => onArchive(target.path)}>
+          {isArchived(target.path) ? 'Unarchive' : 'Archive'}
+        </button>
       )}
       {!isRoot && (
         <>

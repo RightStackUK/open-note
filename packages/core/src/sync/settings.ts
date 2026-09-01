@@ -79,6 +79,8 @@ export interface VaultSettings {
   tagSort: 'name' | 'count';
   /** Images in notes: full width, or contained thumbnails. */
   imageDisplay: 'full' | 'thumbnail';
+  /** Where archived notes go. A visible folder, never a hidden flag. */
+  archiveFolder: string;
 }
 
 export const DEFAULT_ATTACHMENT_FOLDER = 'assets';
@@ -102,6 +104,7 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   tagIcons: {},
   tagSort: 'count',
   imageDisplay: 'full',
+  archiveFolder: 'archive',
 };
 
 /**
@@ -166,6 +169,7 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     tagIcons: {},
     tagSort: 'count',
     imageDisplay: 'full',
+    archiveFolder: 'archive',
   });
   if (!raw) return defaults();
 
@@ -226,6 +230,9 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
   const tagSort = (parsed as { tagSort?: unknown }).tagSort === 'name' ? 'name' : 'count';
   const imageDisplay =
     (parsed as { imageDisplay?: unknown }).imageDisplay === 'thumbnail' ? 'thumbnail' : 'full';
+  const rawArchive = (parsed as { archiveFolder?: unknown }).archiveFolder;
+  const archiveFolder =
+    typeof rawArchive === 'string' && rawArchive.trim() ? rawArchive.trim() : 'archive';
 
   const prefs = {
     attachmentFolder,
@@ -245,6 +252,7 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     tagIcons,
     tagSort,
     imageDisplay,
+    archiveFolder,
   } as const;
 
   if (typeof sync !== 'object' || sync === null) {

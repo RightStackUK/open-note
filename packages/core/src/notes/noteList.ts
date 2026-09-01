@@ -7,6 +7,7 @@
  * only wants an array to draw.
  */
 
+import { isArchivedPath, isTemplatePath } from './lifecycle';
 import type { IndexedNote } from './vaultIndex';
 
 export type NoteListSort = 'modified' | 'created' | 'title';
@@ -60,6 +61,7 @@ export type Collection =
   | { kind: 'all' }
   | { kind: 'today' }
   | { kind: 'untagged' }
+  | { kind: 'archive' }
   | { kind: 'tag'; tag: string };
 
 export function collectionTitle(collection: Collection): string {
@@ -70,6 +72,8 @@ export function collectionTitle(collection: Collection): string {
       return 'Today';
     case 'untagged':
       return 'Untagged';
+    case 'archive':
+      return 'Archive';
     case 'tag':
       return `#${collection.tag}`;
   }
@@ -128,6 +132,12 @@ export interface BuildNoteListInput {
   sort: NoteListSort;
   descending: boolean;
   includeNestedTags: boolean;
+  /**
+   * The archive folder. Archived notes appear only in the Archive collection;
+   * everywhere else they have been deliberately put away. Templates never
+   * list — they are scaffolding, not notes.
+   */
+  archiveFolder?: string;
   /** Injected so "Today" is testable. */
   now?: Date;
 }
@@ -136,9 +146,15 @@ export function buildNoteList(input: BuildNoteListInput): NoteListEntry[] {
   const { collection, includeNestedTags } = input;
   const today = startOfToday(input.now ?? new Date());
 
+  const archiveFolder = input.archiveFolder ?? 'archive';
+
   const entries: NoteListEntry[] = [];
   for (const note of input.notes) {
     const modified = input.modified.get(note.path) ?? 0;
+
+    if (isTemplatePath(note.path)) continue;
+    const archived = isArchivedPath(note.path, archiveFolder);
+    if (collection.kind === 'archive' ? !archived : archived) continue;
 
     if (collection.kind === 'untagged' && note.tags.length > 0) continue;
     if (collection.kind === 'today' && modified < today) continue;

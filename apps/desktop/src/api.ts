@@ -174,6 +174,8 @@ export const api = {
   pickFolder: () => invoke<string | null>('pick_folder'),
   cloneVault: (url: string, parent: string, name: string) =>
     invoke<VaultInfo>('clone_vault', { url, parent, name }),
+  /** Pick a folder of Markdown, git init it, first commit, open it. */
+  importFolderAsVault: () => invoke<VaultInfo | null>('import_folder_as_vault'),
 
   /**
    * Open a URL in the user's real browser.

@@ -42,6 +42,16 @@ export {
   renderNoteBody,
 } from './notes/export';
 export { htmlToMarkdown, isBareUrl } from './notes/htmlToMarkdown';
+export type { NoteStats } from './notes/lifecycle';
+export {
+  archivePathFor,
+  isArchivedPath,
+  isTemplatePath,
+  mergeNotes,
+  noteStats,
+  renderTemplate,
+  TEMPLATES_FOLDER,
+} from './notes/lifecycle';
 export type {
   BuildNoteListInput,
   Collection,

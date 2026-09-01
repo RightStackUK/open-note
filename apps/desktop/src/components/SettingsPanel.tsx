@@ -21,6 +21,7 @@ export interface EditingPrefs {
   noteList: NoteListPrefs;
   attachmentFolder: string;
   imageDisplay: 'full' | 'thumbnail';
+  archiveFolder: string;
   pasteAsMarkdown: boolean;
   fetchLinkTitles: boolean;
   copyStripsTags: boolean;
@@ -366,6 +367,20 @@ export function SettingsPanel({
             type="text"
             value={prefs.attachmentFolder}
             onChange={(e) => onPrefsChange({ attachmentFolder: e.target.value })}
+          />
+        </span>
+      </label>
+
+      <label className="setting-number">
+        <span className="setting-label">
+          Archive folder
+          <small>Archived notes move here — a visible folder, never a hidden flag</small>
+        </span>
+        <span className="setting-input">
+          <input
+            type="text"
+            value={prefs.archiveFolder}
+            onChange={(e) => onPrefsChange({ archiveFolder: e.target.value })}
           />
         </span>
       </label>

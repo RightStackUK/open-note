@@ -82,6 +82,27 @@ export const COMMANDS: CommandDefinition[] = [
     keywords: ['extract', 'split', 'move'],
   },
   {
+    id: 'note.fromTemplate',
+    title: 'New note from template…',
+    category: 'Note',
+    binding: null,
+    keywords: ['template', 'scaffold'],
+  },
+  {
+    id: 'note.archive',
+    title: 'Archive this note',
+    category: 'Note',
+    binding: null,
+    keywords: ['archive', 'put away', 'hide'],
+  },
+  {
+    id: 'vault.importFolder',
+    title: 'New vault from a folder…',
+    category: 'Note',
+    binding: null,
+    keywords: ['import', 'init', 'migrate'],
+  },
+  {
     id: 'note.daily',
     title: "Open today's note",
     category: 'Note',

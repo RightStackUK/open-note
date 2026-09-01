@@ -1,4 +1,5 @@
 import {
+  archivePathFor,
   attachmentFolderFor,
   buildNoteList,
   buildTextpack,
@@ -17,19 +18,24 @@ import {
   exportNoteToDocx,
   exportNoteToHtml,
   formatBinding,
+  isArchivedPath,
   localAssetReferences,
   maskCode,
   mentionPattern,
+  mergeNotes,
   noteHasTag,
+  noteStats,
   parseTheme,
   removeTagFromNote,
   renameTagInNote,
   renderNoteBody,
+  renderTemplate,
   resolveTheme,
   rewriteLinks,
   searchCommands,
   splitFrontmatter,
   stripTags,
+  TEMPLATES_FOLDER,
   type Theme,
   type TodoItem,
   themeCssVariables,
@@ -42,7 +48,6 @@ import { editorCommands } from '@open-note/editor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api, type VaultFile } from './api';
-import { BacklinksPanel } from './components/BacklinksPanel';
 import { BranchMenu } from './components/BranchMenu';
 import { CloneDialog } from './components/CloneDialog';
 import { ConflictPanel } from './components/ConflictPanel';
@@ -55,10 +60,10 @@ import {
   Prompt,
 } from './components/FileActions';
 import { HistoryPanel } from './components/HistoryPanel';
+import { InfoPanel, type InfoTab } from './components/InfoPanel';
 import { KeymapPanel } from './components/KeymapPanel';
 import { NoteEditor, type NoteEditorHandle } from './components/NoteEditor';
 import { NoteList } from './components/NoteList';
-import { OutlinePanel } from './components/OutlinePanel';
 import {
   commandItems,
   noteItems,
@@ -85,6 +90,8 @@ const AUTOSAVE_IDLE_MS = 500;
 const CREATE_PREFIX = 'create:';
 /** Marks a tag row in the tag quick-open palette. */
 const TAG_PREFIX = 'tag:';
+/** Marks a template row when creating a note from one. */
+const TEMPLATE_PREFIX = 'template:use:';
 
 type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 
@@ -117,6 +124,8 @@ export function App() {
   } | null>(null);
   /** Embeds collapsed in this window, by path. A reading posture, unpersisted. */
   const [collapsedEmbeds, setCollapsedEmbeds] = useState<Set<string>>(new Set());
+  /** Notes whose `readOnly` frontmatter has been overridden this session. */
+  const [readOnlyOverrides, setReadOnlyOverrides] = useState<Set<string>>(new Set());
   const [drawing, setDrawing] = useState<{ path: string; source: string } | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [recents, setRecents] = useState<string[]>([]);
@@ -133,7 +142,10 @@ export function App() {
   const [message, setMessage] = useState<string | null>(null);
   const [palette, setPalette] = useState<PaletteMode | null>(null);
   const [paletteQuery, setPaletteQuery] = useState('');
-  const [showBacklinks, setShowBacklinks] = useState(true);
+  const [info, setInfo] = useState<{ open: boolean; tab: InfoTab }>({
+    open: true,
+    tab: 'backlinks',
+  });
   const [showSidebar, setShowSidebar] = useState(
     () => localStorage.getItem('opennote:pane:tree') !== 'off',
   );
@@ -151,6 +163,8 @@ export function App() {
     | { kind: 'rename'; path: string }
     | { kind: 'addTag' }
     | { kind: 'renameTag'; tag: string; count: number }
+    | { kind: 'fromTemplate'; template: string }
+    | { kind: 'mergeFolder'; folder: string; paths: string[] }
     | null
   >(null);
   const [confirmAction, setConfirmAction] = useState<{
@@ -234,7 +248,8 @@ export function App() {
    * cannot change.
    */
   const [createdDates, setCreatedDates] = useState<Map<string, number>>(new Map());
-  const lastSyncedAt = session?.state.lastSyncedAt ?? null;
+  // Both a sync and a plain local commit can mint created dates.
+  const lastSyncedAt = `${session?.state.lastSyncedAt ?? 0}:${session?.state.ahead ?? 0}`;
   useEffect(() => {
     setCreatedDates(new Map());
     const root = ws.activeRoot;
@@ -1381,30 +1396,34 @@ export function App() {
         await flush();
         let notes = 0;
         let occurrences = 0;
-        for (const path of vaultIndex.index.paths()) {
-          // The open note may have typing newer than the file; rewriting the
-          // disk copy would resurrect the stale text under the editor.
-          const open = noteRef.current;
-          const source =
-            open && open.root === root && open.path === path
-              ? freshestDoc(open)
-              : await api.readNote(root, path);
-          const result = rewrite(source);
-          if (result.count === 0 || result.text === source) continue;
-          await api.writeNote(root, path, result.text);
-          vaultIndex.updateNote(path, result.text);
-          notes += 1;
-          occurrences += result.count;
-          if (noteRef.current?.path === path) {
-            pending.current = null;
-            setNote((prev) =>
-              prev && prev.path === path
-                ? { ...prev, doc: result.text, revision: prev.revision + 1 }
-                : prev,
-            );
+        // Reserved before the first write, so the idle timer cannot slice the
+        // rename across two commits.
+        await ws.runNamedCommit(root, async () => {
+          for (const path of vaultIndex.index.paths()) {
+            // The open note may have typing newer than the file; rewriting the
+            // disk copy would resurrect the stale text under the editor.
+            const open = noteRef.current;
+            const source =
+              open && open.root === root && open.path === path
+                ? freshestDoc(open)
+                : await api.readNote(root, path);
+            const result = rewrite(source);
+            if (result.count === 0 || result.text === source) continue;
+            await api.writeNote(root, path, result.text);
+            vaultIndex.updateNote(path, result.text);
+            notes += 1;
+            occurrences += result.count;
+            if (noteRef.current?.path === path) {
+              pending.current = null;
+              setNote((prev) =>
+                prev && prev.path === path
+                  ? { ...prev, doc: result.text, revision: prev.revision + 1 }
+                  : prev,
+              );
+            }
           }
-        }
-        if (notes > 0) await ws.commitWith(root, commitMessage(notes));
+          return notes > 0 ? commitMessage(notes) : null;
+        });
         setMessage(done(notes, occurrences));
       } catch (e) {
         ws.setError(errorText(e));
@@ -1682,6 +1701,118 @@ export function App() {
     [ws, vaultIndex],
   );
 
+  /**
+   * Archive a note: move it into the archive folder — a visible move, in the
+   * tree and in the commit, never a hidden flag. Unarchiving is the same move
+   * back out. Wikilinks follow, because a move is a rename.
+   */
+  const archiveNote = useCallback(
+    (path: string) => {
+      const folder = session?.archiveFolder ?? 'archive';
+      const taken = new Set(session?.files.map((file) => file.path) ?? []);
+      // Two folders can both hold a `plan.md`; the archive keeps both.
+      const free = (wanted: string): string => {
+        if (!taken.has(wanted)) return wanted;
+        const dot = wanted.lastIndexOf('.');
+        for (let n = 2; ; n++) {
+          const candidate =
+            dot > 0 ? `${wanted.slice(0, dot)} ${n}${wanted.slice(dot)}` : `${wanted} ${n}`;
+          if (!taken.has(candidate)) return candidate;
+        }
+      };
+      if (isArchivedPath(path, folder)) {
+        const name = path.slice(path.lastIndexOf('/') + 1);
+        return relocate(path, free(name), 'Moved');
+      }
+      return relocate(path, free(archivePathFor(path, folder)), 'Moved');
+    },
+    [relocate, session?.archiveFolder, session?.files],
+  );
+
+  /**
+   * Merge a folder's notes into one, tree order, a heading per source.
+   *
+   * Links that pointed at the merged notes point at the result afterwards, and
+   * the sources are deleted in the same commit — one revertable action.
+   */
+  const mergeFolder = useCallback(
+    async (folder: string, paths: string[], name: string) => {
+      const root = ws.activeRoot;
+      if (!root || paths.length < 2) return;
+      try {
+        await flush();
+        const sources: Array<{ title: string; body: string }> = [];
+        for (const path of paths) {
+          const source = await api.readNote(root, path);
+          sources.push({
+            title: vaultIndex.index.get(path)?.title ?? path,
+            body: splitFrontmatter(source).body,
+          });
+        }
+        const fileName = name.endsWith('.md') ? name : `${name}.md`;
+        const target = folder ? `${folder}/${fileName}` : fileName;
+        await api.createNote(root, target, mergeNotes(sources));
+
+        // Links to any source now point at the merged note.
+        const sourceSet = new Set(paths);
+        for (const path of vaultIndex.index.paths()) {
+          if (sourceSet.has(path) || path === target) continue;
+          const text = await api.readNote(root, path);
+          const rewrite = rewriteLinks(
+            text,
+            (candidate) => {
+              const resolved = vaultIndex.index.resolveLink(candidate);
+              return resolved !== null && sourceSet.has(resolved);
+            },
+            target,
+          );
+          if (rewrite.count > 0) {
+            await api.writeNote(root, path, rewrite.text);
+            vaultIndex.updateNote(path, rewrite.text);
+          }
+        }
+
+        for (const path of paths) {
+          await api.deleteEntry(root, path);
+          vaultIndex.removeNote(path);
+        }
+        await ws.commitWith(root, `notes: merge ${paths.length} notes into ${target}`);
+        await ws.refreshFiles(root);
+        await vaultIndex.rebuild(root);
+        await openNoteAt(target);
+        setMessage(`Merged ${paths.length} notes into ${target}.`);
+      } catch (e) {
+        ws.setError(errorText(e));
+      }
+    },
+    [ws, vaultIndex, flush, openNoteAt],
+  );
+
+  /** Create a note from a template, `{{title}}`/`{{date}}`/`{{time}}` filled. */
+  const createFromTemplate = useCallback(
+    async (templatePath: string, title: string) => {
+      const root = ws.activeRoot;
+      if (!root) return;
+      try {
+        const template = await api.readNote(root, templatePath);
+        const body = renderTemplate(template, { title });
+        await createNote(`${title}.md`, body);
+      } catch (e) {
+        ws.setError(errorText(e));
+      }
+    },
+    [ws, createNote],
+  );
+
+  const importFolder = useCallback(async () => {
+    try {
+      const info = await api.importFolderAsVault();
+      if (info) await ws.openVault(info.root);
+    } catch (e) {
+      ws.setError(errorText(e));
+    }
+  }, [ws]);
+
   /** Pick any file and reference it from the caret, via the paste pipeline. */
   const attachFile = useCallback(async () => {
     const root = ws.activeRoot;
@@ -1731,7 +1862,23 @@ export function App() {
       'note.newFolder': () => setPrompt({ kind: 'newFolder', parent: '' }),
       'note.daily': () => {
         const today = new Date();
-        void createNote(dailyNotePath(today), dailyNoteTemplate(today));
+        const path = dailyNotePath(today);
+        // Daily notes ride the same template mechanism: templates/daily.md
+        // wins when it exists, the built-in heading otherwise.
+        const custom = vaultIndex.index.get(`${TEMPLATES_FOLDER}/daily.md`);
+        void (async () => {
+          if (custom && ws.activeRoot) {
+            const template = await api.readNote(ws.activeRoot, custom.path);
+            await createNote(
+              path,
+              renderTemplate(template, {
+                title: path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/, ''),
+              }),
+            );
+          } else {
+            await createNote(path, dailyNoteTemplate(today));
+          }
+        })();
       },
       'sync.now': () => void sync(),
       'sync.togglePause': () => {
@@ -1739,13 +1886,30 @@ export function App() {
       },
       'sync.settings': () => togglePanel('settings'),
       'view.toggleSidebar': () => setShowSidebar((v) => !v),
-      'view.toggleBacklinks': () => setShowBacklinks((v) => !v),
+      'view.toggleBacklinks': () =>
+        setInfo((prev) =>
+          prev.open && prev.tab === 'backlinks'
+            ? { ...prev, open: false }
+            : { open: true, tab: 'backlinks' },
+        ),
       'view.keymap': () => togglePanel('keymap'),
       'view.tags': () => togglePanel('tags'),
-      'view.outline': () => togglePanel('outline'),
+      'view.outline': () => {
+        setPanel(null);
+        setInfo((prev) =>
+          prev.open && prev.tab === 'outline'
+            ? { ...prev, open: false }
+            : { open: true, tab: 'outline' },
+        );
+      },
       'note.export': () => void exportNote(),
       'note.togglePin': () => void togglePin(),
       'note.duplicate': () => void duplicateNote(),
+      'note.archive': () => {
+        if (noteRef.current) void archiveNote(noteRef.current.path);
+      },
+      'note.fromTemplate': () => openPalette('templates'),
+      'vault.importFolder': () => void importFolder(),
       'note.fromSelection': () => void noteFromSelection(),
       'note.addTag': () => {
         if (noteRef.current) setPrompt({ kind: 'addTag' });
@@ -1822,6 +1986,8 @@ export function App() {
       changeZoom,
       zoom,
       navigateHistory,
+      archiveNote,
+      importFolder,
       copyAs,
       pasteAs,
       printNote,
@@ -1859,6 +2025,7 @@ export function App() {
    */
   const sessionFiles = session?.files;
   const noteListPrefs = session?.noteList;
+  const archiveFolder = session?.archiveFolder;
   // `vaultIndex.revision` stands in for the index contents; `dayStamp`
   // re-evaluates "Today" after midnight.
   const noteListEntries = useMemo(() => {
@@ -1874,10 +2041,12 @@ export function App() {
       sort: noteListPrefs.sort,
       descending: noteListPrefs.descending,
       includeNestedTags: noteListPrefs.includeNestedTags,
+      archiveFolder,
     });
   }, [
     sessionFiles,
     noteListPrefs,
+    archiveFolder,
     showList,
     collection,
     createdDates,
@@ -1898,6 +2067,9 @@ export function App() {
         <p className="hint">Choose any folder that is a Git repository.</p>
         <button type="button" className="linky" onClick={() => setShowClone(true)}>
           …or clone one from a URL
+        </button>
+        <button type="button" className="linky" onClick={() => void importFolder()}>
+          …or turn a folder of Markdown into a vault
         </button>
 
         {recents.length > 0 && (
@@ -1943,14 +2115,24 @@ export function App() {
 
   // `revision` is the dependency that matters: the index object is stable and
   // mutated in place, so React cannot see changes without it.
+  // `readOnly: true` in frontmatter locks the editor; the frontmatter travels
+  // with the file, which app-local state would not. The unlock is per window,
+  // per session — the file keeps saying what it says.
+  const noteReadOnly = Boolean(
+    note &&
+      vaultIndex.index.get(note.path)?.frontmatter.readOnly === true &&
+      !readOnlyOverrides.has(`${note.root}:${note.path}`),
+  );
+
   const backlinks = note ? vaultIndex.index.backlinks(note.path) : [];
   // Every title against every body is real work, so it runs off the cached
   // plain text, only while the panel is up, and capped — as the plan asks.
   // biome-ignore format: the memo deps line up better unwrapped
   const notePath = note?.path ?? null;
+  const infoOpen = info.open && info.tab === 'backlinks';
   const mentions = useMemo(
-    () => (notePath && showBacklinks ? vaultIndex.index.unlinkedMentions(notePath, 12) : []),
-    [notePath, showBacklinks, vaultIndex],
+    () => (notePath && infoOpen ? vaultIndex.index.unlinkedMentions(notePath, 12) : []),
+    [notePath, infoOpen, vaultIndex],
   );
   const noteTags = note ? (vaultIndex.index.get(note.path)?.tags ?? []) : [];
   const todos = showTodos ? vaultIndex.index.todos() : [];
@@ -1997,12 +2179,34 @@ export function App() {
             ? ({ kind: 'tag', tag: collection.tag } as const)
             : ({ kind: collection.kind } as const)
           : undefined;
+
       return searchItems(
         vaultIndex.index.query(paletteQuery, 30, {
           scope,
           modified: new Map(session.files.map((file) => [file.path, file.modified])),
+          archiveFolder: session.archiveFolder,
         }),
       );
+    }
+    if (palette === 'templates') {
+      const needle = paletteQuery.trim().toLowerCase();
+      const templates = vaultIndex.index
+        .paths()
+        .filter((path) => path.startsWith(`${TEMPLATES_FOLDER}/`))
+        .filter((path) => !needle || path.toLowerCase().includes(needle))
+        .map((path) => ({
+          id: `${TEMPLATE_PREFIX}${path}`,
+          title: vaultIndex.index.get(path)?.title ?? path,
+          detail: path,
+        }));
+      if (templates.length > 0) return templates;
+      return [
+        {
+          id: 'template:none',
+          title: 'No templates yet',
+          detail: `Create notes under ${TEMPLATES_FOLDER}/ — {{title}}, {{date}} and {{time}} are filled in.`,
+        },
+      ];
     }
     if (palette === 'tags') {
       const needle = paletteQuery.trim().toLowerCase();
@@ -2033,6 +2237,11 @@ export function App() {
       void createNote(`${name}.md`, newNoteBody(name));
       return;
     }
+    if (id.startsWith(TEMPLATE_PREFIX)) {
+      setPrompt({ kind: 'fromTemplate', template: id.slice(TEMPLATE_PREFIX.length) });
+      return;
+    }
+    if (id === 'template:none') return;
     if (id.startsWith(TAG_PREFIX)) {
       // A tag is a place to go: the list becomes that tag's notes.
       setCollection({ kind: 'tag', tag: id.slice(TAG_PREFIX.length) });
@@ -2217,6 +2426,16 @@ export function App() {
                 <span className="note-title">{noteTitle}</span>
               </div>
               <div className="note-actions">
+                {noteReadOnly && (
+                  <button
+                    type="button"
+                    className="is-on"
+                    title="readOnly: true in this note's frontmatter. Click to edit anyway, for this window."
+                    onClick={() => setReadOnlyOverrides((prev) => new Set(prev).add(note.path))}
+                  >
+                    🔒 Read-only
+                  </button>
+                )}
                 <button
                   type="button"
                   className={pinnedHere ? 'is-on' : ''}
@@ -2228,8 +2447,8 @@ export function App() {
                 {note.kind === 'markdown' && (
                   <button
                     type="button"
-                    className={panel === 'outline' ? 'is-on' : ''}
-                    onClick={() => togglePanel('outline')}
+                    className={info.open && info.tab === 'outline' && panel === null ? 'is-on' : ''}
+                    onClick={() => handlers['view.outline']()}
                     title={`Outline (${shortcut('view.outline')})`}
                   >
                     Outline
@@ -2246,13 +2465,10 @@ export function App() {
                 {note.kind === 'markdown' && (
                   <button
                     type="button"
-                    className={showBacklinks && panel === null ? 'is-on' : ''}
-                    // Nothing links here and nothing is tagged, so there is no
-                    // panel to show; saying so beats a button that does nothing.
-                    disabled={backlinks.length === 0 && noteTags.length === 0}
+                    className={info.open && panel === null ? 'is-on' : ''}
                     onClick={() => {
                       setPanel(null);
-                      setShowBacklinks((v) => !v);
+                      setInfo((prev) => ({ ...prev, open: !prev.open }));
                     }}
                     title={
                       backlinks.length === 0 && noteTags.length === 0
@@ -2297,8 +2513,9 @@ export function App() {
               // why the doc comes from `freshestDoc`: state can be an autosave
               // interval behind the editor. Typography changes stay pure CSS
               // and never come through here.
-              key={`${session.info.root}:${note.path}:${note.revision}:${dark}`}
+              key={`${session.info.root}:${note.path}:${note.revision}:${dark}:${noteReadOnly}`}
               path={note.path}
+              readOnly={noteReadOnly}
               doc={freshestDoc(note)}
               onChange={onDocChange}
               resolveLink={(target) => vaultIndex.index.resolveLink(target)}
@@ -2384,28 +2601,31 @@ export function App() {
           )}
         </section>
 
-        {note?.kind === 'markdown' &&
-          showBacklinks &&
-          !conflicted &&
-          !showTodos &&
-          panel === null &&
-          (backlinks.length > 0 || noteTags.length > 0) && (
-            <BacklinksPanel
-              path={note.path}
-              backlinks={backlinks}
-              tags={noteTags}
-              mentions={mentions}
-              onOpen={(path) => void openNoteAt(path)}
-              onSelectTag={(tag) => {
-                setSelectedTag(tag);
-                setPanel('tags');
-              }}
-              onLinkMention={(mentioning) => {
-                const title = vaultIndex.index.get(note.path)?.title;
-                if (title) void linkMention(mentioning, note.path, title);
-              }}
-            />
-          )}
+        {note?.kind === 'markdown' && info.open && !conflicted && !showTodos && panel === null && (
+          <InfoPanel
+            path={note.path}
+            tab={info.tab}
+            onTabChange={(tab) => setInfo({ open: true, tab })}
+            stats={noteStats(splitFrontmatter(freshestDoc(note)).body)}
+            created={createdDates.get(note.path) ?? null}
+            modified={session.files.find((f) => f.path === note.path)?.modified ?? 0}
+            headings={vaultIndex.index.get(note.path)?.headings ?? []}
+            onGoToLine={(line) => editorRef.current?.goToLine(line)}
+            backlinks={backlinks}
+            tags={noteTags}
+            mentions={mentions}
+            onOpen={(path) => void openNoteAt(path)}
+            onSelectTag={(tag) => {
+              setSelectedTag(tag);
+              setPanel('tags');
+            }}
+            onLinkMention={(mentioning) => {
+              const title = vaultIndex.index.get(note.path)?.title;
+              if (title) void linkMention(mentioning, note.path, title);
+            }}
+            onClose={() => setInfo((prev) => ({ ...prev, open: false }))}
+          />
+        )}
 
         {panel === 'history' && note && (
           <HistoryPanel
@@ -2414,16 +2634,6 @@ export function App() {
             dirty={session.state.phase === 'dirty'}
             onClose={() => setPanel(null)}
             onRestored={() => void reloadFromDisk()}
-          />
-        )}
-
-        {panel === 'outline' && note?.kind === 'markdown' && (
-          <OutlinePanel
-            headings={vaultIndex.index.get(note.path)?.headings ?? []}
-            words={countWords(note.doc)}
-            characters={note.doc.length}
-            onGoToLine={(line) => editorRef.current?.goToLine(line)}
-            onClose={() => setPanel(null)}
           />
         )}
 
@@ -2517,6 +2727,7 @@ export function App() {
               noteList: session.noteList,
               attachmentFolder: session.attachmentFolder,
               imageDisplay: session.imageDisplay,
+              archiveFolder: session.archiveFolder,
               pasteAsMarkdown: session.pasteAsMarkdown,
               fetchLinkTitles: session.fetchLinkTitles,
               copyStripsTags: session.copyStripsTags,
@@ -2578,9 +2789,16 @@ export function App() {
           {stats && (
             <button
               type="button"
-              className={`status-button ${panel === 'outline' ? 'is-on' : ''}`}
-              onClick={() => togglePanel('outline')}
-              title={`Outline (${shortcut('view.outline')})`}
+              className={`status-button ${info.open && info.tab === 'stats' ? 'is-on' : ''}`}
+              onClick={() => {
+                setPanel(null);
+                setInfo((prev) =>
+                  prev.open && prev.tab === 'stats'
+                    ? { ...prev, open: false }
+                    : { open: true, tab: 'stats' },
+                );
+              }}
+              title="Statistics"
             >
               {stats.words.toLocaleString()} word{stats.words === 1 ? '' : 's'} · {stats.minutes}{' '}
               min read
@@ -2595,6 +2813,28 @@ export function App() {
           onExportFolder={(folder, mode) => {
             setContextTarget(null);
             void exportFolder(folder, mode);
+          }}
+          onArchive={(path) => {
+            setContextTarget(null);
+            void archiveNote(path);
+          }}
+          isArchived={(path) => isArchivedPath(path, session.archiveFolder)}
+          onMergeFolder={(folder) => {
+            setContextTarget(null);
+            const prefix = folder ? `${folder}/` : '';
+            const paths = vaultIndex.index
+              .paths()
+              .filter((path) => path.startsWith(prefix))
+              .filter((path) => !isArchivedPath(path, session.archiveFolder))
+              .filter((path) => !path.startsWith(`${TEMPLATES_FOLDER}/`))
+              // Tree order — folders before files at each level, names
+              // case-insensitive — because that is the order on screen.
+              .sort(treeOrder);
+            if (paths.length < 2) {
+              setMessage('Merging needs at least two notes in the folder.');
+              return;
+            }
+            setPrompt({ kind: 'mergeFolder', folder, paths });
           }}
           onReveal={(path) => {
             setContextTarget(null);
@@ -2677,6 +2917,35 @@ export function App() {
               return;
             }
             editorRef.current?.insertTag(cleaned, session?.insertTagsAt ?? 'bottom');
+          }}
+        />
+      )}
+
+      {prompt?.kind === 'fromTemplate' && (
+        <Prompt
+          title="New note from template"
+          label="Title"
+          hint={`From ${prompt.template}. {{title}}, {{date}} and {{time}} are filled in.`}
+          onClose={() => setPrompt(null)}
+          onConfirm={(title) => {
+            const template = prompt.template;
+            setPrompt(null);
+            void createFromTemplate(template, title);
+          }}
+        />
+      )}
+
+      {prompt?.kind === 'mergeFolder' && (
+        <Prompt
+          title={`Merge ${prompt.paths.length} notes`}
+          label="Name for the merged note"
+          confirmLabel="Merge"
+          hint="Tree order, a heading per source. The sources are deleted in the same commit, so it reverts in one action."
+          onClose={() => setPrompt(null)}
+          onConfirm={(name) => {
+            const { folder, paths } = prompt;
+            setPrompt(null);
+            void mergeFolder(folder, paths, name);
           }}
         />
       )}
@@ -2810,6 +3079,25 @@ function readingStats(text: string): { words: number; minutes: number } {
 }
 
 /** Words as a person counts them, ignoring markdown punctuation. */
+/**
+ * The sidebar's ordering, as a comparator: folders sort before files at each
+ * level, names case-insensitively - so a merge reads top to bottom the way
+ * the tree does.
+ */
+function treeOrder(a: string, b: string): number {
+  const as = a.split('/');
+  const bs = b.split('/');
+  const depth = Math.min(as.length, bs.length);
+  for (let i = 0; i < depth; i++) {
+    const aIsLeaf = i === as.length - 1;
+    const bIsLeaf = i === bs.length - 1;
+    if (aIsLeaf !== bIsLeaf) return aIsLeaf ? 1 : -1;
+    const cmp = (as[i] ?? '').localeCompare(bs[i] ?? '', undefined, { sensitivity: 'base' });
+    if (cmp !== 0) return cmp;
+  }
+  return as.length - bs.length;
+}
+
 function countWords(text: string): number {
   const words = text
     .replace(/```[\s\S]*?```/g, ' ')

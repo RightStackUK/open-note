@@ -212,35 +212,62 @@ export class VaultSync {
    * must land as one revertable commit named for what happened, rather than
    * dissolving into the next autosave batch.
    */
-  async commitWith(message: string): Promise<void> {
+  async commitWith(message: string): Promise<boolean> {
     this.clear('commit');
     // An auto-commit whose timer already fired may sit in the queue ahead of
     // this one; the flag makes it stand aside so the changes land under the
     // named message, not a generic one.
     this.namedCommitPending = true;
+    let committed = false;
     await this.enqueue(async () => {
       this.namedCommitPending = false;
       if (this.isConflicted()) return;
       const status = await this.port.status(this.root).catch(() => null);
       if (status && this.noteConflicts(status)) return;
-      if (status && status.changes.length === 0) return;
+      if (status && status.changes.length === 0) {
+        // Everything already landed — for the caller that is success.
+        committed = true;
+        return;
+      }
 
       this.patch({ phase: 'committing' });
       try {
         await this.port.commit(this.root, message);
+        committed = true;
         this.dirtySince = null;
         this.patch({ lastError: null });
         await this.refreshStatus();
       } catch (e) {
         if (errorCode(e) === 'nothingToCommit') {
+          committed = true;
           this.dirtySince = null;
           await this.refreshStatus();
           return;
         }
+        // Reported, not swallowed: "merged" must not be said over a commit a
+        // hook or signing setup rejected.
         this.fail(e);
       }
     });
     this.armPush();
+    return committed;
+  }
+
+  /**
+   * Reserve the next commit for `commitWith`, before the slow work starts.
+   *
+   * A vault-wide operation writes many files over many awaits; the idle timer
+   * can fire mid-flight and commit half of them generically. Reserving first
+   * makes any auto-commit stand aside for the named one. Always paired with
+   * `releaseNamedCommit` in a finally — a reservation nothing redeems would
+   * silence auto-commits forever.
+   */
+  reserveNamedCommit(): void {
+    this.namedCommitPending = true;
+  }
+
+  releaseNamedCommit(): void {
+    this.namedCommitPending = false;
   }
 
   /** Commit, integrate and publish immediately, ignoring every debounce. */

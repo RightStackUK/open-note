@@ -59,6 +59,8 @@ export interface VaultSession {
   tagSort: 'name' | 'count';
   /** Images: full width, or thumbnails. */
   imageDisplay: 'full' | 'thumbnail';
+  /** Where archived notes live. */
+  archiveFolder: string;
 }
 
 /**
@@ -147,6 +149,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             tagIcons: vaultSettings.tagIcons,
             tagSort: vaultSettings.tagSort,
             imageDisplay: vaultSettings.imageDisplay,
+            archiveFolder: vaultSettings.archiveFolder,
           },
         }));
         setActiveRoot(info.root);
@@ -234,6 +237,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             tagIcons: session.tagIcons,
             tagSort: session.tagSort,
             imageDisplay: session.imageDisplay,
+            archiveFolder: session.archiveFolder,
             ...override,
           }),
         );
@@ -274,9 +278,33 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
   );
 
   /** One named commit, for vault-wide operations that must be revertable whole. */
-  const commitWith = useCallback(async (root: string, message: string) => {
-    await engines.current.get(root)?.commitWith(message);
+  const commitWith = useCallback(async (root: string, message: string): Promise<boolean> => {
+    return (await engines.current.get(root)?.commitWith(message)) ?? false;
   }, []);
+
+  /**
+   * Run a slow vault-wide rewrite whose result must land as one named commit.
+   *
+   * The reservation happens before the first write, not when the commit is
+   * finally requested — the idle timer firing mid-operation would otherwise
+   * commit half the files under a generic message. `work` returns the commit
+   * message, or null to walk away with nothing to commit.
+   */
+  const runNamedCommit = useCallback(
+    async (root: string, work: () => Promise<string | null>): Promise<boolean> => {
+      const engine = engines.current.get(root);
+      if (!engine) return false;
+      engine.reserveNamedCommit();
+      try {
+        const message = await work();
+        if (message === null) return false;
+        return await engine.commitWith(message);
+      } finally {
+        engine.releaseNamedCommit();
+      }
+    },
+    [],
+  );
 
   const conflictResolved = useCallback(async (root: string) => {
     await engines.current.get(root)?.conflictResolved();
@@ -320,6 +348,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
     updatePinned,
     updatePrefs,
     commitWith,
+    runNamedCommit,
     refreshFiles,
     isPaused: (root: string) => engines.current.get(root)?.isPaused() ?? false,
   };

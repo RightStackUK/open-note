@@ -29,7 +29,12 @@ const ROW_HEIGHTS: Record<NoteListDensity, number> = { small: 44, medium: 64, la
 /** Rows rendered beyond the viewport on each side, so scrolling never flashes. */
 const OVERSCAN = 8;
 
-const COLLECTIONS: Collection[] = [{ kind: 'all' }, { kind: 'today' }, { kind: 'untagged' }];
+const COLLECTIONS: Collection[] = [
+  { kind: 'all' },
+  { kind: 'today' },
+  { kind: 'untagged' },
+  { kind: 'archive' },
+];
 
 function dateLabel(seconds: number): string {
   if (!seconds) return '';

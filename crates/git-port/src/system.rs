@@ -580,6 +580,11 @@ impl GitPort for SystemGit {
         Ok(())
     }
 
+    fn init_repository(&self, path: &Path) -> Result<()> {
+        self.run_ok(Some(path), &["init", "-b", "main"])?;
+        Ok(())
+    }
+
     fn first_commit_dates(&self, repo: &Path) -> Result<std::collections::HashMap<String, u64>> {
         // Oldest first, so the first time a path appears is the record kept —
         // a plain insert-if-absent, no comparisons. `--diff-filter=A` limits

@@ -1,5 +1,6 @@
 import MiniSearch from 'minisearch';
 
+import { isArchivedPath } from './lifecycle';
 import { noteHasTag } from './noteList';
 import { type ParsedNote, parseNote, type Todo } from './parse';
 import { isEmptyQuery, type ParsedQuery, parseSearchQuery } from './searchQuery';
@@ -40,12 +41,18 @@ export type SearchScope =
   | { kind: 'folder'; folder: string }
   | { kind: 'tag'; tag: string }
   | { kind: 'untagged' }
+  | { kind: 'archive' }
   | { kind: 'today' };
 
 export interface QueryOptions {
   scope?: SearchScope;
   /** Path to mtime seconds, for `is:today` and no-term recency ordering. */
   modified?: Map<string, number>;
+  /**
+   * Archived notes stay indexed but drop out of results unless the search is
+   * scoped to the archive — put away, not forgotten.
+   */
+  archiveFolder?: string;
   /** Injected so `is:today` is testable. */
   now?: Date;
 }
@@ -363,6 +370,12 @@ export class VaultIndex {
     }
 
     const scope = options.scope;
+    const archived = isArchivedPath(note.path, options.archiveFolder ?? 'archive');
+    if (scope?.kind === 'archive') {
+      if (!archived) return false;
+    } else if (archived) {
+      return false;
+    }
     if (scope) {
       if (scope.kind === 'folder' && !note.path.startsWith(`${scope.folder}/`)) return false;
       if (scope.kind === 'tag' && !noteHasTag(note.tags, scope.tag, true)) return false;

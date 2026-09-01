@@ -112,6 +112,12 @@ pub trait GitPort: Send + Sync {
     /// Commits touching `path`, newest first.
     fn log_for_path(&self, repo: &Path, path: &Path, limit: u32) -> Result<Vec<CommitInfo>>;
 
+    /// Turn an ordinary folder into a repository, on a `main` branch.
+    ///
+    /// The cheap half of importing: a directory of `.md` files from any other
+    /// Markdown app becomes a vault with `git init` and a first commit.
+    fn init_repository(&self, path: &Path) -> Result<()>;
+
     /// For every path in history: the author time, in epoch seconds, of the
     /// first commit that added it.
     ///

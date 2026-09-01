@@ -14,7 +14,7 @@ This plan does **not** revisit the decisions in
 they conflict with them — recorded in [Rejected](#rejected) at the end so they
 stop coming back as feature requests.
 
-**Status:** in progress. Blocks 1–8 landed; Block 9 next.
+**Status:** in progress. Blocks 1–9 landed; Block 10 next.
 
 ---
 
@@ -479,7 +479,7 @@ per-vault settings plus a per-embed toggle.
 
 ---
 
-## Block 9 — Note info and lifecycle
+## Block 9 — Note info and lifecycle ✅
 
 ### 9.1 One info panel
 
@@ -727,6 +727,10 @@ Audited, and deliberately not planned. Recorded so they do not return.
 | What may a theme set? | **A whitelisted set of colour variables, values validated as colours.** A vault can be cloned from anywhere, so a theme file is untrusted input: it gets to recolour the app, not to define arbitrary custom properties. |
 | Font pickers: enumerate system fonts? | **No — a datalist of suggestions over a free-text input.** The webview cannot enumerate installed fonts without a native call on each platform, and an unknown family name degrades gracefully to the default stack anyway. |
 | Where does zoom live? | **Per machine (localStorage), not in the vault.** Zoom is a reading posture for this screen; the font size in `.opennote/settings.json` is the setting that travels. |
+| Archived notes in the switcher and completion? | **Still offered.** The plan hides the archive from the default *list and search*; navigating to a note by name, or linking to it, is asking for it specifically. |
+| Unarchiving | **Moves to the vault root**, not back to the original folder — remembering the origin would be hidden state, which the archive design exists to avoid. The move is visible either way. |
+| Merge scope | **A folder's notes, from its context menu.** The tree has no multi-select; a folder is the selection mechanism the app already has, and matches how people group what belongs together. |
+| Unlocking a read-only note | **Per window, per session.** The frontmatter keeps saying `readOnly: true`; the click acknowledges it rather than editing the file behind the user's back. |
 | PDF inline: thumbnail, or a chip? | **A chip that opens the full preview.** A page-one thumbnail means bundling a PDF renderer; the webview's own viewer does the real work and the chip is honest about being a file. Same reasoning as print-over-bundled-PDF-engine. |
 | Can any file be pasted, or only dropped? | **Paste stays images-only; a drop takes anything.** The clipboard holding a file is almost always an accident, and quietly copying it into the repository is a surprise. A drop is deliberate. |
 | `expandAllTags` / `collapseAllTags` | **Buttons on the tag panel, not registry commands.** They only mean anything while the panel is open; a global keybinding for a closed panel is a command that does nothing, which the coverage test exists to prevent. |

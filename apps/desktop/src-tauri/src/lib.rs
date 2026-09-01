@@ -257,6 +257,76 @@ async fn clone_vault(
     Ok(info)
 }
 
+/// Turn a picked folder of Markdown into a vault: `git init`, first commit,
+/// and it opens like any other. This is the cheap half of importing, and it
+/// covers everyone arriving from another Markdown app.
+#[tauri::command]
+async fn import_folder_as_vault(app: tauri::AppHandle) -> Result<Option<VaultInfo>, VaultError> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .set_title("Choose a folder of notes")
+        .pick_folder(move |path| {
+            let _ = tx.send(path);
+        });
+    let dir = config_dir(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(picked) = rx.recv().ok().flatten().and_then(|p| p.into_path().ok()) else {
+            return Ok(None);
+        };
+
+        // `git init` on the home directory — or worse — would swallow
+        // everything the user owns into a repository, secrets included. The
+        // dialog makes it one misclick, so it is refused outright.
+        let canonical = picked
+            .canonicalize()
+            .map_err(|e| VaultError::Io(e.to_string()))?;
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        if canonical.parent().is_none() || home.as_deref() == Some(canonical.as_path()) {
+            return Err(VaultError::Io(
+                "that folder is too broad to become a vault — pick the notes folder itself".into(),
+            ));
+        }
+
+        // A folder *inside* an existing repository must not open as a vault of
+        // its own: the vault model is the whole repository, and a nested view
+        // would sync and commit against history the user cannot see.
+        if !canonical.join(".git").exists() {
+            let mut ancestor = canonical.parent();
+            while let Some(dir) = ancestor {
+                if dir.join(".git").exists() {
+                    return Err(VaultError::Io(format!(
+                        "that folder sits inside the repository at {} — open that instead",
+                        dir.display()
+                    )));
+                }
+                ancestor = dir.parent();
+            }
+        }
+
+        let git = SystemGit::new();
+        if !git.is_repository(&picked) {
+            git.init_repository(&picked)?;
+            // The import commit only happens for a fresh repository; a folder
+            // that was already one keeps its history exactly as it stands.
+            match git.commit(&picked, &[], "notes: initial import") {
+                Ok(_) => {}
+                // An empty folder still becomes a usable, empty vault.
+                Err(git_port::GitError::NothingToCommit) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        let info = vault::open(&git, &picked)?;
+        let mut p = prefs::load(&dir);
+        prefs::remember(&mut p, &info.root);
+        let _ = prefs::save(&dir, &p);
+        Ok(Some(info))
+    })
+    .await
+    .map_err(|e| VaultError::Io(e.to_string()))?
+}
+
 /// Ask the user where a clone should go. `None` means they cancelled.
 #[tauri::command]
 async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
@@ -785,6 +855,7 @@ pub fn run() {
             vault_push,
             remote_url,
             clone_vault,
+            import_folder_as_vault,
             pick_folder,
             list_branches,
             create_branch,

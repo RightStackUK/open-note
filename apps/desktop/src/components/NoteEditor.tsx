@@ -27,6 +27,8 @@ interface NoteEditorProps {
   collapsedEmbeds: Set<string>;
   /** Bumped when the file listing or image display changes, to repaint chips. */
   attachmentsStamp: unknown;
+  /** `readOnly: true` frontmatter, honoured. Changing it remounts via the key. */
+  readOnly: boolean;
   /** Move a task to the bottom of its list when it is ticked. */
   sortTodosOnCompletion: boolean;
   /** Vault data and the on/off switch for `[[`, `#` and `:` completion. */
@@ -80,6 +82,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
     concealEverywhere,
     collapsedEmbeds,
     attachmentsStamp,
+    readOnly,
     paste,
   },
   ref,
@@ -120,6 +123,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
     const editor = createMarkdownEditor({
       parent: host.current,
       doc,
+      readOnly,
       placeholder: 'Start writing…',
       onChange: (next) => onChangeRef.current(next),
       // Read through refs so the editor is never rebuilt when the index changes.
