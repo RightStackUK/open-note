@@ -6,6 +6,7 @@ import {
   COMMANDS,
   type Collection,
   clampZoom,
+  collectionTitle,
   DEFAULT_TYPOGRAPHY,
   dailyNotePath,
   dailyNoteTemplate,
@@ -17,7 +18,12 @@ import {
   exportNoteToHtml,
   formatBinding,
   localAssetReferences,
+  maskCode,
+  mentionPattern,
+  noteHasTag,
   parseTheme,
+  removeTagFromNote,
+  renameTagInNote,
   renderNoteBody,
   resolveTheme,
   rewriteLinks,
@@ -40,7 +46,13 @@ import { BranchMenu } from './components/BranchMenu';
 import { CloneDialog } from './components/CloneDialog';
 import { ConflictPanel } from './components/ConflictPanel';
 import { DrawingEditor } from './components/DrawingEditor';
-import { ConfirmDelete, ContextMenu, type ContextTarget, Prompt } from './components/FileActions';
+import {
+  ConfirmAction,
+  ConfirmDelete,
+  ContextMenu,
+  type ContextTarget,
+  Prompt,
+} from './components/FileActions';
 import { HistoryPanel } from './components/HistoryPanel';
 import { KeymapPanel } from './components/KeymapPanel';
 import { NoteEditor, type NoteEditorHandle } from './components/NoteEditor';
@@ -122,6 +134,8 @@ export function App() {
     () => localStorage.getItem('opennote:pane:list') !== 'off',
   );
   const [collection, setCollection] = useState<Collection>({ kind: 'all' });
+  /** Search follows the active collection until the chip is dismissed. */
+  const [searchScoped, setSearchScoped] = useState(true);
   const [showTodos, setShowTodos] = useState(false);
   const [showClone, setShowClone] = useState(false);
   const [contextTarget, setContextTarget] = useState<ContextTarget | null>(null);
@@ -129,8 +143,15 @@ export function App() {
     | { kind: 'newNote' | 'newFolder'; parent: string }
     | { kind: 'rename'; path: string }
     | { kind: 'addTag' }
+    | { kind: 'renameTag'; tag: string; count: number }
     | null
   >(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    body: string;
+    confirmLabel: string;
+    run: () => void;
+  } | null>(null);
   const [deleting, setDeleting] = useState<{ path: string; tracked: boolean | null } | null>(null);
 
   const saveTimer = useRef<number | null>(null);
@@ -1241,6 +1262,196 @@ export function App() {
     }
   }, [ws]);
 
+  /**
+   * Rewrite a tag across the vault — the machinery behind rename and delete.
+   *
+   * The rewrites land in **one commit** named for what happened, the pattern
+   * the plan carries over from note renames: reviewable in history and
+   * revertable in one action.
+   */
+  const rewriteTagEverywhere = useCallback(
+    async (
+      rewrite: (source: string) => { text: string; count: number },
+      commitMessage: (notes: number) => string,
+      done: (notes: number, occurrences: number) => string,
+    ) => {
+      const root = ws.activeRoot;
+      if (!root) return;
+      try {
+        await flush();
+        let notes = 0;
+        let occurrences = 0;
+        for (const path of vaultIndex.index.paths()) {
+          // The open note may have typing newer than the file; rewriting the
+          // disk copy would resurrect the stale text under the editor.
+          const open = noteRef.current;
+          const source =
+            open && open.root === root && open.path === path
+              ? freshestDoc(open)
+              : await api.readNote(root, path);
+          const result = rewrite(source);
+          if (result.count === 0 || result.text === source) continue;
+          await api.writeNote(root, path, result.text);
+          vaultIndex.updateNote(path, result.text);
+          notes += 1;
+          occurrences += result.count;
+          if (noteRef.current?.path === path) {
+            pending.current = null;
+            setNote((prev) =>
+              prev && prev.path === path
+                ? { ...prev, doc: result.text, revision: prev.revision + 1 }
+                : prev,
+            );
+          }
+        }
+        if (notes > 0) await ws.commitWith(root, commitMessage(notes));
+        setMessage(done(notes, occurrences));
+      } catch (e) {
+        ws.setError(errorText(e));
+      }
+    },
+    [ws, vaultIndex, flush],
+  );
+
+  /** Presentation settings follow the tag: pins and icons rename or vanish. */
+  const migrateTagPrefs = useCallback(
+    (from: string, to: string | null) => {
+      const root = ws.activeRoot;
+      const current = root ? ws.sessions[root] : undefined;
+      if (!root || !current) return;
+      const covers = (tag: string) =>
+        tag.toLowerCase() === from.toLowerCase() ||
+        tag.toLowerCase().startsWith(`${from.toLowerCase()}/`);
+      const moved = (tag: string) => (to === null ? null : `${to}${tag.slice(from.length)}`);
+
+      const pinnedTags = current.pinnedTags
+        .map((tag) => (covers(tag) ? moved(tag) : tag))
+        .filter((tag): tag is string => tag !== null);
+      const tagIcons: Record<string, string> = {};
+      for (const [tag, icon] of Object.entries(current.tagIcons)) {
+        const next = covers(tag) ? moved(tag) : tag;
+        if (next !== null) tagIcons[next] = icon;
+      }
+      void ws.updatePrefs(root, { pinnedTags, tagIcons });
+    },
+    [ws],
+  );
+
+  const renameTag = useCallback(
+    (from: string, to: string) =>
+      rewriteTagEverywhere(
+        (source) => renameTagInNote(source, from, to),
+        (notes) => `notes: rename #${from} to #${to} (${notes} note${notes === 1 ? '' : 's'})`,
+        (notes, occurrences) =>
+          notes === 0
+            ? `No occurrences of #${from} were found.`
+            : `Renamed #${from} to #${to}: ${occurrences} occurrence${occurrences === 1 ? '' : 's'} in ${notes} note${notes === 1 ? '' : 's'}.`,
+      ).then(() => migrateTagPrefs(from, to)),
+    [rewriteTagEverywhere, migrateTagPrefs],
+  );
+
+  const deleteTag = useCallback(
+    (tag: string) =>
+      rewriteTagEverywhere(
+        (source) => removeTagFromNote(source, tag),
+        (notes) => `notes: remove #${tag} (${notes} note${notes === 1 ? '' : 's'})`,
+        (notes) =>
+          notes === 0
+            ? `No occurrences of #${tag} were found.`
+            : `Removed #${tag} from ${notes} note${notes === 1 ? '' : 's'}. The notes themselves are untouched.`,
+      ).then(() => migrateTagPrefs(tag, null)),
+    [rewriteTagEverywhere, migrateTagPrefs],
+  );
+
+  /**
+   * Turn an unlinked mention into a `[[wikilink]]`, in the mentioning note.
+   *
+   * The first occurrence outside brackets is wrapped as written — its own
+   * casing resolves fine, since links match case-insensitively.
+   */
+  const linkMention = useCallback(
+    async (mentioningPath: string, targetPath: string, title: string) => {
+      const root = ws.activeRoot;
+      if (!root) return;
+      try {
+        // The mentioning note may be the one on screen — then its freshest
+        // text is the buffer, and the result must land back in the editor
+        // rather than under it.
+        const open = noteRef.current;
+        const isOpen = open?.root === root && open?.path === mentioningPath;
+        const source =
+          isOpen && open ? freshestDoc(open) : await api.readNote(root, mentioningPath);
+
+        // Whole words, never inside brackets, and never inside code or
+        // frontmatter — the mask blanks those the same way the indexer does.
+        const { bodyOffset } = splitFrontmatter(source);
+        const masked =
+          source.slice(0, bodyOffset).replace(/[^\n]/g, ' ') + maskCode(source.slice(bodyOffset));
+        const pattern = new RegExp(mentionPattern(title).source, 'giu');
+        let at = -1;
+        for (const match of masked.matchAll(pattern)) {
+          const before = source.slice(Math.max(0, match.index - 2), match.index);
+          const after = source.slice(match.index + title.length, match.index + title.length + 2);
+          if (before.includes('[') || after.includes(']')) continue;
+          at = match.index;
+          break;
+        }
+        if (at === -1) {
+          setMessage('The mention sits in code or frontmatter, so it was left alone.');
+          return;
+        }
+        const occurrence = source.slice(at, at + title.length);
+        // The link must actually resolve to the target: when the title is not
+        // the note's basename, it gets the path as target and the mention as
+        // its alias — the same rule completion applies.
+        const resolves = vaultIndex.index.resolveLink(occurrence) === targetPath;
+        const target = targetPath.replace(/\.(md|markdown|mdown|mkd)$/i, '');
+        const link = resolves ? `[[${occurrence}]]` : `[[${target}|${occurrence}]]`;
+        const text = `${source.slice(0, at)}${link}${source.slice(at + title.length)}`;
+
+        await api.writeNote(root, mentioningPath, text);
+        vaultIndex.updateNote(mentioningPath, text);
+        if (isOpen) {
+          pending.current = null;
+          setNote((prev) =>
+            prev && prev.path === mentioningPath
+              ? { ...prev, doc: text, revision: prev.revision + 1 }
+              : prev,
+          );
+        }
+        ws.noteSaved(root);
+        setMessage(`Linked the mention in ${mentioningPath}.`);
+      } catch (e) {
+        ws.setError(errorText(e));
+      }
+    },
+    [ws, vaultIndex],
+  );
+
+  /**
+   * Distinct notes per tag *family* — the tag or any child. Summing child
+   * counts double-counts a note that carries both `#work` and `#work/urgent`;
+   * only a set per prefix answers "what would selecting this parent list".
+   */
+  // biome-ignore format: single-expression memo
+  const tagFamilyCounts = useMemo(() => {
+    const sets = new Map<string, Set<string>>();
+    for (const path of vaultIndex.index.paths()) {
+      const entry = vaultIndex.index.get(path);
+      if (!entry) continue;
+      for (const tag of entry.tags) {
+        const parts = tag.split('/');
+        for (let depth = 1; depth <= parts.length; depth++) {
+          const prefix = parts.slice(0, depth).join('/');
+          const set = sets.get(prefix) ?? new Set<string>();
+          set.add(path);
+          sets.set(prefix, set);
+        }
+      }
+    }
+    return new Map([...sets.entries()].map(([tag, set]) => [tag, set.size]));
+  }, [vaultIndex]);
+
   /** Progress of a running bulk export; null when none is. */
   const [bulkExport, setBulkExport] = useState<{ done: number; total: number } | null>(null);
   const bulkCancelled = useRef(false);
@@ -1373,6 +1584,8 @@ export function App() {
 
   const openPalette = useCallback((mode: PaletteMode) => {
     setPaletteQuery('');
+    // Each opening starts scoped to where you are; dismissing the chip widens.
+    setSearchScoped(true);
     setPalette(mode);
   }, []);
 
@@ -1585,6 +1798,14 @@ export function App() {
   // `revision` is the dependency that matters: the index object is stable and
   // mutated in place, so React cannot see changes without it.
   const backlinks = note ? vaultIndex.index.backlinks(note.path) : [];
+  // Every title against every body is real work, so it runs off the cached
+  // plain text, only while the panel is up, and capped — as the plan asks.
+  // biome-ignore format: the memo deps line up better unwrapped
+  const notePath = note?.path ?? null;
+  const mentions = useMemo(
+    () => (notePath && showBacklinks ? vaultIndex.index.unlinkedMentions(notePath, 12) : []),
+    [notePath, showBacklinks, vaultIndex],
+  );
   const noteTags = note ? (vaultIndex.index.get(note.path)?.tags ?? []) : [];
   const todos = showTodos ? vaultIndex.index.todos() : [];
 
@@ -1623,7 +1844,20 @@ export function App() {
         },
       ];
     }
-    if (palette === 'search') return searchItems(vaultIndex.index.query(paletteQuery));
+    if (palette === 'search') {
+      const scope =
+        searchScoped && collection.kind !== 'all'
+          ? collection.kind === 'tag'
+            ? ({ kind: 'tag', tag: collection.tag } as const)
+            : ({ kind: collection.kind } as const)
+          : undefined;
+      return searchItems(
+        vaultIndex.index.query(paletteQuery, 30, {
+          scope,
+          modified: new Map(session.files.map((file) => [file.path, file.modified])),
+        }),
+      );
+    }
     if (palette === 'tags') {
       const needle = paletteQuery.trim().toLowerCase();
       return (
@@ -2003,10 +2237,15 @@ export function App() {
               path={note.path}
               backlinks={backlinks}
               tags={noteTags}
+              mentions={mentions}
               onOpen={(path) => void openNoteAt(path)}
               onSelectTag={(tag) => {
                 setSelectedTag(tag);
                 setPanel('tags');
+              }}
+              onLinkMention={(mentioning) => {
+                const title = vaultIndex.index.get(note.path)?.title;
+                if (title) void linkMention(mentioning, note.path, title);
               }}
             />
           )}
@@ -2036,11 +2275,50 @@ export function App() {
             tags={vaultIndex.index.tags()}
             initialTag={selectedTag}
             notesForTag={(tag) =>
-              vaultIndex.index.notesWithTag(tag).map((path) => ({
-                path,
-                title: vaultIndex.index.get(path)?.title ?? path,
-              }))
+              vaultIndex.index
+                .paths()
+                .filter((path) => {
+                  const entry = vaultIndex.index.get(path);
+                  // Children count: selecting #work lists #work/urgent notes too.
+                  return entry ? noteHasTag(entry.tags, tag, true) : false;
+                })
+                .map((path) => ({
+                  path,
+                  title: vaultIndex.index.get(path)?.title ?? path,
+                }))
             }
+            familyCounts={tagFamilyCounts}
+            pinnedTags={session.pinnedTags}
+            tagIcons={session.tagIcons}
+            sort={session.tagSort}
+            onSortChange={(tagSort) => void ws.updatePrefs(session.info.root, { tagSort })}
+            onTogglePin={(tag) =>
+              void ws.updatePrefs(session.info.root, {
+                pinnedTags: session.pinnedTags.includes(tag)
+                  ? session.pinnedTags.filter((t) => t !== tag)
+                  : [...session.pinnedTags, tag],
+              })
+            }
+            onSetIcon={(tag, icon) => {
+              const tagIcons = { ...session.tagIcons };
+              if (icon) tagIcons[tag] = icon;
+              else delete tagIcons[tag];
+              void ws.updatePrefs(session.info.root, { tagIcons });
+            }}
+            onRename={(tag, count) => setPrompt({ kind: 'renameTag', tag, count })}
+            onDelete={(tag, count) =>
+              setConfirmAction({
+                title: `Remove #${tag} everywhere?`,
+                body: `The tag and its children come out of ${count} note${count === 1 ? '' : 's'}, as one commit. The notes themselves are not deleted.`,
+                confirmLabel: 'Remove tag',
+                run: () => void deleteTag(tag),
+              })
+            }
+            onShowInList={(tag) => {
+              setCollection({ kind: 'tag', tag });
+              setShowList(true);
+              setPanel(null);
+            }}
             onOpen={(path) => void openNoteAt(path)}
             onClose={() => {
               setPanel(null);
@@ -2228,6 +2506,42 @@ export function App() {
         />
       )}
 
+      {prompt?.kind === 'renameTag' && (
+        <Prompt
+          title={`Rename #${prompt.tag}`}
+          label="New name"
+          initial={prompt.tag}
+          confirmLabel="Rename"
+          hint={`Rewrites ${prompt.count} note${prompt.count === 1 ? '' : 's'} as one commit. Children like #${prompt.tag}/x are carried along.`}
+          onClose={() => setPrompt(null)}
+          onConfirm={(name) => {
+            const from = prompt.tag;
+            setPrompt(null);
+            const to = name.trim().replace(/^#+/, '').replace(/\s+/g, '-');
+            if (!to || to === from) return;
+            if (!/^[\p{L}\p{N}][\p{L}\p{N}_/-]*$/u.test(to) || /^\d+$/.test(to)) {
+              setMessage(`“${to}” cannot be a tag — tags are letters, numbers, - _ and /.`);
+              return;
+            }
+            void renameTag(from, to);
+          }}
+        />
+      )}
+
+      {confirmAction && (
+        <ConfirmAction
+          title={confirmAction.title}
+          body={confirmAction.body}
+          confirmLabel={confirmAction.confirmLabel}
+          onClose={() => setConfirmAction(null)}
+          onConfirm={() => {
+            const { run } = confirmAction;
+            setConfirmAction(null);
+            run();
+          }}
+        />
+      )}
+
       {prompt?.kind === 'rename' && (
         <Prompt
           title="Rename"
@@ -2289,6 +2603,12 @@ export function App() {
           mode={palette}
           query={paletteQuery}
           items={paletteItems}
+          scopeLabel={
+            palette === 'search' && searchScoped && collection.kind !== 'all'
+              ? collectionTitle(collection)
+              : null
+          }
+          onClearScope={() => setSearchScoped(false)}
           onQueryChange={setPaletteQuery}
           onChoose={onPaletteChoose}
           onClose={() => setPalette(null)}

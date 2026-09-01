@@ -57,6 +57,10 @@ export interface ParsedNote {
   plain: string;
   /** Whether the note embeds anything — an image or a `![[file]]`. */
   hasAttachments: boolean;
+  /** Whether any embed points at an image file specifically. */
+  hasImage: boolean;
+  /** Whether the note contains `$…$` or `$$…$$` math. */
+  hasMath: boolean;
 }
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
@@ -86,7 +90,7 @@ export function splitFrontmatter(source: string): Frontmatter {
 }
 
 /** Regions we must not scan for tags or links: code must stay literal. */
-function maskCode(text: string): string {
+export function maskCode(text: string): string {
   return text
     .replace(/```[\s\S]*?(?:```|$)/g, (m) => ' '.repeat(m.length))
     .replace(/~~~[\s\S]*?(?:~~~|$)/g, (m) => ' '.repeat(m.length))
@@ -324,6 +328,8 @@ export function parseNote(path: string, source: string): ParsedNote {
     headings,
     plain: toPlainText(body),
     hasAttachments: hasEmbeds(body),
+    hasImage: hasImageEmbed(body),
+    hasMath: hasMathSpans(body),
   };
 }
 
@@ -331,4 +337,30 @@ export function parseNote(path: string, source: string): ParsedNote {
 function hasEmbeds(body: string): boolean {
   const masked = maskCode(body);
   return /!\[\[|!\[[^\]]*\]\(/.test(masked);
+}
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|avif|bmp|heic|tiff?)(\)|\]|\s|$|#|\?)/i;
+
+/** Whether an embed points at an image in particular, for `is:image`. */
+function hasImageEmbed(body: string): boolean {
+  const masked = maskCode(body);
+  for (const match of masked.matchAll(/!\[[^\]]*\]\(([^)]+)\)|!\[\[([^\]]+)\]\]/g)) {
+    const target = (match[1] ?? match[2] ?? '').trim();
+    if (IMAGE_EXT.test(`${target} `)) return true;
+    // A remote image with no extension still counts when it is a URL to an
+    // `![img](…)` — the author wrote image syntax on purpose.
+    if (match[1] !== undefined && /^https?:/i.test(target)) return true;
+  }
+  return false;
+}
+
+/** `$x$` or `$$x$$` outside code, matching the editor's own reading. */
+function hasMathSpans(body: string): boolean {
+  const masked = maskCode(body);
+  if (/\$\$(?:\\.|[^$\\])+?\$\$/s.test(masked)) return true;
+  const inline = /(?<![$\\])\$(?![\s$])((?:\\.|[^$\n\\])+?)(?<![\s\\])\$(?!\$)/g;
+  for (const match of masked.matchAll(inline)) {
+    if (/[\\a-zA-Z^_={}+*/<>-]/.test(match[1] ?? '')) return true;
+  }
+  return false;
 }

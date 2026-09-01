@@ -105,6 +105,48 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('commitWith', () => {
+  it('commits everything under the given message', async () => {
+    const port = new FakePort();
+    port.statusValue = status({ changes: [{ path: 'a.md', state: 'modified' }] });
+    const { engine } = makeEngine(port);
+    await engine.start();
+
+    await engine.commitWith('notes: rename #a to #b (3 notes)');
+    expect(port.calls).toContain('commit:notes: rename #a to #b (3 notes)');
+    engine.stop();
+  });
+
+  it('makes a queued auto-commit stand aside rather than stealing the changes', async () => {
+    const port = new FakePort();
+    port.statusValue = status({ changes: [{ path: 'a.md', state: 'modified' }] });
+    const { engine } = makeEngine(port);
+    await engine.start();
+
+    // Both are queued in this order; the named one must be the commit that runs.
+    const auto = engine.syncNow();
+    const named = engine.commitWith('notes: remove #x (2 notes)');
+    await Promise.all([auto, named]);
+
+    const commits = port.calls.filter((c) => c.startsWith('commit:'));
+    expect(commits).toEqual(['commit:notes: remove #x (2 notes)']);
+    engine.stop();
+  });
+
+  it('refuses to commit while conflicted, like everything else', async () => {
+    const port = new FakePort();
+    port.statusValue = status({ changes: [{ path: 'a.md', state: 'conflicted' }] });
+    const { engine } = makeEngine(port);
+    await engine.start();
+    await engine.syncNow().catch(() => {});
+    port.calls.length = 0;
+
+    await engine.commitWith('notes: rename #a to #b (1 note)');
+    expect(port.calls.filter((c) => c.startsWith('commit:'))).toEqual([]);
+    engine.stop();
+  });
+});
+
 describe('commit loop', () => {
   it('commits once the editor has been idle', async () => {
     const port = new FakePort();

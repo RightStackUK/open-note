@@ -1,6 +1,8 @@
 import MiniSearch from 'minisearch';
 
+import { noteHasTag } from './noteList';
 import { type ParsedNote, parseNote, type Todo } from './parse';
+import { isEmptyQuery, type ParsedQuery, parseSearchQuery } from './searchQuery';
 
 export interface IndexedNote extends ParsedNote {
   path: string;
@@ -31,6 +33,21 @@ export interface TagCount {
 export interface TodoItem extends Todo {
   path: string;
   noteTitle: string;
+}
+
+/** What the search may be narrowed to, shown in the field so it is no surprise. */
+export type SearchScope =
+  | { kind: 'folder'; folder: string }
+  | { kind: 'tag'; tag: string }
+  | { kind: 'untagged' }
+  | { kind: 'today' };
+
+export interface QueryOptions {
+  scope?: SearchScope;
+  /** Path to mtime seconds, for `is:today` and no-term recency ordering. */
+  modified?: Map<string, number>;
+  /** Injected so `is:today` is testable. */
+  now?: Date;
 }
 
 const MD_EXTENSION = /\.(md|markdown|mdown|mkd)$/i;
@@ -232,22 +249,157 @@ export class VaultIndex {
     });
   }
 
-  query(text: string, limit = 30): SearchHit[] {
-    const trimmed = text.trim();
-    if (!trimmed) return [];
+  query(text: string, limit = 30, options: QueryOptions = {}): SearchHit[] {
+    const parsed = parseSearchQuery(text);
+    if (isEmptyQuery(parsed)) return [];
 
-    return this.search
-      .search(trimmed)
-      .slice(0, limit)
-      .map((result) => {
-        const note = this.notes.get(result.id as string);
-        return {
-          path: result.id as string,
-          title: (result.title as string) ?? result.id,
-          score: result.score,
-          snippet: note ? snippetFor(note.plain, trimmed) : '',
-        };
+    // Bare terms go through MiniSearch — prefix and fuzzy, as before. With no
+    // terms (a pure phrase, filter or scope query) every note is a candidate,
+    // because an inverted index cannot answer those alone.
+    const termQuery = parsed.terms.join(' ').trim();
+    const ranked: Array<{ path: string; score: number }> = termQuery
+      ? this.search.search(termQuery).map((r) => ({ path: r.id as string, score: r.score }))
+      : [...this.notes.keys()].map((path) => ({ path, score: 0 }));
+
+    const startOfToday = (() => {
+      const now = options.now ?? new Date();
+      return Math.floor(
+        new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000,
+      );
+    })();
+
+    const hits: SearchHit[] = [];
+    const highlight = parsed.phrases[0] ?? termQuery;
+    for (const { path, score } of ranked) {
+      // With terms the candidates arrive ranked, so the cap is free; without,
+      // ordering happens below and cutting early would drop the newest note.
+      if (termQuery && hits.length >= limit) break;
+      const note = this.notes.get(path);
+      if (!note) continue;
+      if (!this.matches(note, parsed, options, startOfToday)) continue;
+
+      hits.push({
+        path,
+        title: note.title,
+        score,
+        snippet: snippetFor(note.plain, highlight),
       });
+    }
+
+    // Without terms there is no relevance score; recency reads best.
+    if (!termQuery) {
+      const modified = options.modified;
+      hits.sort((a, b) =>
+        modified
+          ? (modified.get(b.path) ?? 0) - (modified.get(a.path) ?? 0)
+          : a.title.localeCompare(b.title),
+      );
+    }
+    return hits.slice(0, limit);
+  }
+
+  /** Every check past the inverted index: phrases, exclusions, fields, filters, scope. */
+  private matches(
+    note: IndexedNote,
+    parsed: ParsedQuery,
+    options: QueryOptions,
+    startOfToday: number,
+  ): boolean {
+    const plain = note.plain.toLowerCase();
+    const title = note.title.toLowerCase();
+
+    // Phrases post-filter the stored body: adjacency is not a question an
+    // inverted index can answer, and fuzziness stays off inside quotes.
+    for (const phrase of parsed.phrases) {
+      const needle = phrase.toLowerCase();
+      if (!plain.includes(needle) && !title.includes(needle)) return false;
+    }
+    for (const excluded of parsed.excluded) {
+      const needle = excluded.toLowerCase();
+      if (excluded.includes(' ')) {
+        // An excluded phrase is a substring, symmetric with included phrases.
+        if (plain.includes(needle) || title.includes(needle)) return false;
+        continue;
+      }
+      // A single excluded word matches whole words — `-draft` must not
+      // disqualify a note for containing "redrafting" — and excluded tags
+      // cover their children, like every other tag comparison here.
+      const word = mentionPattern(excluded);
+      if (word.test(note.plain) || word.test(note.title)) return false;
+      if (noteHasTag(note.tags, needle.replace(/^#/, ''), true)) return false;
+    }
+    for (const wanted of parsed.title) {
+      if (!title.includes(wanted.toLowerCase())) return false;
+    }
+    for (const tag of parsed.tags) {
+      if (!noteHasTag(note.tags, tag, true)) return false;
+    }
+
+    for (const filter of parsed.filters) {
+      const modified = options.modified?.get(note.path) ?? 0;
+      switch (filter) {
+        case 'is:todo':
+          if (!note.todos.some((t) => !t.done)) return false;
+          break;
+        case 'is:done':
+          if (!note.todos.some((t) => t.done)) return false;
+          break;
+        case 'is:image':
+          if (!note.hasImage) return false;
+          break;
+        case 'is:attachment':
+          if (!note.hasAttachments) return false;
+          break;
+        case 'is:untagged':
+          if (note.tags.length > 0) return false;
+          break;
+        case 'is:today':
+          if (modified < startOfToday) return false;
+          break;
+        case 'has:math':
+          if (!note.hasMath) return false;
+          break;
+      }
+    }
+
+    const scope = options.scope;
+    if (scope) {
+      if (scope.kind === 'folder' && !note.path.startsWith(`${scope.folder}/`)) return false;
+      if (scope.kind === 'tag' && !noteHasTag(note.tags, scope.tag, true)) return false;
+      if (scope.kind === 'untagged' && note.tags.length > 0) return false;
+      if (scope.kind === 'today' && (options.modified?.get(note.path) ?? 0) < startOfToday) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Notes whose text mentions `path`'s title without linking to it — the link
+   * you forgot to make, which is what actually grows a wiki.
+   *
+   * Runs over the index's cached plain text and is capped; the caller decides
+   * when it is worth asking (the backlinks panel, debounced).
+   */
+  unlinkedMentions(path: string, limit = 20): Array<{ path: string; title: string }> {
+    const note = this.notes.get(path);
+    if (!note) return [];
+    // A two-letter title would mention itself everywhere; that is noise.
+    if (note.title.length < 3) return [];
+    // Whole words only: a note titled "Research" is not mentioned by the word
+    // "Researcher".
+    const needle = mentionPattern(note.title);
+
+    const linked = new Set(this.backlinks(path).map((b) => b.from));
+    const mentions: Array<{ path: string; title: string }> = [];
+    for (const other of this.notes.values()) {
+      if (mentions.length >= limit) break;
+      if (other.path === path || linked.has(other.path)) continue;
+      if (!needle.test(other.plain)) continue;
+      mentions.push({ path: other.path, title: other.title });
+    }
+    return mentions.sort((a, b) => a.title.localeCompare(b.title));
   }
 
   /**
@@ -279,6 +431,12 @@ export class VaultIndex {
       .slice(0, limit)
       .map(({ path, title }) => ({ path, title }));
   }
+}
+
+/** A title as a whole-word, case-insensitive pattern — for mentions. */
+export function mentionPattern(title: string): RegExp {
+  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu');
 }
 
 /**

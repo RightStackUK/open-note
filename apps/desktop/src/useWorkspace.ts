@@ -51,6 +51,12 @@ export interface VaultSession {
   fetchLinkTitles: boolean;
   /** Copy As drops `#tag` tokens. */
   copyStripsTags: boolean;
+  /** Tags kept at the top of the tag browser. */
+  pinnedTags: string[];
+  /** Tag → emoji, purely cosmetic. */
+  tagIcons: Record<string, string>;
+  /** Tag browser order. */
+  tagSort: 'name' | 'count';
 }
 
 /**
@@ -135,6 +141,9 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             pasteAsMarkdown: vaultSettings.pasteAsMarkdown,
             fetchLinkTitles: vaultSettings.fetchLinkTitles,
             copyStripsTags: vaultSettings.copyStripsTags,
+            pinnedTags: vaultSettings.pinnedTags,
+            tagIcons: vaultSettings.tagIcons,
+            tagSort: vaultSettings.tagSort,
           },
         }));
         setActiveRoot(info.root);
@@ -218,6 +227,9 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             pasteAsMarkdown: session.pasteAsMarkdown,
             fetchLinkTitles: session.fetchLinkTitles,
             copyStripsTags: session.copyStripsTags,
+            pinnedTags: session.pinnedTags,
+            tagIcons: session.tagIcons,
+            tagSort: session.tagSort,
             ...override,
           }),
         );
@@ -256,6 +268,11 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
     (root: string, pinned: string[]) => updatePrefs(root, { pinned }),
     [updatePrefs],
   );
+
+  /** One named commit, for vault-wide operations that must be revertable whole. */
+  const commitWith = useCallback(async (root: string, message: string) => {
+    await engines.current.get(root)?.commitWith(message);
+  }, []);
 
   const conflictResolved = useCallback(async (root: string) => {
     await engines.current.get(root)?.conflictResolved();
@@ -298,6 +315,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
     refreshStatus,
     updatePinned,
     updatePrefs,
+    commitWith,
     refreshFiles,
     isPaused: (root: string) => engines.current.get(root)?.isPaused() ?? false,
   };

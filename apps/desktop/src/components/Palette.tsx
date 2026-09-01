@@ -18,6 +18,9 @@ interface PaletteProps {
   mode: PaletteMode;
   query: string;
   items: PaletteItem[];
+  /** Shown beside the input so a narrowed search is never a surprise. */
+  scopeLabel?: string | null;
+  onClearScope?: () => void;
   onQueryChange: (query: string) => void;
   onChoose: (id: string) => void;
   onClose: () => void;
@@ -35,7 +38,16 @@ const PLACEHOLDERS: Record<PaletteMode, string> = {
  * search. They differ only in what fills the list, and sharing the shell keeps
  * their keyboard behaviour identical — which is what makes them feel fast.
  */
-export function Palette({ mode, query, items, onQueryChange, onChoose, onClose }: PaletteProps) {
+export function Palette({
+  mode,
+  query,
+  items,
+  scopeLabel,
+  onClearScope,
+  onQueryChange,
+  onChoose,
+  onClose,
+}: PaletteProps) {
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -81,6 +93,16 @@ export function Palette({ mode, query, items, onQueryChange, onChoose, onClose }
       }}
     >
       <div className="palette" role="dialog" aria-modal="true" aria-label={PLACEHOLDERS[mode]}>
+        {scopeLabel && (
+          <button
+            type="button"
+            className="palette-scope"
+            title="Searching within this scope — click to search the whole vault"
+            onClick={onClearScope}
+          >
+            in {scopeLabel} ×
+          </button>
+        )}
         <input
           ref={input}
           className="palette-input"

@@ -186,6 +186,46 @@ interface ConfirmDeleteProps {
  * one that has never been committed there is no way back at all, and saying that
  * plainly is the whole difference between a safe delete and a lost note.
  */
+interface ConfirmActionProps {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onClose: () => void;
+}
+
+/** A yes/no question, for actions whose weight the user should hear first. */
+export function ConfirmAction({
+  title,
+  body,
+  confirmLabel,
+  onConfirm,
+  onClose,
+}: ConfirmActionProps) {
+  return (
+    <div
+      className="palette-backdrop"
+      role="presentation"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="prompt" role="dialog" aria-modal="true" aria-label={title}>
+        <h2>{title}</h2>
+        <p className="muted-note">{body}</p>
+        <div className="prompt-actions">
+          <button type="button" className="ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="danger" onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ConfirmDelete({ path, tracked, onConfirm, onClose }: ConfirmDeleteProps) {
   return (
     <div

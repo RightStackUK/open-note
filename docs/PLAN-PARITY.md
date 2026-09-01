@@ -14,7 +14,7 @@ This plan does **not** revisit the decisions in
 they conflict with them — recorded in [Rejected](#rejected) at the end so they
 stop coming back as feature requests.
 
-**Status:** in progress. Blocks 1–6 landed; Block 7 next.
+**Status:** in progress. Blocks 1–7 landed; Block 8 next.
 
 ---
 
@@ -374,7 +374,7 @@ posture, not a property of the note.
 
 ---
 
-## Block 7 — Tags and search
+## Block 7 — Tags and search ✅
 
 ### 7.1 Tag management
 
@@ -727,6 +727,8 @@ Audited, and deliberately not planned. Recorded so they do not return.
 | What may a theme set? | **A whitelisted set of colour variables, values validated as colours.** A vault can be cloned from anywhere, so a theme file is untrusted input: it gets to recolour the app, not to define arbitrary custom properties. |
 | Font pickers: enumerate system fonts? | **No — a datalist of suggestions over a free-text input.** The webview cannot enumerate installed fonts without a native call on each platform, and an unknown family name degrades gracefully to the default stack anyway. |
 | Where does zoom live? | **Per machine (localStorage), not in the vault.** Zoom is a reading posture for this screen; the font size in `.opennote/settings.json` is the setting that travels. |
+| `expandAllTags` / `collapseAllTags` | **Buttons on the tag panel, not registry commands.** They only mean anything while the panel is open; a global keybinding for a closed panel is a command that does nothing, which the coverage test exists to prevent. |
+| Tag exports? | Deferred to the tag panel's next pass; folder export landed in Block 5 and covers the shape. |
 | How is math distinguished from money? | **An inline `$…$` only renders when the content looks like TeX** — a letter, an operator, a command. `lunch was $5 and dinner $10` stays prose. Block `$$…$$` always renders. |
 | Which footnotes does renumbering touch? | **Numeric ones only, in document order.** A named footnote (`[^caveat]`) is a choice and stays exactly as written. |
 | Bulk export scope | **Folders (and the vault root), from the context menu** — as one HTML file per note with the tree preserved, or merged into one page in tree order with anchors. Per-tag export arrives with the Block 7 tag management surface, where tags get their menu. |

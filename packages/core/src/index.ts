@@ -72,6 +72,7 @@ export {
   extractLinks,
   extractTags,
   extractTodos,
+  maskCode,
   noteTitle,
   parseNote,
   partialTagBefore,
@@ -81,6 +82,10 @@ export {
 } from './notes/parse';
 export type { LinkRewrite } from './notes/rename';
 export { replacementTarget, rewriteLinks } from './notes/rename';
+export type { ContentFilter, ParsedQuery } from './notes/searchQuery';
+export { CONTENT_FILTERS, isEmptyQuery, parseSearchQuery } from './notes/searchQuery';
+export type { TagRewrite } from './notes/tags';
+export { removeTagFromNote, renameTagInNote, tagFamily } from './notes/tags';
 export type { TextbundleAsset } from './notes/textbundle';
 export {
   buildTextpack,
@@ -88,8 +93,16 @@ export {
   dataUrlToBytes,
   localAssetReferences,
 } from './notes/textbundle';
-export type { Backlink, IndexedNote, SearchHit, TagCount, TodoItem } from './notes/vaultIndex';
-export { fuzzyScore, snippetFor, VaultIndex } from './notes/vaultIndex';
+export type {
+  Backlink,
+  IndexedNote,
+  QueryOptions,
+  SearchHit,
+  SearchScope,
+  TagCount,
+  TodoItem,
+} from './notes/vaultIndex';
+export { fuzzyScore, mentionPattern, snippetFor, VaultIndex } from './notes/vaultIndex';
 export type { VaultSyncOptions } from './sync/engine';
 export { defaultCommitMessage, VaultSync } from './sync/engine';
 export type { SyncSettings, VaultSettings } from './sync/settings';

@@ -71,6 +71,12 @@ export interface VaultSettings {
   fetchLinkTitles: boolean;
   /** Copy As drops `#tag` tokens from what lands on the clipboard. */
   copyStripsTags: boolean;
+  /** Tags kept at the top of the tag browser. */
+  pinnedTags: string[];
+  /** Tag → emoji character, purely cosmetic. */
+  tagIcons: Record<string, string>;
+  /** Tag browser order. */
+  tagSort: 'name' | 'count';
 }
 
 export const DEFAULT_ATTACHMENT_FOLDER = 'assets';
@@ -90,6 +96,9 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   pasteAsMarkdown: true,
   fetchLinkTitles: false,
   copyStripsTags: false,
+  pinnedTags: [],
+  tagIcons: {},
+  tagSort: 'count',
 };
 
 /**
@@ -150,6 +159,9 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     pasteAsMarkdown: true,
     fetchLinkTitles: false,
     copyStripsTags: false,
+    pinnedTags: [],
+    tagIcons: {},
+    tagSort: 'count',
   });
   if (!raw) return defaults();
 
@@ -195,6 +207,19 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
   const pasteAsMarkdown = bool((parsed as { pasteAsMarkdown?: unknown }).pasteAsMarkdown, true);
   const fetchLinkTitles = bool((parsed as { fetchLinkTitles?: unknown }).fetchLinkTitles, false);
   const copyStripsTags = bool((parsed as { copyStripsTags?: unknown }).copyStripsTags, false);
+  const rawPinnedTags = (parsed as { pinnedTags?: unknown }).pinnedTags;
+  const pinnedTags = Array.isArray(rawPinnedTags)
+    ? rawPinnedTags.filter((entry): entry is string => typeof entry === 'string')
+    : [];
+  const rawIcons = (parsed as { tagIcons?: unknown }).tagIcons;
+  const tagIcons: Record<string, string> = {};
+  if (typeof rawIcons === 'object' && rawIcons !== null) {
+    for (const [tag, icon] of Object.entries(rawIcons as Record<string, unknown>)) {
+      // An icon is one emoji, not a paragraph someone pasted into the file.
+      if (typeof icon === 'string' && icon.length > 0 && icon.length <= 8) tagIcons[tag] = icon;
+    }
+  }
+  const tagSort = (parsed as { tagSort?: unknown }).tagSort === 'name' ? 'name' : 'count';
 
   const prefs = {
     attachmentFolder,
@@ -210,6 +235,9 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     pasteAsMarkdown,
     fetchLinkTitles,
     copyStripsTags,
+    pinnedTags,
+    tagIcons,
+    tagSort,
   } as const;
 
   if (typeof sync !== 'object' || sync === null) {

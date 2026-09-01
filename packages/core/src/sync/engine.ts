@@ -65,6 +65,8 @@ export class VaultSync {
   private state: SyncState = { ...INITIAL };
 
   private commitTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Set while a `commitWith` waits in the queue; auto-commits stand aside. */
+  private namedCommitPending = false;
   private pushTimer: ReturnType<typeof setTimeout> | null = null;
   private fetchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -203,6 +205,44 @@ export class VaultSync {
     this.armCommit();
   }
 
+  /**
+   * Commit everything outstanding right now, under a specific message.
+   *
+   * For vault-wide operations — a tag rename touching fourteen notes — that
+   * must land as one revertable commit named for what happened, rather than
+   * dissolving into the next autosave batch.
+   */
+  async commitWith(message: string): Promise<void> {
+    this.clear('commit');
+    // An auto-commit whose timer already fired may sit in the queue ahead of
+    // this one; the flag makes it stand aside so the changes land under the
+    // named message, not a generic one.
+    this.namedCommitPending = true;
+    await this.enqueue(async () => {
+      this.namedCommitPending = false;
+      if (this.isConflicted()) return;
+      const status = await this.port.status(this.root).catch(() => null);
+      if (status && this.noteConflicts(status)) return;
+      if (status && status.changes.length === 0) return;
+
+      this.patch({ phase: 'committing' });
+      try {
+        await this.port.commit(this.root, message);
+        this.dirtySince = null;
+        this.patch({ lastError: null });
+        await this.refreshStatus();
+      } catch (e) {
+        if (errorCode(e) === 'nothingToCommit') {
+          this.dirtySince = null;
+          await this.refreshStatus();
+          return;
+        }
+        this.fail(e);
+      }
+    });
+    this.armPush();
+  }
+
   /** Commit, integrate and publish immediately, ignoring every debounce. */
   async syncNow(): Promise<SyncState> {
     if (this.paused) this.resume();
@@ -290,6 +330,8 @@ export class VaultSync {
 
   private async doCommit() {
     if (this.isConflicted()) return;
+    // A named commit is queued right behind; it will carry these changes.
+    if (this.namedCommitPending) return;
     const status = await this.port.status(this.root).catch(() => null);
     if (status && this.noteConflicts(status)) return;
     if (status && status.changes.length === 0) {

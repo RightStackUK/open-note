@@ -4,16 +4,22 @@ interface BacklinksPanelProps {
   path: string;
   backlinks: Backlink[];
   tags: string[];
+  /** Notes that mention this note's title without linking to it. */
+  mentions: Array<{ path: string; title: string }>;
   onOpen: (path: string) => void;
   onSelectTag: (tag: string) => void;
+  /** Turn a mention into a real link, in the mentioning note. */
+  onLinkMention: (mentioningPath: string) => void;
 }
 
 export function BacklinksPanel({
   path,
   backlinks,
   tags,
+  mentions,
   onOpen,
   onSelectTag,
+  onLinkMention,
 }: BacklinksPanelProps) {
   return (
     <aside className="backlinks">
@@ -52,6 +58,32 @@ export function BacklinksPanel({
           </ul>
         )}
       </section>
+
+      {mentions.length > 0 && (
+        <section>
+          <h3>
+            Mentioned by <span className="count">{mentions.length}</span>
+          </h3>
+          <ul className="backlink-list">
+            {mentions.map((mention) => (
+              <li key={mention.path} className="mention-row">
+                <button type="button" onClick={() => onOpen(mention.path)}>
+                  <span className="backlink-title">{mention.title}</span>
+                  <span className="backlink-path">{mention.path}</span>
+                </button>
+                <button
+                  type="button"
+                  className="mention-link"
+                  title="Turn the mention into a [[wikilink]]"
+                  onClick={() => onLinkMention(mention.path)}
+                >
+                  Link it
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </aside>
   );
 }

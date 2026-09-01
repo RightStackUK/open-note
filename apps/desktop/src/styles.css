@@ -459,6 +459,168 @@ button {
   }
 }
 
+.palette-scope {
+  align-self: flex-start;
+  margin: 0.5rem 0.75rem -0.25rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+/* tag tree */
+.tag-tools {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.tag-tools select {
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.tag-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tag-tree-row {
+  display: flex;
+  align-items: center;
+}
+
+.tag-tree-caret {
+  width: 1.1rem;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.tag-tree-name {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.3rem;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.83rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tag-tree-name:hover {
+  background: var(--bg);
+}
+
+.tag-tree-row.is-selected .tag-tree-name {
+  color: var(--accent);
+}
+
+.tag-tree-icon {
+  width: 1.1rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+.tag-pinned-row {
+  margin-bottom: 0.5rem;
+}
+
+.tag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.4rem 0 0.6rem;
+}
+
+.tag-actions button {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.tag-actions button.is-danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.tag-icon-picker input {
+  width: 100%;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.tag-icon-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  margin: 0.35rem 0 0.5rem;
+}
+
+.tag-icon-grid button {
+  padding: 0.15rem;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.tag-icon-grid button:hover {
+  background: var(--bg);
+}
+
+.mention-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.mention-row > button:first-child {
+  flex: 1;
+}
+
+.mention-link {
+  flex-shrink: 0;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
 .bulk-export {
   position: fixed;
   bottom: 3rem;
