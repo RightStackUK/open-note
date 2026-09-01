@@ -40,14 +40,16 @@ own Git, a private repo works exactly as it does in your terminal.
 Choose **Open a vault…** and pick any folder that is a Git repository. An empty
 repository is fine — a new vault with no notes is a normal starting point.
 
-If the folder is not a repository yet:
+If the folder is not a repository yet, choose **New vault from a folder…**
+instead: Open Note runs `git init` and makes the first commit for you. Or do it
+by hand:
 
 ```bash
 mkdir notes && cd notes
 git init
 ```
 
-Then open it. You can add a remote later; Open Note will commit locally in the
+Either way, you can add a remote later; Open Note will commit locally in the
 meantime and say `no upstream` in the status bar until you do.
 
 ## 3. Write something

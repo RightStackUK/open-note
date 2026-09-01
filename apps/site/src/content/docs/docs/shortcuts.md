@@ -16,6 +16,7 @@ shortcut, which is always more up to date than a page like this one.
 | <kbd>Mod P</kbd> | Go to note |
 | <kbd>Mod ⇧ F</kbd> | Search in vault |
 | <kbd>Mod ⇧ T</kbd> | Show all tasks |
+| <kbd>Mod ⌥ ←</kbd> / <kbd>→</kbd> | Go back / forward |
 
 ## Notes
 
@@ -35,11 +36,20 @@ shortcut, which is always more up to date than a page like this one.
 | <kbd>Mod B</kbd> | Bold |
 | <kbd>Mod I</kbd> | Italic |
 | <kbd>Mod E</kbd> | Inline code |
+| <kbd>Mod ⇧ M</kbd> | Highlight |
+| <kbd>Mod U</kbd> | Underline |
 | <kbd>Mod K</kbd> | Insert link |
 | <kbd>Mod ⇧ K</kbd> | Insert note link |
 | <kbd>Mod ↵</kbd> | Toggle task |
 | <kbd>Mod 1</kbd> / <kbd>2</kbd> / <kbd>3</kbd> | Heading 1, 2, 3 |
 | <kbd>Mod 0</kbd> | Plain paragraph |
+| <kbd>Mod ⇧ 8</kbd> / <kbd>7</kbd> / <kbd>9</kbd> | Bulleted list, numbered list, quote |
+| <kbd>Mod ⇧ C</kbd> | Code block |
+| <kbd>⌥ ↑</kbd> / <kbd>↓</kbd> | Move line up / down |
+| <kbd>Mod ]</kbd> / <kbd>[</kbd> | Indent / outdent |
+
+Tables, dates, todo bulk actions, footnote renumbering and more are unbound by
+default — find them in the palette and bind any you reach for.
 
 ## Sync
 
@@ -54,11 +64,13 @@ shortcut, which is always more up to date than a page like this one.
 | Shortcut | Command |
 |---|---|
 | <kbd>Mod \\</kbd> | Toggle sidebar |
-| <kbd>Mod ⇧ O</kbd> | Outline and word count |
+| <kbd>Mod ⇧ O</kbd> | Outline |
 | <kbd>Mod ⇧ A</kbd> | Browse tags |
 | <kbd>Mod ⇧ H</kbd> | Note history |
 | <kbd>Mod ⇧ G</kbd> | Branches and pull requests |
-| <kbd>Mod ⇧ B</kbd> | Toggle links panel |
+| <kbd>Mod ⇧ B</kbd> | Toggle info panel |
+| <kbd>Mod =</kbd> / <kbd>Mod −</kbd> | Zoom in / out |
+| <kbd>Mod ⌥ −</kbd> / <kbd>Mod ⌥ =</kbd> | Fold / unfold this section |
 | — | Keyboard shortcuts |
 
 ## Rebinding

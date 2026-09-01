@@ -57,7 +57,10 @@ Excalidraw drawings are `.excalidraw` files in the vault, opened on a canvas
 rather than in the editor. They are stored as plain JSON, so they diff and merge
 like any other file rather than arriving as an opaque blob in your history.
 
-GitHub shows them as JSON.
+Embed one in a note with `![[sketch.excalidraw]]` and the drawing renders in
+place, off the active line, opening the canvas when you click it.
+
+GitHub shows the file itself as JSON.
 
 ## Rendered SVG is sanitised
 

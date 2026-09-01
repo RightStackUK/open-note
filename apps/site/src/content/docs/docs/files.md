@@ -14,8 +14,9 @@ only notes.
 | **Markdown** (`.md`, `.markdown`, `.mdown`, `.mkd`) | The note editor: inline decoration, wikilinks, tasks, diagrams. |
 | **Text and code** (anything not a known binary) | A plain editor with line numbers, monospace and syntax highlighting for around 150 languages. |
 | **Images** (`.png`, `.jpg`, `.gif`, `.webp`, `.svg`, `.avif`, `.bmp`) | Read-only preview. |
-| **Drawings** (`.excalidraw`) | The drawing canvas. |
-| **Binaries** (`.pdf`, `.zip`, archives, media, fonts…) | Listed, greyed out, never opened. |
+| **Drawings** (`.excalidraw`) | The drawing canvas, and rendered inline where a note embeds one. |
+| **PDF** (`.pdf`) | Read-only preview in the webview's native viewer. |
+| **Binaries** (`.zip`, archives, media, fonts…) | Listed, greyed out. Open in the OS handler, or reveal in the file manager, from the right-click menu. |
 
 Classification is a **denylist** of binary extensions rather than an allowlist of
 text ones. A repository can hold a `Makefile`, a `.env`, a `Dockerfile` or any of
@@ -56,19 +57,28 @@ contains a file.
 
 ## Attachments
 
-Paste an image into a note and it is written into the vault as a real file, then
-linked relatively. It is never embedded as base64 — that would bloat the note,
-ruin the diff, and make the image invisible to everything except Open Note.
+Paste an image, drop a file of any kind onto the editor, or use **Attach a
+file…** — it is written into the vault as a real file and linked relatively. It
+is never embedded as base64: that would bloat the note, ruin the diff, and make
+the file invisible to everything except Open Note. An image shows inline (full
+width or a thumbnail, your choice, and collapsible per embed); anything else
+becomes a chip that opens in its OS handler.
 
 Where they land is configurable in settings: a folder name puts them all in one
 place (`assets/` by default), and `.` puts each one beside the note that uses it.
+
+A vault is a Git repository, and large binaries make it a slow one. Open Note
+warns above a threshold and points at `git-lfs`, which it inherits from your own
+`git` for free.
 
 ## Where Open Note's own files live
 
 **In the vault**, committed, so they travel between machines:
 
-- `.opennote/settings.json` — sync intervals, attachment folder, pinned notes.
+- `.opennote/settings.json` — sync intervals, typography, the active theme,
+  the note-list, tag and attachment preferences, pinned notes.
 - `.opennote/keymap.json` — your keyboard shortcuts.
+- `.opennote/themes/*.json` — any themes you have added.
 
 Both are plain JSON and safe to edit by hand. Parsing degrades field by field: a
 broken entry falls back to its default rather than stopping the vault from

@@ -4,7 +4,7 @@ import Page from '../layouts/Page.astro';
 
 <Page
   title="Features — Open Note"
-  description="What Open Note does in detail: a Markdown editor that decorates real source, Git sync that never resolves a conflict for you, wikilinks and backlinks, GFM tasks, tags, diagrams, note history and a fully rebindable keymap."
+  description="Everything Open Note does: a Markdown editor that decorates real source, autocomplete for links, tags and emoji, Git sync that never resolves a conflict for you, a note list, tags and search, callouts and maths, export to HTML, DOCX and Textbundle, a URL scheme and a CLI — and a fully rebindable keymap."
 >
   <section class="hero" style="padding-bottom: 1rem">
     <div class="wrap">
@@ -37,13 +37,23 @@ import Page from '../layouts/Page.astro';
               the <code>#</code> comes back, ready to edit. Every other line reads as prose.
             </li>
             <li>
-              <strong>Wikilink brackets disappear while reading</strong> and return while editing.
-              <code>[[note|label]]</code> shows just the label.
+              <strong>Autocomplete for the things you link.</strong> Type <code>[[</code> for note
+              titles ranked by recency, <code>#</code> for tags, <code>:</code> for emoji — and a
+              title no note has yet stays typeable, so writing the link still creates the note.
             </li>
-            <li><strong>Find and replace</strong> inside the open note.</li>
             <li>
-              <strong>Paste an image</strong> and it is written into the vault as a real file and
-              linked relatively — not embedded as base64.
+              <strong>The verbs a Markdown editor needs.</strong> Bulleted and numbered lists,
+              quotes, code fences, headings one through six, move a line up or down, indent a whole
+              list item. Insert today's date or the time in a keystroke.
+            </li>
+            <li>
+              <strong>Tables you can actually edit.</strong> Add or move a row or column, change a
+              column's alignment — and the pipes are re-padded so the source stays readable in any
+              other editor.
+            </li>
+            <li>
+              <strong>Find and replace</strong> inside the open note, and a full set of shortcuts you
+              can rebind.
             </li>
           </ul>
         </div>
@@ -127,7 +137,7 @@ import Page from '../layouts/Page.astro';
         </figure>
       </div>
 
-      <!-- Links -->
+      <!-- Links & tags -->
       <div class="feature flip">
         <div class="feature-text">
           <h3>Links, backlinks and tags</h3>
@@ -138,7 +148,9 @@ import Page from '../layouts/Page.astro';
           </p>
           <ul>
             <li>
-              <strong>Backlinks</strong> for the open note, with the sentence each link sits in.
+              <strong>Backlinks</strong> for the open note, plus <strong>unlinked mentions</strong> —
+              the notes that name this one without linking to it, each a click away from becoming a
+              real link. That is the link you forgot to make.
             </li>
             <li>
               <strong>Renaming rewrites links.</strong> Rename a note and every
@@ -146,8 +158,9 @@ import Page from '../layouts/Page.astro';
               can be reviewed and reverted as one thing.
             </li>
             <li>
-              <strong>Tags</strong> are <code>#plain-text</code> in the note body, with a browser
-              listing every tag and what carries it.
+              <strong>Tags are <code>#plain-text</code></strong>, nested with slashes, shown as a
+              collapsible tree. Rename or delete a tag across the whole vault in one named commit;
+              give one an emoji icon; pin the ones you live in.
             </li>
             <li>
               <strong>Drag a note into a folder</strong> and its links follow it. A move is a rename
@@ -173,7 +186,7 @@ import Page from '../layouts/Page.astro';
             A task is a GFM checkbox. Nothing else is required, and nothing else is stored — so the
             same note renders as a working task list on GitHub.
           </p>
-          <pre class="sample"><code>- [ ] Write the docs @sam !high ~2026-09-14</code></pre>
+          <pre class="sample"><code>- [ ] Write the docs @sam prio:high due:2026-09-14</code></pre>
           <ul>
             <li><strong>Click the checkbox</strong> in the editor to tick it; one character changes on disk.</li>
             <li>
@@ -182,10 +195,13 @@ import Page from '../layouts/Page.astro';
             </li>
             <li>
               <strong>Optional extras in plain text:</strong> <code>@person</code>,
-              <code>!high</code>, and <code>~2026-09-14</code> for a due date. Overdue and due-today
-              are called out.
+              <code>prio:high</code>, and <code>due:2026-09-14</code>. Overdue and due-today are
+              called out.
             </li>
-            <li><strong>Filter</strong> by open, done or all.</li>
+            <li>
+              <strong>Tidy a list:</strong> mark every task done or undone, or move the finished ones
+              to the bottom — optionally the moment you tick one.
+            </li>
           </ul>
         </div>
         <figure class="shot">
@@ -204,7 +220,8 @@ import Page from '../layouts/Page.astro';
           <h3>Diagrams and drawings</h3>
           <p>
             A fenced <code>mermaid</code> block renders inline as soon as your caret leaves it, and
-            goes back to being editable source the moment you return.
+            goes back to being editable source the moment you return. Maths and callouts, below,
+            follow exactly the same rule.
           </p>
           <ul>
             <li>
@@ -214,7 +231,8 @@ import Page from '../layouts/Page.astro';
             <li><strong>Graphviz DOT</strong> for graphs that Mermaid does not cover.</li>
             <li>
               <strong>Excalidraw</strong> for freehand drawings, stored as plain JSON so they diff
-              and merge like anything else.
+              and merge like anything else — and <code>![[sketch.excalidraw]]</code> renders the
+              drawing right in the note, opening the canvas on click.
             </li>
             <li>
               <strong>Rendered SVG is sanitised</strong> — scripts, event handlers and
@@ -267,28 +285,31 @@ import Page from '../layouts/Page.astro';
         </figure>
       </div>
 
-      <!-- Navigation -->
+      <!-- Finding things -->
       <div class="feature flip">
         <div class="feature-text">
-          <h3>Finding things</h3>
+          <h3>A note list, and finding your way around</h3>
+          <p>
+            The tree is only one way in. A list pane sits between it and the editor — title, an
+            excerpt, the date, an attachment badge — and it is where the app reads as a notes app
+            rather than a file browser.
+          </p>
           <ul>
             <li>
-              <strong>Full-text search</strong> across every note, with the matching line as the
-              preview.
+              <strong>Sort</strong> by modified, title, or created date — created coming from the
+              first commit that added the file, the one definition that survives a clone.
             </li>
             <li>
-              <strong>Quick switcher</strong> that fuzzy-matches titles and opens on Enter — and
-              offers to create the note when nothing matches.
+              <strong>Collections:</strong> everything, Today, Untagged, the Archive, or any tag.
             </li>
             <li>
-              <strong>Command palette</strong> listing every command with its current shortcut.
+              <strong>Back and forward</strong> across the notes you have opened, restoring where you
+              were — a history above the editor, kept separate from undo.
             </li>
             <li>
-              <strong>Sidebar filter</strong>, pinned notes, and an outline of the open note's
-              headings.
-            </li>
-            <li>
-              <strong>Today's note</strong> on a shortcut, from a template, filed by date.
+              <strong>Quick switcher, command palette and full-text search</strong> share one
+              overlay; a fourth mode jumps straight to a tag. Layout shortcuts show or hide the tree
+              and the list.
             </li>
           </ul>
         </div>
@@ -302,7 +323,7 @@ import Page from '../layouts/Page.astro';
         </figure>
       </div>
 
-      <!-- Everything else -->
+      <!-- Everything else in the repo -->
       <div class="feature">
         <div class="feature-text">
           <h3>The rest of the repository</h3>
@@ -316,15 +337,19 @@ import Page from '../layouts/Page.astro';
               <code>config.json</code>, a shell script — all editable, with line numbers and syntax
               highlighting for around 150 languages.
             </li>
-            <li><strong>Images</strong> get a preview. Binaries are listed but never opened.</li>
+            <li>
+              <strong>Attach any file</strong> by dropping it in or picking it — images inline, a
+              PDF previews in the native viewer, everything else becomes a chip that opens in its OS
+              handler. <strong>Reveal in Finder</strong> and <strong>open in the default app</strong>
+              are a right-click away.
+            </li>
+            <li>
+              <strong>Read-only notes.</strong> <code>readOnly: true</code> in a note's frontmatter
+              locks the editor — and travels with the file, the way app-local state would not.
+            </li>
             <li>
               <strong>Multiple vaults</strong> open at once, each with its own sync state, settings
-              and branch.
-            </li>
-            <li><strong>Export a note</strong> as a self-contained HTML page, images inlined.</li>
-            <li>
-              <strong>Every shortcut is rebindable</strong>, with an alternative preset. The keymap
-              lives in the vault, so it travels between machines.
+              and branch. Start a new one from a folder of Markdown you already have.
             </li>
           </ul>
         </div>
@@ -340,6 +365,161 @@ import Page from '../layouts/Page.astro';
     </div>
   </section>
 
+  <!-- Markdown coverage -->
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Markdown, more of it</h2>
+        <p>The ones that earn their place render when someone opens the vault on github.com.</p>
+      </div>
+      <div class="prose">
+        <ul>
+          <li>
+            <strong>Callouts</strong> — GitHub's <code>&gt; [!NOTE]</code>, <code>[!TIP]</code>,
+            <code>[!WARNING]</code> and the rest, drawn with a coloured rule, an icon and a label.
+          </li>
+          <li>
+            <strong>Maths</strong> — <code>$inline$</code> and <code>$$block$$</code> through KaTeX,
+            which loads on first use rather than at startup so a vault of prose never pays for it.
+          </li>
+          <li>
+            <strong>Footnotes</strong> — <code>[^1]</code> concealed to a superscript, the definition
+            on hover, and a command to renumber them into document order.
+          </li>
+          <li>
+            <strong>Highlight</strong> (<code>==text==</code>) and <strong>underline</strong>
+            (<code>&lt;u&gt;text&lt;/u&gt;</code>) — the underline chosen because it renders
+            everywhere, where <code>~text~</code> would collide with strikethrough.
+          </li>
+          <li>
+            <strong>Heading folding</strong> — fold a section down to its heading; a reading posture,
+            never written into the file.
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Clipboard & export -->
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Getting notes in and out</h2>
+        <p>One converter underneath, Markdown to HTML and back, feeding paste, copy, print and export.</p>
+      </div>
+      <div class="prose">
+        <ul>
+          <li>
+            <strong>Paste a web page as Markdown</strong> — clean headings and lists instead of a
+            wall of HTML — with explicit "paste as plain text", "as raw HTML" and "as a code block"
+            when you want them. A URL dropped onto a selection wraps it as a link.
+          </li>
+          <li>
+            <strong>Copy As</strong> plain text, Markdown, HTML, or rich text for an email or a chat
+            — optionally with the <code>#tags</code> stripped out.
+          </li>
+          <li>
+            <strong>Print, and print to PDF,</strong> through the system dialog against the same HTML
+            the export produces.
+          </li>
+          <li>
+            <strong>Export</strong> a note as self-contained HTML with images inlined and wikilinks
+            rewritten to real links, as a <strong>Word document</strong>, or as a
+            <strong>Textbundle</strong> that carries its attachments. Export a whole folder at once,
+            or <strong>merge</strong> several notes into one.
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Appearance -->
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Make it look right</h2>
+        <p>It is a tool for writing prose, so how the prose looks is a setting, not a fixed opinion.</p>
+      </div>
+      <div class="prose">
+        <ul>
+          <li>
+            <strong>Typography</strong> — the text, heading and code fonts, size, line height, line
+            width, paragraph spacing and indent. Applied as CSS variables, so nothing rebuilds and
+            the text simply reflows.
+          </li>
+          <li>
+            <strong>Themes</strong> are JSON in <code>.opennote/themes/</code>, so they sync, version
+            and can be shared like a note. A handful ship built in, in the same format.
+          </li>
+          <li>
+            <strong>Zoom</strong> the whole editor, and choose whether to conceal Markdown syntax
+            everywhere or only off the line you are editing.
+          </li>
+          <li>
+            <strong>Spell check is off by default,</strong> deliberately: the OS checker is coupled
+            to the smart-quote and dash substitution that turns <code>"key"</code> into curly quotes
+            inside a code fence or a YAML block, which quietly corrupts the file.
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Info & lifecycle -->
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>A note's life</h2>
+      </div>
+      <div class="prose">
+        <ul>
+          <li>
+            <strong>One info panel</strong> with three tabs: statistics — words, paragraphs, reading
+            time, and the created and modified dates — the outline, and the backlinks.
+          </li>
+          <li>
+            <strong>Templates.</strong> A <code>templates/</code> folder, a "new from template"
+            command, and <code>{'{{title}}'}</code> / <code>{'{{date}}'}</code> /
+            <code>{'{{time}}'}</code> filled in. Daily notes use the same mechanism.
+          </li>
+          <li>
+            <strong>Archive</strong> is a folder, not a hidden flag — moving a note there is visible
+            in the tree, on github.com and in the commit. Archived notes drop out of the default list
+            and search while staying indexed and linkable.
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Automation -->
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Reach it from outside</h2>
+        <p>A URL scheme and a CLI, so a script — or a browser, or a shortcut — can drive it.</p>
+      </div>
+      <div class="prose">
+        <ul>
+          <li>
+            <strong>An <code>opennote://</code> URL scheme</strong> — open a note, create one, append
+            to one, run a search, jump to a tag. Nothing destructive is reachable by URL: append only
+            adds, and new refuses to overwrite.
+          </li>
+          <li>
+            <strong>Global hotkeys</strong> to show the window or start a new note, unbound by default
+            and set in the same keymap panel as everything else.
+          </li>
+          <li>
+            <strong>A command-line tool</strong> — <code>opennote new</code>, <code>append</code>,
+            <code>search</code>, <code>open</code>, reading from stdin where it helps. It works on all
+            three desktops and composes with everything a shell can do.
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
   <section class="section">
     <div class="wrap">
       <div class="section-head">
@@ -347,13 +527,13 @@ import Page from '../layouts/Page.astro';
       </div>
       <div class="prose">
         <p>
-          Per-vault settings and your keymap live in <code>.opennote/</code> inside the repository,
-          so they travel with the vault between machines. Both are hand-editable JSON, and a broken
-          field falls back to its default rather than taking the app down with it.
+          Per-vault settings, your keymap and any themes live in <code>.opennote/</code> inside the
+          repository, so they travel with the vault between machines. All of it is hand-editable
+          JSON, and a broken field falls back to its default rather than taking the app down with it.
         </p>
         <p>
-          Machine-local state — which vaults you have opened recently — stays in your OS config
-          directory and is never committed.
+          Machine-local state — which vaults you have opened recently, and the zoom level — stays in
+          your OS config directory and is never committed.
         </p>
       </div>
     </div>
