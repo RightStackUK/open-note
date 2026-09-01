@@ -1,6 +1,8 @@
 import {
   attachmentFolderFor,
+  buildNoteList,
   COMMANDS,
+  type Collection,
   clampZoom,
   DEFAULT_TYPOGRAPHY,
   dailyNotePath,
@@ -30,6 +32,7 @@ import { ConfirmDelete, ContextMenu, type ContextTarget, Prompt } from './compon
 import { HistoryPanel } from './components/HistoryPanel';
 import { KeymapPanel } from './components/KeymapPanel';
 import { NoteEditor, type NoteEditorHandle } from './components/NoteEditor';
+import { NoteList } from './components/NoteList';
 import { OutlinePanel } from './components/OutlinePanel';
 import {
   commandItems,
@@ -55,6 +58,8 @@ const AUTOSAVE_IDLE_MS = 500;
 
 /** Marks a quick-switcher row that creates rather than opens. */
 const CREATE_PREFIX = 'create:';
+/** Marks a tag row in the tag quick-open palette. */
+const TAG_PREFIX = 'tag:';
 
 type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 
@@ -98,7 +103,13 @@ export function App() {
   const [palette, setPalette] = useState<PaletteMode | null>(null);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [showBacklinks, setShowBacklinks] = useState(true);
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(
+    () => localStorage.getItem('opennote:pane:tree') !== 'off',
+  );
+  const [showList, setShowList] = useState(
+    () => localStorage.getItem('opennote:pane:list') !== 'off',
+  );
+  const [collection, setCollection] = useState<Collection>({ kind: 'all' });
   const [showTodos, setShowTodos] = useState(false);
   const [showClone, setShowClone] = useState(false);
   const [contextTarget, setContextTarget] = useState<ContextTarget | null>(null);
@@ -111,6 +122,29 @@ export function App() {
   const [deleting, setDeleting] = useState<{ path: string; tracked: boolean | null } | null>(null);
 
   const saveTimer = useRef<number | null>(null);
+  /**
+   * Navigation history: where you have been, with the reading position.
+   *
+   * Above the editor, not inside it — CodeMirror's history is document undo,
+   * and conflating the two would make ⌘Z navigate. Per window, deliberately
+   * not persisted.
+   */
+  const backStack = useRef<Array<{ path: string; view: { scroll: number; anchor: number } }>>([]);
+  const forwardStack = useRef<Array<{ path: string; view: { scroll: number; anchor: number } }>>(
+    [],
+  );
+  /** Set while nav.back/forward drives the change, so it is not re-recorded. */
+  const navigating = useRef(false);
+  /** A view to restore once the target note has mounted. */
+  const pendingView = useRef<{ scroll: number; anchor: number } | null>(null);
+  /**
+   * The path most recently navigated to, updated synchronously.
+   *
+   * `noteRef` only updates when React re-renders, so two rapid navigations
+   * would both see the original note as "where we came from" and push it
+   * twice. This ref is the same fact without the render lag.
+   */
+  const currentNavPath = useRef<string | null>(null);
   const pending = useRef<OpenNote | null>(null);
   const noteRef = useRef<OpenNote | null>(null);
   const editorRef = useRef<NoteEditorHandle>(null);
@@ -145,6 +179,54 @@ export function App() {
   const paused = ws.activeRoot ? ws.isPaused(ws.activeRoot) : false;
   const vaultIndex = useVaultIndex(ws.activeRoot);
   const systemDark = useDarkMode();
+
+  useEffect(() => {
+    localStorage.setItem('opennote:pane:tree', showSidebar ? 'on' : 'off');
+    localStorage.setItem('opennote:pane:list', showList ? 'on' : 'off');
+  }, [showSidebar, showList]);
+
+  /**
+   * Created dates, from the first commit that added each path.
+   *
+   * Loaded once per vault: the definition survives a clone, and a note created
+   * this session simply has no entry, which the list treats as "as new as its
+   * mtime". Not refreshed per commit — the created date of an existing file
+   * cannot change.
+   */
+  const [createdDates, setCreatedDates] = useState<Map<string, number>>(new Map());
+  const lastSyncedAt = session?.state.lastSyncedAt ?? null;
+  useEffect(() => {
+    setCreatedDates(new Map());
+    const root = ws.activeRoot;
+    if (!root) return;
+    let cancelled = false;
+    void api
+      .createdDates(root)
+      .then((dates) => {
+        if (!cancelled) setCreatedDates(new Map(Object.entries(dates)));
+      })
+      .catch(() => {
+        // No history yet, or git is unhappy: created falls back to mtime.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // `lastSyncedAt` is a real dependency by design: a sync can commit a new
+    // note, which is the moment it acquires a created date.
+  }, [ws.activeRoot, lastSyncedAt]);
+
+  /**
+   * The local date, as a render input.
+   *
+   * "Today" is an mtime comparison against midnight, and a list left open
+   * across midnight would otherwise keep yesterday until something else
+   * happened to re-render it. One check a minute is invisible and enough.
+   */
+  const [dayStamp, setDayStamp] = useState(() => new Date().toDateString());
+  useEffect(() => {
+    const timer = window.setInterval(() => setDayStamp(new Date().toDateString()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // -- appearance -----------------------------------------------------------
 
@@ -290,6 +372,34 @@ export function App() {
     [flush],
   );
 
+  /**
+   * Push where we are leaving onto the back stack, browser-style: every
+   * ordinary navigation extends the trail and burns the forward path.
+   *
+   * The reading position is only captured when the editor is actually showing
+   * the departing note — during a rapid navigation burst it may still be
+   * rendering an earlier one, and attributing that scroll to this path would
+   * restore somewhere nonsensical.
+   */
+  const recordDeparture = useCallback((root: string, to: string) => {
+    const leavingPath = currentNavPath.current ?? noteRef.current?.path ?? null;
+    currentNavPath.current = to;
+    if (navigating.current) return;
+    if (!leavingPath || leavingPath === to) return;
+    if (noteRef.current && noteRef.current.root !== root) return;
+    // A repeat of the top entry is the rapid-click artefact, not a revisit.
+    if (backStack.current[backStack.current.length - 1]?.path === leavingPath) return;
+
+    const editorShowsLeaving = noteRef.current?.path === leavingPath;
+    backStack.current.push({
+      path: leavingPath,
+      view: editorShowsLeaving
+        ? (editorRef.current?.captureView() ?? { scroll: 0, anchor: 0 })
+        : { scroll: 0, anchor: 0 },
+    });
+    forwardStack.current = [];
+  }, []);
+
   const select = useCallback(
     async (file: VaultFile) => {
       const root = ws.activeRoot;
@@ -314,6 +424,9 @@ export function App() {
         }
         setPreview(null);
         setDrawing(null);
+        // The tree and the list are navigations like any other; skipping the
+        // trail here would make Back unable to return to where you were.
+        recordDeparture(root, file.path);
         setNote({
           root,
           path: file.path,
@@ -326,7 +439,7 @@ export function App() {
         ws.setError(errorText(e));
       }
     },
-    [ws, flush],
+    [ws, flush, recordDeparture],
   );
 
   const openConflicted = useCallback(
@@ -358,6 +471,7 @@ export function App() {
    * The jump is deferred through a ref because the editor is remounted for the
    * new document; calling `goToLine` here would address the outgoing view.
    */
+
   const openNoteAt = useCallback(
     async (path: string, line?: number) => {
       const root = ws.activeRoot;
@@ -365,6 +479,7 @@ export function App() {
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
       await flush();
       try {
+        recordDeparture(root, path);
         setShowTodos(false);
         setPreview(null);
         setDrawing(null);
@@ -375,7 +490,35 @@ export function App() {
         ws.setError(errorText(e));
       }
     },
-    [ws, flush],
+    [ws, flush, recordDeparture],
+  );
+
+  /** Walk the history one step; `direction` names the stack being popped. */
+  const navigateHistory = useCallback(
+    async (direction: 'back' | 'forward') => {
+      const from = direction === 'back' ? backStack.current : forwardStack.current;
+      const onto = direction === 'back' ? forwardStack.current : backStack.current;
+      const target = from.pop();
+      if (!target) return;
+
+      const leaving = noteRef.current;
+      if (leaving) {
+        onto.push({
+          path: leaving.path,
+          view: editorRef.current?.captureView() ?? { scroll: 0, anchor: 0 },
+        });
+      }
+
+      navigating.current = true;
+      pendingView.current = target.view;
+      currentNavPath.current = target.path;
+      try {
+        await openNoteAt(target.path);
+      } finally {
+        navigating.current = false;
+      }
+    },
+    [openNoteAt],
   );
 
   /**
@@ -408,6 +551,10 @@ export function App() {
     setShowTodos(false);
     setPanel(null);
     setSaveState('saved');
+    backStack.current = [];
+    forwardStack.current = [];
+    currentNavPath.current = null;
+    setCollection({ kind: 'all' });
 
     if (!root) return;
     const remembered = lastNoteByVault.current.get(root);
@@ -418,10 +565,17 @@ export function App() {
   }, [ws.activeRoot, ws.sessions, flush, openNoteAt]);
 
   useEffect(() => {
+    if (!note) return;
     const line = pendingLine.current;
-    if (line === null || !note) return;
-    pendingLine.current = null;
-    editorRef.current?.goToLine(line);
+    if (line !== null) {
+      pendingLine.current = null;
+      editorRef.current?.goToLine(line);
+    }
+    const view = pendingView.current;
+    if (view) {
+      pendingView.current = null;
+      editorRef.current?.restoreView(view);
+    }
   }, [note]);
 
   /** What a fresh note contains, per the vault's `newNoteHeading` preference. */
@@ -904,6 +1058,21 @@ export function App() {
       'view.zoomIn': () => changeZoom(zoom + ZOOM_STEP),
       'view.zoomOut': () => changeZoom(zoom - ZOOM_STEP),
       'view.zoomReset': () => changeZoom(1),
+      'nav.back': () => void navigateHistory('back'),
+      'nav.forward': () => void navigateHistory('forward'),
+      'tags.open': () => openPalette('tags'),
+      'view.layoutEditor': () => {
+        setShowSidebar(false);
+        setShowList(false);
+      },
+      'view.layoutList': () => {
+        setShowSidebar(false);
+        setShowList(true);
+      },
+      'view.layoutFull': () => {
+        setShowSidebar(true);
+        setShowList(true);
+      },
       // Editing commands are implemented in the editor package and reached
       // through the handle, so there is still exactly one key dispatcher.
       ...Object.fromEntries(
@@ -929,6 +1098,7 @@ export function App() {
       noteFromSelection,
       changeZoom,
       zoom,
+      navigateHistory,
     ],
   );
 
@@ -949,6 +1119,42 @@ export function App() {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [flush]);
+
+  /**
+   * What the note list pane shows: the vault through the active collection,
+   * in the configured order. All the logic lives in core and is tested there;
+   * this just feeds it the index, the mtimes and the created dates.
+   *
+   * Dependencies are the narrow facts, not the session object — a sync phase
+   * tick must not re-excerpt and re-sort ten thousand notes.
+   */
+  const sessionFiles = session?.files;
+  const noteListPrefs = session?.noteList;
+  // `vaultIndex.revision` stands in for the index contents; `dayStamp`
+  // re-evaluates "Today" after midnight.
+  const noteListEntries = useMemo(() => {
+    if (!sessionFiles || !noteListPrefs || !showList) return [];
+    return buildNoteList({
+      notes: vaultIndex.index
+        .paths()
+        .map((path) => vaultIndex.index.get(path))
+        .filter((n): n is NonNullable<typeof n> => n !== undefined),
+      modified: new Map(sessionFiles.map((file) => [file.path, file.modified])),
+      created: createdDates,
+      collection,
+      sort: noteListPrefs.sort,
+      descending: noteListPrefs.descending,
+      includeNestedTags: noteListPrefs.includeNestedTags,
+    });
+  }, [
+    sessionFiles,
+    noteListPrefs,
+    showList,
+    collection,
+    createdDates,
+    vaultIndex.revision,
+    dayStamp,
+  ]);
 
   if (booting) return <main className="welcome" />;
 
@@ -1048,6 +1254,21 @@ export function App() {
       ];
     }
     if (palette === 'search') return searchItems(vaultIndex.index.query(paletteQuery));
+    if (palette === 'tags') {
+      const needle = paletteQuery.trim().toLowerCase();
+      return (
+        vaultIndex.index
+          .tags()
+          .filter(({ tag }) => !needle || tag.toLowerCase().includes(needle))
+          // The list is already most-used-first; past this depth, typing narrows.
+          .slice(0, 100)
+          .map(({ tag, count }) => ({
+            id: `${TAG_PREFIX}${tag}`,
+            title: `#${tag}`,
+            detail: `${count} note${count === 1 ? '' : 's'}`,
+          }))
+      );
+    }
     return [];
   })();
 
@@ -1060,6 +1281,12 @@ export function App() {
     if (id.startsWith(CREATE_PREFIX)) {
       const name = id.slice(CREATE_PREFIX.length);
       void createNote(`${name}.md`, newNoteBody(name));
+      return;
+    }
+    if (id.startsWith(TAG_PREFIX)) {
+      // A tag is a place to go: the list becomes that tag's notes.
+      setCollection({ kind: 'tag', tag: id.slice(TAG_PREFIX.length) });
+      setShowList(true);
       return;
     }
     void openNoteAt(id);
@@ -1199,6 +1426,33 @@ export function App() {
               onNewFolder={() => setPrompt({ kind: 'newFolder', parent: '' })}
               onMove={(from, toFolder) => void move(from, toFolder)}
               pinned={session.pinned}
+            />
+          </aside>
+        )}
+
+        {showList && (
+          <aside className="list-pane">
+            <NoteList
+              entries={noteListEntries}
+              collection={collection}
+              activePath={note?.path ?? null}
+              sort={session.noteList.sort}
+              descending={session.noteList.descending}
+              density={session.noteList.density}
+              showBadges={session.noteList.showBadges}
+              onSelect={(path) => void openNoteAt(path)}
+              onCollectionChange={setCollection}
+              onSortChange={(sort) =>
+                void ws.updatePrefs(session.info.root, {
+                  noteList: { ...session.noteList, sort },
+                })
+              }
+              onDescendingChange={(descending) =>
+                void ws.updatePrefs(session.info.root, {
+                  noteList: { ...session.noteList, descending },
+                })
+              }
+              onContext={(path, x, y) => setContextTarget({ path, kind: 'file', x, y })}
             />
           </aside>
         )}
@@ -1450,6 +1704,7 @@ export function App() {
               insertTagsAt: session.insertTagsAt,
               theme: session.theme,
               typography: session.typography,
+              noteList: session.noteList,
             }}
             themes={vaultThemes}
             onChange={(next) => void ws.updateSettings(session.info.root, next)}

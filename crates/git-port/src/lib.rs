@@ -112,6 +112,18 @@ pub trait GitPort: Send + Sync {
     /// Commits touching `path`, newest first.
     fn log_for_path(&self, repo: &Path, path: &Path, limit: u32) -> Result<Vec<CommitInfo>>;
 
+    /// For every path in history: the author time, in epoch seconds, of the
+    /// first commit that added it.
+    ///
+    /// This is what the app calls a note's *created* date. The filesystem's
+    /// creation time is neither portable nor preserved by a clone; the first
+    /// commit is the only definition that survives moving machines, which is
+    /// the case that matters. One walk over the whole history rather than a
+    /// `git log --follow` per file, because a vault has thousands of files and
+    /// follow is quadratic in practice. A rename therefore starts a new
+    /// history for the new path — documented behaviour, not an oversight.
+    fn first_commit_dates(&self, repo: &Path) -> Result<std::collections::HashMap<String, u64>>;
+
     /// A file's contents at a given commit.
     fn file_at_commit(&self, repo: &Path, commit: &str, path: &Path) -> Result<String>;
 

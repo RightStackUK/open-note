@@ -48,6 +48,10 @@ export interface NoteEditorHandle {
   replaceRangeIfUnchanged: (from: number, to: number, expected: string, text: string) => boolean;
   /** Insert a `#tag` line at the top or the bottom of the note. */
   insertTag: (tag: string, at: 'top' | 'bottom') => void;
+  /** Scroll position and caret, for the navigation history. */
+  captureView: () => { scroll: number; anchor: number };
+  /** Put the reading position back, after navigating here through history. */
+  restoreView: (view: { scroll: number; anchor: number }) => void;
 }
 
 export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
@@ -167,6 +171,25 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
         if (!view) return { from: 0, to: 0, text: '' };
         const { from, to } = view.state.selection.main;
         return { from, to, text: view.state.doc.sliceString(from, to) };
+      },
+      captureView() {
+        const view = editorView.current;
+        if (!view) return { scroll: 0, anchor: 0 };
+        return { scroll: view.scrollDOM.scrollTop, anchor: view.state.selection.main.anchor };
+      },
+      restoreView(saved: { scroll: number; anchor: number }) {
+        const view = editorView.current;
+        if (!view) return;
+        const anchor = Math.min(saved.anchor, view.state.doc.length);
+        view.dispatch({ selection: { anchor } });
+        // After layout, or the height is not there to scroll to yet.
+        view.requestMeasure({
+          read: () => {},
+          write: () => {
+            view.scrollDOM.scrollTop = saved.scroll;
+          },
+        });
+        view.focus();
       },
       insertTag(tag: string, at: 'top' | 'bottom') {
         const view = editorView.current;

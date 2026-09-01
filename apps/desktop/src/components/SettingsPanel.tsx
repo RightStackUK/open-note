@@ -1,6 +1,8 @@
 import {
   BUILT_IN_THEMES,
   DEFAULT_TYPOGRAPHY,
+  type NoteListDensity,
+  type NoteListPrefs,
   parseTypography,
   type SyncSettings,
   type Theme,
@@ -16,6 +18,7 @@ export interface EditingPrefs {
   insertTagsAt: 'top' | 'bottom';
   theme: string;
   typography: TypographySettings;
+  noteList: NoteListPrefs;
 }
 
 interface SettingsPanelProps {
@@ -253,6 +256,57 @@ export function SettingsPanel({
           <option value="top">The top of the note</option>
           <option value="bottom">The bottom of the note</option>
         </select>
+      </label>
+
+      <h2 className="settings-section">Note list</h2>
+
+      <label className="setting-select">
+        <span className="setting-label">
+          Row size
+          <small>Small rows drop the excerpt</small>
+        </span>
+        <select
+          value={prefs.noteList.density}
+          onChange={(e) =>
+            onPrefsChange({
+              noteList: { ...prefs.noteList, density: e.target.value as NoteListDensity },
+            })
+          }
+        >
+          <option value="small">Small</option>
+          <option value="medium">Medium</option>
+          <option value="large">Large</option>
+        </select>
+      </label>
+
+      <label className="setting-row">
+        <input
+          type="checkbox"
+          checked={prefs.noteList.showBadges}
+          onChange={(e) =>
+            onPrefsChange({ noteList: { ...prefs.noteList, showBadges: e.target.checked } })
+          }
+        />
+        <span>
+          <strong>Show attachment badges</strong>
+          <small>Mark notes that embed images or files</small>
+        </span>
+      </label>
+
+      <label className="setting-row">
+        <input
+          type="checkbox"
+          checked={prefs.noteList.includeNestedTags}
+          onChange={(e) =>
+            onPrefsChange({ noteList: { ...prefs.noteList, includeNestedTags: e.target.checked } })
+          }
+        />
+        <span>
+          <strong>Parent tags include children</strong>
+          <small>
+            Selecting <code>#work</code> also lists notes tagged <code>#work/urgent</code>
+          </small>
+        </span>
       </label>
 
       <h2 className="settings-section">Appearance</h2>

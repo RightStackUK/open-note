@@ -434,6 +434,16 @@ fn read_vault_themes(root: String) -> Result<Vec<String>, VaultError> {
     vault::read_themes(&PathBuf::from(root))
 }
 
+/// Path to the author time of the first commit that added it — the app's
+/// definition of a note's created date. A repo with no commits yet simply has
+/// no dates, which is not a failure.
+#[tauri::command]
+fn created_dates(root: String) -> std::collections::HashMap<String, u64> {
+    SystemGit::new()
+        .first_commit_dates(&PathBuf::from(root))
+        .unwrap_or_default()
+}
+
 /// What a manual sync actually did, so the UI can say something specific rather
 /// than just "done".
 #[derive(Debug, Serialize)]
@@ -557,6 +567,7 @@ pub fn run() {
             read_vault_settings,
             write_vault_settings,
             read_vault_themes,
+            created_dates,
             sync_vault,
         ])
         .run(tauri::generate_context!())

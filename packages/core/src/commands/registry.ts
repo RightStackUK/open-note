@@ -407,6 +407,48 @@ export const COMMANDS: CommandDefinition[] = [
     binding: null,
     keywords: ['tag', 'label'],
   },
+  {
+    id: 'nav.back',
+    title: 'Go back',
+    category: 'Navigate',
+    binding: 'Mod-Alt-ArrowLeft',
+    keywords: ['history', 'previous'],
+  },
+  {
+    id: 'nav.forward',
+    title: 'Go forward',
+    category: 'Navigate',
+    binding: 'Mod-Alt-ArrowRight',
+    keywords: ['history', 'next'],
+  },
+  {
+    id: 'tags.open',
+    title: 'Go to tag',
+    category: 'Navigate',
+    binding: null,
+    keywords: ['tag', 'quick', 'jump'],
+  },
+  {
+    id: 'view.layoutEditor',
+    title: 'Layout: editor only',
+    category: 'View',
+    binding: null,
+    keywords: ['pane', 'focus', 'zen'],
+  },
+  {
+    id: 'view.layoutList',
+    title: 'Layout: list and editor',
+    category: 'View',
+    binding: null,
+    keywords: ['pane', 'notes'],
+  },
+  {
+    id: 'view.layoutFull',
+    title: 'Layout: tree, list and editor',
+    category: 'View',
+    binding: null,
+    keywords: ['pane', 'sidebar'],
+  },
 ];
 
 /**

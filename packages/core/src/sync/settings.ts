@@ -1,3 +1,4 @@
+import { DEFAULT_NOTE_LIST_PREFS, type NoteListPrefs, parseNoteListPrefs } from '../notes/noteList';
 import { DEFAULT_TYPOGRAPHY, parseTypography, type TypographySettings } from './typography';
 
 /**
@@ -62,6 +63,8 @@ export interface VaultSettings {
   newNoteHeading: 'h1' | 'none';
   /** Where `note.addTag` puts the tag. */
   insertTagsAt: 'top' | 'bottom';
+  /** How the note list pane filters, sorts and draws. */
+  noteList: NoteListPrefs;
 }
 
 export const DEFAULT_ATTACHMENT_FOLDER = 'assets';
@@ -77,6 +80,7 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   concealEverywhere: false,
   newNoteHeading: 'h1',
   insertTagsAt: 'bottom',
+  noteList: DEFAULT_NOTE_LIST_PREFS,
 };
 
 /**
@@ -133,6 +137,7 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     concealEverywhere: false,
     newNoteHeading: 'h1',
     insertTagsAt: 'bottom',
+    noteList: { ...DEFAULT_NOTE_LIST_PREFS },
   });
   if (!raw) return defaults();
 
@@ -174,6 +179,7 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
   const newNoteHeading = rawHeading === 'none' ? 'none' : 'h1';
   const rawInsertAt = (parsed as { insertTagsAt?: unknown }).insertTagsAt;
   const insertTagsAt = rawInsertAt === 'top' ? 'top' : 'bottom';
+  const noteList = parseNoteListPrefs((parsed as { noteList?: unknown }).noteList);
 
   const prefs = {
     attachmentFolder,
@@ -185,6 +191,7 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     concealEverywhere,
     newNoteHeading,
     insertTagsAt,
+    noteList,
   } as const;
 
   if (typeof sync !== 'object' || sync === null) {

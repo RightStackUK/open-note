@@ -14,7 +14,7 @@ This plan does **not** revisit the decisions in
 they conflict with them — recorded in [Rejected](#rejected) at the end so they
 stop coming back as feature requests.
 
-**Status:** in progress. Blocks 1–3 landed; Block 4 next.
+**Status:** in progress. Blocks 1–4 landed; Block 5 next.
 
 ---
 
@@ -213,7 +213,7 @@ Themes as JSON in `.opennote/themes/`, plus a set of built-ins.
 
 ---
 
-## Block 4 — The note list and navigation
+## Block 4 — The note list and navigation ✅
 
 *The structural reason the app reads as a text editor rather than a notes app.
 The biggest UI block here, and the one with the most design in it.*
@@ -727,6 +727,9 @@ Audited, and deliberately not planned. Recorded so they do not return.
 | What may a theme set? | **A whitelisted set of colour variables, values validated as colours.** A vault can be cloned from anywhere, so a theme file is untrusted input: it gets to recolour the app, not to define arbitrary custom properties. |
 | Font pickers: enumerate system fonts? | **No — a datalist of suggestions over a free-text input.** The webview cannot enumerate installed fonts without a native call on each platform, and an unknown family name degrades gracefully to the default stack anyway. |
 | Where does zoom live? | **Per machine (localStorage), not in the vault.** Zoom is a reading posture for this screen; the font size in `.opennote/settings.json` is the setting that travels. |
+| Where do the layout panes persist? | **Per machine (localStorage).** Which panes are open is a posture of this window, like zoom; the note list's sort, density and toggles are per-vault settings, as planned. |
+| How is history captured? | **A per-window pair of stacks above the editor**, recording path, scroll position and caret. Ordinary navigation pushes and clears the forward stack — the browser rule, because it is the one people already know. A vault switch clears both: paths from another vault mean nothing here. |
+| How are created dates computed? | **One `git log --reverse --diff-filter=A --name-only` walk per vault open**, not `--follow` per file — follow is quadratic over thousands of files. A rename therefore starts a new history for the new path; documented behaviour. A never-committed note ranks by its mtime, which is honest: it is brand new. |
 | Does switching theme rebuild the editor? | **Only when the appearance flips between light and dark**, because rendered diagram SVGs bake their colours in and must be redrawn. Same-appearance theme changes and every typography change are pure CSS. The remount reads the freshest document — including edits still inside the autosave window — so it can never lose typing. |
 | Is anything destructive reachable by URL? | **No.** No delete, no overwrite. `append` is additive, `new` refuses to clobber. |
 | Automation surface: native frameworks or a CLI? | **A CLI plus a URL scheme.** Works on all three platforms, needs no native target, and survives the move to mobile. |

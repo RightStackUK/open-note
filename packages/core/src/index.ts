@@ -35,6 +35,22 @@ export { EMOJI, searchEmoji } from './notes/emoji';
 export type { ExportOptions } from './notes/export';
 export { exportNoteToHtml } from './notes/export';
 export type {
+  BuildNoteListInput,
+  Collection,
+  NoteListDensity,
+  NoteListEntry,
+  NoteListPrefs,
+  NoteListSort,
+} from './notes/noteList';
+export {
+  buildNoteList,
+  collectionTitle,
+  DEFAULT_NOTE_LIST_PREFS,
+  excerptFor,
+  noteHasTag,
+  parseNoteListPrefs,
+} from './notes/noteList';
+export type {
   Frontmatter,
   Heading,
   ParsedNote,

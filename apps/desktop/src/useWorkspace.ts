@@ -1,5 +1,6 @@
 import {
   type MergeOutcome,
+  type NoteListPrefs,
   parseVaultSettings,
   type SyncSettings,
   type SyncState,
@@ -42,6 +43,8 @@ export interface VaultSession {
   newNoteHeading: 'h1' | 'none';
   /** Where `note.addTag` puts the tag. */
   insertTagsAt: 'top' | 'bottom';
+  /** How the note list pane filters, sorts and draws. */
+  noteList: NoteListPrefs;
 }
 
 /**
@@ -122,6 +125,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             concealEverywhere: vaultSettings.concealEverywhere,
             newNoteHeading: vaultSettings.newNoteHeading,
             insertTagsAt: vaultSettings.insertTagsAt,
+            noteList: vaultSettings.noteList,
           },
         }));
         setActiveRoot(info.root);
@@ -201,6 +205,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             concealEverywhere: session.concealEverywhere,
             newNoteHeading: session.newNoteHeading,
             insertTagsAt: session.insertTagsAt,
+            noteList: session.noteList,
             ...override,
           }),
         );

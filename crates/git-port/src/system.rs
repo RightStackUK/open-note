@@ -580,6 +580,49 @@ impl GitPort for SystemGit {
         Ok(())
     }
 
+    fn first_commit_dates(&self, repo: &Path) -> Result<std::collections::HashMap<String, u64>> {
+        // Oldest first, so the first time a path appears is the record kept —
+        // a plain insert-if-absent, no comparisons. `--diff-filter=A` limits
+        // the name lists to additions, so a touch or a delete never counts.
+        //
+        // `core.quotepath=false` because the default octal-escapes any
+        // non-ASCII path — `café.md` would never match its real name and would
+        // quietly fall back to its mtime. `--no-renames` because with rename
+        // detection on, a moved file is an `R` rather than an `A` and would
+        // otherwise get no created date at all; forcing the add keeps the
+        // documented rule — a rename starts a new history — true regardless of
+        // the user's git config.
+        let out = self.run_ok(
+            Some(repo),
+            &[
+                "-c",
+                "core.quotepath=false",
+                "log",
+                "--reverse",
+                "--no-renames",
+                "--diff-filter=A",
+                "--name-only",
+                "--format=\x01%at",
+            ],
+        )?;
+
+        let mut dates = std::collections::HashMap::new();
+        let mut current: u64 = 0;
+        for line in out.lines() {
+            if let Some(stamp) = line.strip_prefix('\x01') {
+                current = stamp.trim().parse().unwrap_or(0);
+                continue;
+            }
+            // Not trimmed: a leading or trailing space is part of the name.
+            let path = line.strip_suffix('\r').unwrap_or(line);
+            if path.is_empty() || current == 0 {
+                continue;
+            }
+            dates.entry(path.to_string()).or_insert(current);
+        }
+        Ok(dates)
+    }
+
     fn log_for_path(&self, repo: &Path, path: &Path, limit: u32) -> Result<Vec<CommitInfo>> {
         let limit = limit.to_string();
         let path_str = path.to_string_lossy();
@@ -712,6 +755,99 @@ mod tests {
     #[test]
     fn rejects_a_non_repository() {
         assert!(!SystemGit::new().is_repository(Path::new("/")));
+    }
+
+    #[test]
+    fn first_commit_dates_report_when_each_path_was_added() {
+        let (_dir, repo, git) = fixture();
+
+        write(&repo, "first.md", "one");
+        git.run_ok(Some(&repo), &["add", "-A"]).expect("add");
+        git.run_ok(
+            Some(&repo),
+            &[
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "user.name=Test",
+                "commit",
+                "--date",
+                "2020-01-02T03:04:05Z",
+                "-m",
+                "first",
+            ],
+        )
+        .expect("commit");
+
+        write(&repo, "second.md", "two");
+        // Touch the first file too: an edit must not move its created date.
+        write(&repo, "first.md", "one, edited");
+        git.run_ok(Some(&repo), &["add", "-A"]).expect("add");
+        git.run_ok(
+            Some(&repo),
+            &[
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "user.name=Test",
+                "commit",
+                "--date",
+                "2021-06-07T08:09:10Z",
+                "-m",
+                "second",
+            ],
+        )
+        .expect("commit");
+
+        let dates = git.first_commit_dates(&repo).expect("dates");
+        let first = *dates.get("first.md").expect("first.md");
+        let second = *dates.get("second.md").expect("second.md");
+        assert!(
+            first < second,
+            "edit moved the created date: {first} {second}"
+        );
+        // 2020-01-02T03:04:05Z, whatever this machine's timezone says.
+        assert_eq!(first, 1_577_934_245);
+    }
+
+    #[test]
+    fn first_commit_dates_keep_non_ascii_names_literal() {
+        // Default quotepath octal-escapes these, and an escaped key matches
+        // nothing the frontend asks about.
+        let (_dir, repo, git) = fixture();
+        write(&repo, "café.md", "x");
+        git.run_ok(Some(&repo), &["add", "-A"]).expect("add");
+        git.run_ok(Some(&repo), &["commit", "-m", "add"])
+            .expect("commit");
+
+        let dates = git.first_commit_dates(&repo).expect("dates");
+        assert!(dates.contains_key("café.md"), "got: {:?}", dates.keys());
+    }
+
+    #[test]
+    fn a_renamed_file_gets_a_created_date_for_its_new_path() {
+        // With rename detection on, `git mv` is an R, not an A — and the new
+        // path would silently have no created date. --no-renames forces the A.
+        let (_dir, repo, git) = fixture();
+        write(&repo, "old.md", "body");
+        git.run_ok(Some(&repo), &["add", "-A"]).expect("add");
+        git.run_ok(Some(&repo), &["commit", "-m", "add"])
+            .expect("commit");
+        git.run_ok(Some(&repo), &["mv", "old.md", "new.md"])
+            .expect("mv");
+        git.run_ok(Some(&repo), &["commit", "-m", "rename"])
+            .expect("commit");
+
+        let dates = git.first_commit_dates(&repo).expect("dates");
+        assert!(dates.contains_key("new.md"), "got: {:?}", dates.keys());
+    }
+
+    #[test]
+    fn first_commit_dates_error_on_a_repo_with_no_commits() {
+        // `git log` refuses an unborn branch. The command layer above maps
+        // this to an empty map, because "no history yet" is not a failure.
+        let (_dir, repo, git) = fixture();
+        assert!(git.first_commit_dates(&repo).is_err());
     }
 
     #[test]

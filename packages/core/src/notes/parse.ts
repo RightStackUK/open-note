@@ -55,6 +55,8 @@ export interface ParsedNote {
   headings: Heading[];
   /** Body text with markup stripped, for indexing. */
   plain: string;
+  /** Whether the note embeds anything — an image or a `![[file]]`. */
+  hasAttachments: boolean;
 }
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
@@ -295,5 +297,12 @@ export function parseNote(path: string, source: string): ParsedNote {
     todos: extractTodos(body, lineOffset),
     headings,
     plain: toPlainText(body),
+    hasAttachments: hasEmbeds(body),
   };
+}
+
+/** An image `![alt](src)` or an embed `![[file]]`, outside of code. */
+function hasEmbeds(body: string): boolean {
+  const masked = maskCode(body);
+  return /!\[\[|!\[[^\]]*\]\(/.test(masked);
 }

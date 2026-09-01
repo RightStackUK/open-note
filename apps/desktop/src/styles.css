@@ -248,6 +248,162 @@ button {
   background: var(--bg-raised);
 }
 
+/* -- the note list pane -------------------------------------------------- */
+
+.list-pane {
+  width: 18.5rem;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.note-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.note-list-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.note-list-collections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.chip {
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.chip:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
+.chip.is-on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.note-list-order {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.note-list-order select {
+  flex: 1;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.note-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.note-list-empty {
+  padding: 1rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.note-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 0 0.75rem;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.note-row:hover {
+  background: var(--bg-raised);
+}
+
+.note-row.is-active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.note-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.note-row-title {
+  font-weight: 550;
+  font-size: 0.84rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-row-date {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.note-row-excerpt {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.note-row.is-small .note-row-excerpt {
+  display: none;
+}
+
+.note-row.is-large .note-row-excerpt {
+  -webkit-line-clamp: 3;
+}
+
+.note-row-badge {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+}
+
 .sidebar-empty {
   color: var(--muted);
   padding: 1rem;
