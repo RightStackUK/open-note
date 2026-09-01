@@ -88,6 +88,11 @@ export interface CreateEditorOptions {
   concealEverywhere?: () => boolean;
   /** HTML→Markdown paste and URL handling when provided. */
   paste?: RichPasteOptions;
+  /**
+   * The OS spell checker. Substitution of quotes and dashes stays off either
+   * way: WebKit rewriting `"key"` inside a code fence corrupts the file.
+   */
+  spellcheck?: boolean;
 }
 
 export function markdownEditorExtensions(options: CreateEditorOptions = { parent: null as never }) {
@@ -138,6 +143,11 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
       indentWithTab,
     ]),
     options.placeholder ? placeholderExt(options.placeholder) : [],
+    EditorView.contentAttributes.of({
+      spellcheck: options.spellcheck ? 'true' : 'false',
+      autocorrect: options.spellcheck ? 'on' : 'off',
+      autocapitalize: 'off',
+    }),
   ];
 }
 

@@ -13,14 +13,16 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "@open-note/editor": "workspace:*",
+    "@excalidraw/excalidraw": "^0.18.1",
     "@open-note/core": "workspace:*",
     "@open-note/diagrams": "workspace:*",
-    "@excalidraw/excalidraw": "^0.18.1",
-    "@tauri-apps/plugin-opener": "^2"
+    "@open-note/editor": "workspace:*",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-deep-link": "^2.4.10",
+    "@tauri-apps/plugin-global-shortcut": "^2.3.2",
+    "@tauri-apps/plugin-opener": "^2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
@@ -28,9 +30,9 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^30.0.1",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",
-    "jsdom": "^30.0.1",
     "vitest": "^4.1.11"
   }
 }

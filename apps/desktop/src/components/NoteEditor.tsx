@@ -29,6 +29,8 @@ interface NoteEditorProps {
   attachmentsStamp: unknown;
   /** `readOnly: true` frontmatter, honoured. Changing it remounts via the key. */
   readOnly: boolean;
+  /** OS spell checker. Changing it remounts via the key too. */
+  spellcheck: boolean;
   /** Move a task to the bottom of its list when it is ticked. */
   sortTodosOnCompletion: boolean;
   /** Vault data and the on/off switch for `[[`, `#` and `:` completion. */
@@ -83,6 +85,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
     collapsedEmbeds,
     attachmentsStamp,
     readOnly,
+    spellcheck,
     paste,
   },
   ref,
@@ -124,6 +127,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
       parent: host.current,
       doc,
       readOnly,
+      spellcheck,
       placeholder: 'Start writing…',
       onChange: (next) => onChangeRef.current(next),
       // Read through refs so the editor is never rebuilt when the index changes.

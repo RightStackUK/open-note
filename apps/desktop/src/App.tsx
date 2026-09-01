@@ -1,6 +1,7 @@
 import {
   archivePathFor,
   attachmentFolderFor,
+  bindingToAccelerator,
   buildNoteList,
   buildTextpack,
   bytesToBase64,
@@ -82,6 +83,25 @@ import { PLATFORM, useCommandKeys } from './useCommands';
 import { useDarkMode } from './useDarkMode';
 import { useVaultIndex } from './useVaultIndex';
 import { errorText, useWorkspace } from './useWorkspace';
+
+/** Bring the window forward, for global hotkeys and `opennote://` URLs. */
+async function focusWindow(): Promise<void> {
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const current = getCurrentWindow();
+    await current.show();
+    await current.unminimize();
+    await current.setFocus();
+  } catch {
+    // Outside the desktop shell there is no window to raise.
+  }
+}
+
+/** Loose path equality, for matching a deep link's vault against known ones. */
+function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => p.replace(/\/+$/, '');
+  return norm(a) === norm(b);
+}
 
 /** How long the editor sits idle before the note is written to disk. */
 const AUTOSAVE_IDLE_MS = 500;
@@ -535,9 +555,13 @@ export function App() {
    */
 
   const openNoteAt = useCallback(
-    async (path: string, line?: number) => {
-      const root = ws.activeRoot;
+    async (path: string, line?: number, explicitRoot?: string) => {
+      // A deep link may name a vault other than the active one, and the store's
+      // active root has not reached this closure yet — so the caller can pass
+      // the resolved root explicitly.
+      const root = explicitRoot ?? ws.activeRoot;
       if (!root) return;
+      if (explicitRoot && ws.activeRoot !== explicitRoot) ws.setActiveRoot(explicitRoot);
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
       await flush();
       try {
@@ -1841,6 +1865,235 @@ export function App() {
     }
   }, [ws, session?.attachmentFolder]);
 
+  /**
+   * `opennote://` URLs, from browsers, scripts and the CLI.
+   *
+   * A URL is untrusted input: the vocabulary is deliberately small, every
+   * path crosses the same vault-scoped commands the UI uses, and nothing
+   * destructive is reachable — `append` is additive, `new` refuses to
+   * clobber and opens the existing note instead.
+   */
+  /**
+   * A queue of pending `opennote://` actions, drained one at a time.
+   *
+   * A URL is untrusted, remote-triggerable input: a web page can fire one with
+   * no consent. So the vocabulary is small, every path goes through the same
+   * vault-scoped commands the UI uses, nothing destructive is reachable, and
+   * `vault` may only name a vault this machine already knows — opening an
+   * arbitrary directory would start the sync engine committing and pushing it.
+   *
+   * Actions queue rather than drop: a launch batch or a burst of URLs all run,
+   * in order, instead of the first winning and the rest being lost.
+   */
+  const deepLinkQueue = useRef<string[]>([]);
+  const deepLinkDraining = useRef(false);
+
+  const runDeepLink = useCallback(
+    async (raw: string) => {
+      const url = new URL(raw);
+      if (url.protocol !== 'opennote:') return;
+      const verb = url.host || url.pathname.replace(/^\/+/, '');
+      const params = url.searchParams;
+
+      void focusWindow();
+
+      const vault = params.get('vault');
+      if (vault) {
+        const known =
+          recents.some((recent) => samePath(recent, vault)) || Boolean(ws.sessions[vault]);
+        if (!known) {
+          setMessage(
+            'That link points at a vault this app has not opened before — open it once yourself first.',
+          );
+          return;
+        }
+        const opened = await ws.openVault(vault);
+        if (!opened) return;
+      }
+      // `openVault` set the active root synchronously in the store; read the
+      // resolved value rather than the stale closure capture.
+      const root = vault ? (ws.sessions[vault]?.info.root ?? vault) : ws.activeRoot;
+      if (!root) return;
+
+      if (verb === 'open') {
+        const path = params.get('path');
+        if (path) await openNoteAt(path.endsWith('.md') ? path : `${path}.md`, undefined, root);
+        return;
+      }
+      if (verb === 'new') {
+        const title = (params.get('title') ?? 'Untitled').trim() || 'Untitled';
+        const folder = (params.get('folder') ?? '').trim().replace(/^\/+|\/+$/g, '');
+        const tags = (params.get('tags') ?? '')
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .map((t) => `#${t.replace(/^#+/, '')}`)
+          .join(' ');
+        const body = params.get('body') ?? '';
+        const path = `${folder ? `${folder}/` : ''}${title.replace(/[/\\]/g, ' ')}.md`;
+        const content = `# ${title}\n\n${body}${body ? '\n' : ''}${tags ? `\n${tags}\n` : ''}`;
+        // Rust `create_note` refuses to overwrite — the clobber guard lives
+        // where the write happens, not in a racy exists() check up here.
+        try {
+          await api.createNote(root, path, content);
+          vaultIndex.updateNote(path, content);
+          ws.noteSaved(root);
+          await openNoteAt(path, undefined, root);
+        } catch {
+          // Already there: open it rather than failing or clobbering.
+          await openNoteAt(path, undefined, root);
+          setMessage(`${path} already exists, so it was opened instead.`);
+        }
+        return;
+      }
+      if (verb === 'append') {
+        const path = params.get('path');
+        const text = params.get('text') ?? '';
+        if (!path || !text) return;
+        const target = path.endsWith('.md') ? path : `${path}.md`;
+        // The open note's freshest text is the buffer, not the disk copy — a
+        // blind read would discard keystrokes still inside the autosave window.
+        const open = noteRef.current;
+        const isOpen = open?.root === root && open?.path === target;
+        let existing: string | null;
+        if (isOpen && open) {
+          existing = freshestDoc(open);
+        } else {
+          try {
+            existing = await api.readNote(root, target);
+          } catch {
+            // A note that exists but will not read (too large, not UTF-8) must
+            // not be silently truncated; only a genuine miss is treated as new.
+            const known = vaultIndex.index.get(target);
+            if (known) {
+              setMessage(`${target} could not be read, so nothing was appended.`);
+              return;
+            }
+            existing = null;
+          }
+        }
+        const next =
+          existing === null
+            ? `${text}\n`
+            : `${existing}${existing.endsWith('\n') ? '' : '\n'}${text}\n`;
+        await api.writeNote(root, target, next);
+        vaultIndex.updateNote(target, next);
+        ws.noteSaved(root);
+        if (isOpen) {
+          pending.current = null;
+          setNote((prev) =>
+            prev && prev.path === target
+              ? { ...prev, doc: next, revision: prev.revision + 1 }
+              : prev,
+          );
+        }
+        setMessage(`Appended to ${target}.`);
+        return;
+      }
+      if (verb === 'search') {
+        setPaletteQuery(params.get('q') ?? '');
+        setSearchScoped(false);
+        setPalette('search');
+        return;
+      }
+      if (verb === 'tag') {
+        const name = (params.get('name') ?? '').replace(/^#+/, '');
+        if (name) {
+          setCollection({ kind: 'tag', tag: name });
+          setShowList(true);
+        }
+      }
+    },
+    [ws, vaultIndex, openNoteAt, recents],
+  );
+
+  const handleDeepLink = useCallback(
+    async (raw: string) => {
+      deepLinkQueue.current.push(raw);
+      if (deepLinkDraining.current) return;
+      deepLinkDraining.current = true;
+      try {
+        while (deepLinkQueue.current.length > 0) {
+          const next = deepLinkQueue.current.shift();
+          if (!next) continue;
+          try {
+            await runDeepLink(next);
+          } catch (e) {
+            ws.setError(errorText(e));
+          }
+        }
+      } finally {
+        deepLinkDraining.current = false;
+      }
+    },
+    [runDeepLink, ws],
+  );
+  const deepLinkRef = useRef(handleDeepLink);
+  deepLinkRef.current = handleDeepLink;
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    void (async () => {
+      const { onOpenUrl, getCurrent } = await import('@tauri-apps/plugin-deep-link');
+      // A URL may have launched the app before this listener existed.
+      const initial = await getCurrent().catch(() => null);
+      for (const url of initial ?? []) void deepLinkRef.current(url);
+      unlisten = await onOpenUrl((urls) => {
+        for (const url of urls) void deepLinkRef.current(url);
+      });
+    })().catch(() => {
+      // The plugin is desktop-only and can be absent in the browser harness.
+    });
+    return () => unlisten?.();
+  }, []);
+
+  /**
+   * Global hotkeys: show the window, and new note. Both unbound by default —
+   * a global hotkey that squats on a chord another app wants is a support
+   * ticket — and bound in the same keymap panel as everything else.
+   */
+  const globalBindings = useMemo(
+    () => ({
+      'global.showWindow': vaultIndex.keymap.byCommand.get('global.showWindow') ?? null,
+      'global.newNote': vaultIndex.keymap.byCommand.get('global.newNote') ?? null,
+    }),
+    [vaultIndex.keymap],
+  );
+  const handlersRef = useRef<Record<string, () => void>>({});
+  useEffect(() => {
+    let cancelled = false;
+    const registered: string[] = [];
+    void (async () => {
+      try {
+        const shortcuts = await import('@tauri-apps/plugin-global-shortcut');
+        for (const [command, binding] of Object.entries(globalBindings)) {
+          if (!binding || cancelled) continue;
+          const accelerator = bindingToAccelerator(binding);
+          if (!accelerator) continue;
+          try {
+            await shortcuts.register(accelerator, (event) => {
+              if (event.state === 'Pressed') handlersRef.current[command]?.();
+            });
+            registered.push(accelerator);
+          } catch {
+            // Another app holds the chord; the in-app keymap still works.
+          }
+        }
+      } catch {
+        // Plugin absent outside the desktop shell.
+      }
+    })();
+    return () => {
+      cancelled = true;
+      void (async () => {
+        const shortcuts = await import('@tauri-apps/plugin-global-shortcut');
+        for (const accelerator of registered) {
+          await shortcuts.unregister(accelerator).catch(() => {});
+        }
+      })().catch(() => {});
+    };
+  }, [globalBindings]);
+
   const openPalette = useCallback((mode: PaletteMode) => {
     setPaletteQuery('');
     // Each opening starts scoped to where you are; dismissing the chip widens.
@@ -1909,6 +2162,13 @@ export function App() {
         if (noteRef.current) void archiveNote(noteRef.current.path);
       },
       'note.fromTemplate': () => openPalette('templates'),
+      // The in-app halves of the global hotkeys; the registration against the
+      // OS lives in an effect watching the keymap.
+      'global.showWindow': () => void focusWindow(),
+      'global.newNote': () => {
+        void focusWindow();
+        setPrompt({ kind: 'newNote', parent: '' });
+      },
       'vault.importFolder': () => void importFolder(),
       'note.fromSelection': () => void noteFromSelection(),
       'note.addTag': () => {
@@ -1998,6 +2258,7 @@ export function App() {
   );
 
   useCommandKeys(vaultIndex.keymap, handlers, palette === null);
+  handlersRef.current = handlers;
 
   // Confirmations should not need dismissing; errors should, because an error
   // the user never read is an error they will hit again.
@@ -2513,9 +2774,10 @@ export function App() {
               // why the doc comes from `freshestDoc`: state can be an autosave
               // interval behind the editor. Typography changes stay pure CSS
               // and never come through here.
-              key={`${session.info.root}:${note.path}:${note.revision}:${dark}:${noteReadOnly}`}
+              key={`${session.info.root}:${note.path}:${note.revision}:${dark}:${noteReadOnly}:${session.spellcheck}`}
               path={note.path}
               readOnly={noteReadOnly}
+              spellcheck={session.spellcheck}
               doc={freshestDoc(note)}
               onChange={onDocChange}
               resolveLink={(target) => vaultIndex.index.resolveLink(target)}
@@ -2728,6 +2990,7 @@ export function App() {
               attachmentFolder: session.attachmentFolder,
               imageDisplay: session.imageDisplay,
               archiveFolder: session.archiveFolder,
+              spellcheck: session.spellcheck,
               pasteAsMarkdown: session.pasteAsMarkdown,
               fetchLinkTitles: session.fetchLinkTitles,
               copyStripsTags: session.copyStripsTags,

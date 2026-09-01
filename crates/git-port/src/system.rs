@@ -585,6 +585,11 @@ impl GitPort for SystemGit {
         Ok(())
     }
 
+    fn repo_root(&self, path: &Path) -> Result<PathBuf> {
+        let out = self.run_ok(Some(path), &["rev-parse", "--show-toplevel"])?;
+        Ok(PathBuf::from(out.trim()))
+    }
+
     fn first_commit_dates(&self, repo: &Path) -> Result<std::collections::HashMap<String, u64>> {
         // Oldest first, so the first time a path appears is the record kept —
         // a plain insert-if-absent, no comparisons. `--diff-filter=A` limits

@@ -14,7 +14,7 @@ This plan does **not** revisit the decisions in
 they conflict with them — recorded in [Rejected](#rejected) at the end so they
 stop coming back as feature requests.
 
-**Status:** in progress. Blocks 1–9 landed; Block 10 next.
+**Status:** complete. All ten blocks landed; the deferred items remain issues #4–#15.
 
 ---
 
@@ -541,7 +541,7 @@ Markdown app. Proprietary-format importers are deferred.
 
 ---
 
-## Block 10 — Reaching the app from outside it
+## Block 10 — Reaching the app from outside it ✅
 
 *Nothing outside the window can reach Open Note today. This block is small and it
 unblocks everything anyone would ever want to automate.*
@@ -727,6 +727,8 @@ Audited, and deliberately not planned. Recorded so they do not return.
 | What may a theme set? | **A whitelisted set of colour variables, values validated as colours.** A vault can be cloned from anywhere, so a theme file is untrusted input: it gets to recolour the app, not to define arbitrary custom properties. |
 | Font pickers: enumerate system fonts? | **No — a datalist of suggestions over a free-text input.** The webview cannot enumerate installed fonts without a native call on each platform, and an unknown family name degrades gracefully to the default stack anyway. |
 | Where does zoom live? | **Per machine (localStorage), not in the vault.** Zoom is a reading posture for this screen; the font size in `.opennote/settings.json` is the setting that travels. |
+| How does the CLI reach the vault? | **Directly on disk** — `--vault`, `$OPEN_NOTE_VAULT`, or the repository the cwd is inside — with the same path paranoia as the IPC boundary reimplemented at its own edge. Only `open` talks to the app, through the `opennote://` scheme like any browser. |
+| Spell check | **Off by default, one setting.** WebKit couples the OS checker to smart quote/dash substitution, which corrupts `"key"` in YAML and code — in a Markdown editor that is a bug, not a nicety. Autocapitalisation stays off unconditionally. |
 | Archived notes in the switcher and completion? | **Still offered.** The plan hides the archive from the default *list and search*; navigating to a note by name, or linking to it, is asking for it specifically. |
 | Unarchiving | **Moves to the vault root**, not back to the original folder — remembering the origin would be hidden state, which the archive design exists to avoid. The move is visible either way. |
 | Merge scope | **A folder's notes, from its context menu.** The tree has no multi-select; a folder is the selection mechanism the app already has, and matches how people group what belongs together. |

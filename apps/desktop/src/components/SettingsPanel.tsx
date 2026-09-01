@@ -22,6 +22,7 @@ export interface EditingPrefs {
   attachmentFolder: string;
   imageDisplay: 'full' | 'thumbnail';
   archiveFolder: string;
+  spellcheck: boolean;
   pasteAsMarkdown: boolean;
   fetchLinkTitles: boolean;
   copyStripsTags: boolean;
@@ -233,6 +234,21 @@ export function SettingsPanel({
         <span>
           <strong>Always hide Markdown syntax</strong>
           <small>Conceal markers on the line being edited too</small>
+        </span>
+      </label>
+
+      <label className="setting-row">
+        <input
+          type="checkbox"
+          checked={prefs.spellcheck}
+          onChange={(e) => onPrefsChange({ spellcheck: e.target.checked })}
+        />
+        <span>
+          <strong>Spell check</strong>
+          <small>
+            The OS checker also smart-substitutes quotes and dashes, which corrupts code and YAML —
+            hence off by default
+          </small>
         </span>
       </label>
 

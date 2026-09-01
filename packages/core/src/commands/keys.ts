@@ -103,6 +103,23 @@ export function bindingFromEvent(event: KeyEventLike, platform: Platform): strin
   return [...ordered, key].join('-');
 }
 
+/**
+ * A binding in the global-shortcut plugin's accelerator notation.
+ *
+ * `Mod` maps to `CommandOrControl`, which is the same platform fold the in-app
+ * dispatcher performs — one keymap file, both dispatchers.
+ */
+export function bindingToAccelerator(binding: string): string | null {
+  const normalised = normaliseBinding(binding);
+  if (!normalised) return null;
+  const parts = normalised.split('-');
+  const key = parts.pop() ?? '';
+  // The plugin names these; `+` and a literal space are not valid key tokens.
+  const label = key === 'Minus' ? 'Minus' : key === 'Plus' ? 'Plus' : key === ' ' ? 'Space' : key;
+  const mods = parts.map((m) => (m === 'Mod' ? 'CommandOrControl' : m));
+  return [...mods, label].join('+');
+}
+
 /** Render a binding for display: ⌘⇧P on macOS, Ctrl+Shift+P elsewhere. */
 export function formatBinding(binding: string, platform: Platform): string {
   const parts = binding.split('-');

@@ -2,7 +2,12 @@
 
 export type { KeyEventLike, Platform } from './commands/keys';
 // Commands and keys
-export { bindingFromEvent, formatBinding, normaliseBinding } from './commands/keys';
+export {
+  bindingFromEvent,
+  bindingToAccelerator,
+  formatBinding,
+  normaliseBinding,
+} from './commands/keys';
 export type {
   CommandCategory,
   CommandDefinition,

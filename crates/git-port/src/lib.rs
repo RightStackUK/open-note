@@ -27,6 +27,12 @@ pub trait GitPort: Send + Sync {
     /// Whether `path` is inside a Git working tree.
     fn is_repository(&self, path: &Path) -> bool;
 
+    /// The top level of the working tree `path` is inside.
+    ///
+    /// The vault is the whole repository, so the CLI's cwd discovery climbs to
+    /// this rather than opening whatever subdirectory the shell happens to be in.
+    fn repo_root(&self, path: &Path) -> Result<PathBuf>;
+
     fn status(&self, repo: &Path) -> Result<RepoStatus>;
 
     /// Every file the vault owns: tracked files plus untracked ones that are not

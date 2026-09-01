@@ -61,6 +61,8 @@ export interface VaultSession {
   imageDisplay: 'full' | 'thumbnail';
   /** Where archived notes live. */
   archiveFolder: string;
+  /** OS spell checker in notes. */
+  spellcheck: boolean;
 }
 
 /**
@@ -150,6 +152,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             tagSort: vaultSettings.tagSort,
             imageDisplay: vaultSettings.imageDisplay,
             archiveFolder: vaultSettings.archiveFolder,
+            spellcheck: vaultSettings.spellcheck,
           },
         }));
         setActiveRoot(info.root);
@@ -238,6 +241,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             tagSort: session.tagSort,
             imageDisplay: session.imageDisplay,
             archiveFolder: session.archiveFolder,
+            spellcheck: session.spellcheck,
             ...override,
           }),
         );

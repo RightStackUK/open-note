@@ -450,6 +450,20 @@ export const COMMANDS: CommandDefinition[] = [
     keywords: ['keys', 'bindings', 'shortcuts'],
   },
   {
+    id: 'global.showWindow',
+    title: 'Global: show Open Note',
+    category: 'View',
+    binding: null,
+    keywords: ['hotkey', 'focus', 'bring to front'],
+  },
+  {
+    id: 'global.newNote',
+    title: 'Global: new note',
+    category: 'Note',
+    binding: null,
+    keywords: ['hotkey', 'capture'],
+  },
+  {
     id: 'view.zoomIn',
     title: 'Zoom in',
     category: 'View',
