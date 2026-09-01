@@ -16,6 +16,7 @@ import { type AttachmentOptions, attachmentPaste, inlineImages } from './attachm
 import { type CompletionOptions, noteCompletion } from './completion';
 import { concealMarkdown } from './conceal';
 import { type DiagramOptions, diagramBlocks } from './diagrams';
+import { type RichPasteOptions, richPaste } from './paste';
 import { autoSortCompletedTasks, taskCheckboxes } from './tasks';
 import { markdownTheme } from './theme';
 import { type WikiLinkOptions, wikiLinks } from './wikilinks';
@@ -30,6 +31,8 @@ export type { ConcealOptions } from './conceal';
 export { concealedRangesForTest, concealMarkdown, concealMarkdownSyntax } from './conceal';
 export type { DiagramOptions, DiagramRenderResult } from './diagrams';
 export { diagramBlocks } from './diagrams';
+export type { RichPasteOptions } from './paste';
+export { richPaste } from './paste';
 export type { Alignment, ParsedTable } from './tables';
 export { parseTableAt, renderTable, tableCommands } from './tables';
 export {
@@ -71,6 +74,8 @@ export interface CreateEditorOptions {
   completion?: CompletionOptions;
   /** Conceal Markdown syntax on every line, not just off the active one. */
   concealEverywhere?: () => boolean;
+  /** HTML→Markdown paste and URL handling when provided. */
+  paste?: RichPasteOptions;
 }
 
 export function markdownEditorExtensions(options: CreateEditorOptions = { parent: null as never }) {
@@ -94,6 +99,8 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     options.sortTodosOnCompletion ? autoSortCompletedTasks(options.sortTodosOnCompletion) : [],
     options.wikiLinks ? wikiLinks(options.wikiLinks) : [],
     options.diagrams ? diagramBlocks(options.diagrams) : [],
+    // Before the attachment paste handler, which takes files; this takes text.
+    options.paste ? richPaste(options.paste) : [],
     options.attachments
       ? [attachmentPaste(options.attachments), inlineImages(options.attachments)]
       : [],

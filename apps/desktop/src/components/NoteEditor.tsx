@@ -29,6 +29,12 @@ interface NoteEditorProps {
   completion: CompletionOptions;
   /** Conceal Markdown syntax on every line, not just off the active one. */
   concealEverywhere: boolean;
+  /** HTML→Markdown paste, URL wrapping, and the optional title lookup. */
+  paste: {
+    asMarkdown: boolean;
+    fetchTitles: boolean;
+    fetchTitle: (url: string) => Promise<string | null>;
+  };
 }
 
 export interface NoteEditorHandle {
@@ -46,6 +52,8 @@ export interface NoteEditorHandle {
    * the replacement happened.
    */
   replaceRangeIfUnchanged: (from: number, to: number, expected: string, text: string) => boolean;
+  /** Replace the selection with `text`, caret after it. For explicit pastes. */
+  insertAtSelection: (text: string) => void;
   /** Insert a `#tag` line at the top or the bottom of the note. */
   insertTag: (tag: string, at: 'top' | 'bottom') => void;
   /** Scroll position and caret, for the navigation history. */
@@ -66,6 +74,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
     sortTodosOnCompletion,
     completion,
     concealEverywhere,
+    paste,
   },
   ref,
 ) {
@@ -85,6 +94,8 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
   completionRef.current = completion;
   const concealRef = useRef(concealEverywhere);
   concealRef.current = concealEverywhere;
+  const pasteRef = useRef(paste);
+  pasteRef.current = paste;
 
   // The conceal plugin only recomputes on an update, so an idle editor would
   // otherwise keep showing the old mode until the next keystroke. An empty
@@ -113,6 +124,11 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
       // Read through a ref so toggling the setting does not rebuild the editor.
       sortTodosOnCompletion: () => sortTodosRef.current,
       concealEverywhere: () => concealRef.current,
+      paste: {
+        pasteAsMarkdown: () => pasteRef.current.asMarkdown,
+        fetchLinkTitles: () => pasteRef.current.fetchTitles,
+        fetchTitle: (url) => pasteRef.current.fetchTitle(url),
+      },
       // Likewise: the sources read the index at query time, so a note added
       // since the editor mounted is offered without rebuilding anything.
       completion: {
@@ -188,6 +204,18 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
           write: () => {
             view.scrollDOM.scrollTop = saved.scroll;
           },
+        });
+        view.focus();
+      },
+      insertAtSelection(text: string) {
+        const view = editorView.current;
+        if (!view) return;
+        const { from, to } = view.state.selection.main;
+        view.dispatch({
+          changes: { from, to, insert: text },
+          selection: { anchor: from + text.length },
+          scrollIntoView: true,
+          userEvent: 'input.paste',
         });
         view.focus();
       },

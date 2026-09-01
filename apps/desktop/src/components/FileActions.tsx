@@ -14,6 +14,8 @@ interface ContextMenuProps {
   onNewFolder: (parent: string) => void;
   onRename: (path: string) => void;
   onDelete: (path: string) => void;
+  /** Bulk export of a folder (or the vault root). */
+  onExportFolder: (folder: string, mode: 'files' | 'merged') => void;
   onClose: () => void;
 }
 
@@ -31,6 +33,7 @@ export function ContextMenu({
   onNewFolder,
   onRename,
   onDelete,
+  onExportFolder,
   onClose,
 }: ContextMenuProps) {
   const menu = useRef<HTMLDivElement>(null);
@@ -71,6 +74,16 @@ export function ContextMenu({
       <button type="button" onClick={() => onNewFolder(parent)}>
         New folder
       </button>
+      {target.kind !== 'file' && (
+        <>
+          <button type="button" onClick={() => onExportFolder(parent, 'files')}>
+            Export notes as HTML…
+          </button>
+          <button type="button" onClick={() => onExportFolder(parent, 'merged')}>
+            Export as one HTML file…
+          </button>
+        </>
+      )}
       {!isRoot && (
         <>
           <hr />

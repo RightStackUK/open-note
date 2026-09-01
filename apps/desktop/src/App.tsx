@@ -1,21 +1,33 @@
 import {
   attachmentFolderFor,
   buildNoteList,
+  buildTextpack,
+  bytesToBase64,
   COMMANDS,
   type Collection,
   clampZoom,
   DEFAULT_TYPOGRAPHY,
   dailyNotePath,
   dailyNoteTemplate,
+  dataUrlToBytes,
+  exportAnchor,
+  exportFileName,
+  exportNotesToHtml,
+  exportNoteToDocx,
   exportNoteToHtml,
   formatBinding,
+  localAssetReferences,
   parseTheme,
+  renderNoteBody,
   resolveTheme,
   rewriteLinks,
   searchCommands,
+  splitFrontmatter,
+  stripTags,
   type Theme,
   type TodoItem,
   themeCssVariables,
+  toPlainText,
   typographyCssVariables,
   ZOOM_STEP,
 } from '@open-note/core';
@@ -1017,6 +1029,348 @@ export function App() {
     }
   }, [ws, vaultIndex]);
 
+  /** The open note's Markdown, honouring the strip-tags copy preference. */
+  const copySource = useCallback((): { doc: string; title: string } | null => {
+    const open = noteRef.current;
+    if (!open) return null;
+    const doc = freshestDoc(open);
+    return {
+      doc: session?.copyStripsTags ? stripTags(doc) : doc,
+      title: vaultIndex.index.get(open.path)?.title ?? open.path,
+    };
+  }, [session?.copyStripsTags, vaultIndex]);
+
+  const copyAs = useCallback(
+    async (format: 'markdown' | 'plain' | 'html' | 'rich') => {
+      const source = copySource();
+      if (!source) return;
+      try {
+        if (format === 'markdown') {
+          await navigator.clipboard.writeText(source.doc);
+        } else if (format === 'plain') {
+          await navigator.clipboard.writeText(toPlainText(splitFrontmatter(source.doc).body));
+        } else {
+          // The clipboard write must begin inside the user gesture: WebKit
+          // drops the activation across an await, so the HTML is handed over
+          // as a *promised* blob rather than awaited first.
+          const html = renderNoteBody(source.doc, { title: source.title });
+          if (format === 'html') {
+            await navigator.clipboard.write([
+              new ClipboardItem({
+                'text/plain': html.then((h) => new Blob([h], { type: 'text/plain' })),
+              }),
+            ]);
+          } else {
+            // Rich text is `text/html` beside a plain fallback — how a note
+            // lands formatted in an email without carrying its syntax along.
+            await navigator.clipboard.write([
+              new ClipboardItem({
+                'text/html': html.then((h) => new Blob([h], { type: 'text/html' })),
+                'text/plain': new Blob([toPlainText(splitFrontmatter(source.doc).body)], {
+                  type: 'text/plain',
+                }),
+              }),
+            ]);
+          }
+        }
+        setMessage('Copied.');
+      } catch (e) {
+        ws.setError(errorText(e));
+      }
+    },
+    [copySource, ws],
+  );
+
+  const pasteAs = useCallback(
+    async (format: 'plain' | 'html' | 'codeBlock') => {
+      try {
+        let text = '';
+        if (format === 'html') {
+          // The HTML flavour if the clipboard has one; the plain text if not.
+          const items = await navigator.clipboard.read();
+          for (const item of items) {
+            if (item.types.includes('text/html')) {
+              text = await (await item.getType('text/html')).text();
+              break;
+            }
+          }
+          if (!text) text = await navigator.clipboard.readText();
+        } else {
+          text = await navigator.clipboard.readText();
+        }
+        if (!text) return;
+        if (format === 'codeBlock') {
+          // The fence must be longer than any run of backticks inside, or the
+          // pasted content closes its own block early.
+          const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+          const fence = '`'.repeat(Math.max(3, longest + 1));
+          text = `${fence}\n${text.replace(/\n$/, '')}\n${fence}`;
+        }
+        editorRef.current?.insertAtSelection(text);
+      } catch (e) {
+        ws.setError(errorText(e));
+      }
+    },
+    [ws],
+  );
+
+  /**
+   * Print, and therefore PDF, through the webview's own pipeline against the
+   * HTML export — one renderer, two outputs. The honest limit, stated in the
+   * plan: this is the OS print dialog, not a silent file writer.
+   */
+  const printNote = useCallback(async () => {
+    const root = ws.activeRoot;
+    const open = noteRef.current;
+    if (!root || !open || open.kind !== 'markdown') return;
+    try {
+      const html = await exportNoteToHtml(freshestDoc(open), {
+        title: vaultIndex.index.get(open.path)?.title ?? open.path,
+        resolveImage: async (reference) => {
+          try {
+            return await api.readImage(root, resolveAgainst(open.path, reference));
+          } catch {
+            return null;
+          }
+        },
+      });
+
+      // Printed from the top-level document: WKWebView ignores an iframe's
+      // contentWindow.print() (tauri#13451), but window.print() works. The
+      // export body goes into a surface only @media print shows, the app is
+      // hidden for the duration, and everything is removed afterwards.
+      const parser = new DOMParser();
+      const exported = parser.parseFromString(html, 'text/html');
+
+      const surface = document.createElement('div');
+      surface.className = 'print-surface';
+      surface.innerHTML = exported.body.innerHTML;
+
+      // Styled by the app stylesheet's @media print rules, not by the export's
+      // own <style> — that one targets `body` and would restyle the app for as
+      // long as it was attached.
+      document.body.append(surface);
+      document.body.classList.add('is-printing');
+      const cleanup = () => {
+        document.body.classList.remove('is-printing');
+        surface.remove();
+        window.removeEventListener('afterprint', cleanup);
+      };
+      window.addEventListener('afterprint', cleanup);
+      window.print();
+      // afterprint is unreliable on some WebKit builds; never leave the app hidden.
+      window.setTimeout(cleanup, 1_000);
+    } catch (e) {
+      ws.setError(errorText(e));
+    }
+  }, [ws, vaultIndex]);
+
+  const exportDocx = useCallback(async () => {
+    const root = ws.activeRoot;
+    const open = noteRef.current;
+    if (!root || !open || open.kind !== 'markdown') return;
+    try {
+      const title = vaultIndex.index.get(open.path)?.title ?? open.path;
+      const destination = await api.pickExportPath(
+        `${exportFileName(open.path, 'docx').replace(/\.docx$/, '')}.docx`,
+      );
+      if (!destination) return;
+      const base64 = await exportNoteToDocx(freshestDoc(open), title);
+      await api.writeExportBinary(destination, base64);
+      setMessage(`Exported to ${destination}`);
+    } catch (e) {
+      ws.setError(errorText(e));
+    }
+  }, [ws, vaultIndex]);
+
+  const exportTextbundle = useCallback(async () => {
+    const root = ws.activeRoot;
+    const open = noteRef.current;
+    if (!root || !open || open.kind !== 'markdown') return;
+    try {
+      const destination = await api.pickExportPath(
+        `${exportFileName(open.path, 'textpack').replace(/\.textpack$/, '')}.textpack`,
+      );
+      if (!destination) return;
+
+      const doc = freshestDoc(open);
+      // Each reference maps to a unique flat name inside `assets/` — two
+      // folders can both hold a `logo.png`, and flattening must not let one
+      // silently replace the other.
+      const assets: Array<{ name: string; data: Uint8Array }> = [];
+      const nameFor = new Map<string, string>();
+      const used = new Set<string>();
+      for (const reference of localAssetReferences(doc)) {
+        try {
+          const dataUrl = await api.readImage(root, resolveAgainst(open.path, reference));
+          const bytes = dataUrlToBytes(dataUrl);
+          if (!bytes) continue;
+          const base = reference.split('/').pop() ?? reference;
+          let name = base;
+          for (let n = 2; used.has(name); n++) {
+            const dot = base.lastIndexOf('.');
+            name = dot > 0 ? `${base.slice(0, dot)}-${n}${base.slice(dot)}` : `${base}-${n}`;
+          }
+          used.add(name);
+          nameFor.set(reference, name);
+          assets.push({ name, data: bytes });
+        } catch {
+          // A missing attachment is not a reason to lose the text.
+        }
+      }
+
+      // Every form a reference takes moves onto the container's assets/
+      // folder: `](ref)`, the URL-encoded spelling, and `![[ref]]` embeds —
+      // which become standard image syntax so any textbundle reader shows them.
+      let text = doc;
+      for (const [reference, name] of nameFor) {
+        text = text.split(`](${reference})`).join(`](assets/${name})`);
+        const encoded = encodeURI(reference);
+        if (encoded !== reference) {
+          text = text.split(`](${encoded})`).join(`](assets/${name})`);
+        }
+        text = text
+          .split(`![[${reference}]]`)
+          .join(`![${reference.split('/').pop() ?? ''}](assets/${name})`);
+      }
+
+      await api.writeExportBinary(destination, bytesToBase64(buildTextpack(text, assets)));
+      setMessage(`Exported to ${destination}`);
+    } catch (e) {
+      ws.setError(errorText(e));
+    }
+  }, [ws]);
+
+  /** Progress of a running bulk export; null when none is. */
+  const [bulkExport, setBulkExport] = useState<{ done: number; total: number } | null>(null);
+  const bulkCancelled = useRef(false);
+
+  /**
+   * Export every note under a folder — as one HTML file per note with the
+   * folder tree preserved, or merged into a single page in tree order.
+   *
+   * Wikilinks between exported notes become working relative links (or `#`
+   * anchors in the merged file); links pointing outside the set flatten to
+   * text, exactly like the single-note export. Without this an export of a
+   * linked vault is a set of dead ends.
+   */
+  const exportFolder = useCallback(
+    async (folder: string, mode: 'files' | 'merged') => {
+      const root = ws.activeRoot;
+      if (!root) return;
+      const prefix = folder ? `${folder}/` : '';
+      const paths = vaultIndex.index
+        .paths()
+        .filter((path) => path.startsWith(prefix))
+        .sort();
+      if (paths.length === 0) {
+        setMessage('There are no notes to export there.');
+        return;
+      }
+      const included = new Set(paths);
+
+      // Output names dedupe up front: `foo.md` and `foo.markdown` both want
+      // `foo.html`, and the second must not silently replace the first.
+      const htmlNames = new Map<string, string>();
+      const usedNames = new Set<string>();
+      const anchors = new Map<string, string>();
+      const usedAnchors = new Set<string>();
+      for (const path of paths) {
+        const base = path.slice(prefix.length).replace(/\.(md|markdown|mdown|mkd)$/i, '');
+        let name = `${base}.html`;
+        for (let n = 2; usedNames.has(name); n++) name = `${base} ${n}.html`;
+        usedNames.add(name);
+        htmlNames.set(path, name);
+
+        const baseAnchor = exportAnchor(path);
+        let anchor = baseAnchor;
+        for (let n = 2; usedAnchors.has(anchor); n++) anchor = `${baseAnchor}-${n}`;
+        usedAnchors.add(anchor);
+        anchors.set(path, anchor);
+      }
+
+      /** Where a wikilink goes, relative to the note that carries it. */
+      const resolveFor = (fromPath: string) => (target: string) => {
+        const resolved = vaultIndex.index.resolveLink(target);
+        if (!resolved || !included.has(resolved)) return null;
+        if (mode === 'merged') return `#${anchors.get(resolved) ?? ''}`;
+        return relativeFrom(htmlNames.get(fromPath) ?? '', htmlNames.get(resolved) ?? '');
+      };
+
+      const resolveImageFor = (fromPath: string) => async (reference: string) => {
+        try {
+          return await api.readImage(root, resolveAgainst(fromPath, reference));
+        } catch {
+          return null;
+        }
+      };
+
+      try {
+        if (mode === 'merged') {
+          const suggested = `${(folder.split('/').pop() || 'vault').toLowerCase()}.html`;
+          const destination = await api.pickExportPath(suggested);
+          if (!destination) return;
+
+          bulkCancelled.current = false;
+          setBulkExport({ done: 0, total: paths.length });
+          const notes: Array<{
+            title: string;
+            source: string;
+            anchor: string;
+            resolveImage: (reference: string) => Promise<string | null>;
+          }> = [];
+          for (const path of paths) {
+            if (bulkCancelled.current) return;
+            notes.push({
+              title: vaultIndex.index.get(path)?.title ?? path,
+              source: await api.readNote(root, path),
+              anchor: anchors.get(path) ?? exportAnchor(path),
+              // Against the note's own folder: `assets/x.png` in
+              // `projects/note.md` means `projects/assets/x.png`.
+              resolveImage: resolveImageFor(path),
+            });
+            setBulkExport({ done: notes.length, total: paths.length });
+          }
+          const html = await exportNotesToHtml(notes, {
+            title: folder || 'Vault',
+            resolveWikiLink: resolveFor(''),
+          });
+          await api.writeExport(destination, html);
+          setMessage(`Exported ${paths.length} notes to ${destination}`);
+          return;
+        }
+
+        const destination = await api.pickFolder();
+        if (!destination) return;
+
+        bulkCancelled.current = false;
+        setBulkExport({ done: 0, total: paths.length });
+        let done = 0;
+        for (const path of paths) {
+          if (bulkCancelled.current) {
+            setMessage(`Export cancelled after ${done} of ${paths.length} notes.`);
+            return;
+          }
+          const source = await api.readNote(root, path);
+          const html = await exportNoteToHtml(source, {
+            title: vaultIndex.index.get(path)?.title ?? path,
+            resolveImage: resolveImageFor(path),
+            resolveWikiLink: resolveFor(path),
+          });
+          await api.writeExport(`${destination}/${htmlNames.get(path) ?? ''}`, html);
+          done += 1;
+          setBulkExport({ done, total: paths.length });
+        }
+        setMessage(`Exported ${done} notes to ${destination}`);
+      } catch (e) {
+        ws.setError(errorText(e));
+      } finally {
+        setBulkExport(null);
+      }
+    },
+    [ws, vaultIndex],
+  );
+
   const openPalette = useCallback((mode: PaletteMode) => {
     setPaletteQuery('');
     setPalette(mode);
@@ -1055,6 +1409,17 @@ export function App() {
       'note.addTag': () => {
         if (noteRef.current) setPrompt({ kind: 'addTag' });
       },
+      'copy.markdown': () => void copyAs('markdown'),
+      'copy.plain': () => void copyAs('plain'),
+      'copy.html': () => void copyAs('html'),
+      'copy.rich': () => void copyAs('rich'),
+      'paste.plain': () => void pasteAs('plain'),
+      'paste.html': () => void pasteAs('html'),
+      'paste.codeBlock': () => void pasteAs('codeBlock'),
+      'note.print': () => void printNote(),
+      'note.exportPdf': () => void printNote(),
+      'note.exportDocx': () => void exportDocx(),
+      'note.exportTextbundle': () => void exportTextbundle(),
       'view.zoomIn': () => changeZoom(zoom + ZOOM_STEP),
       'view.zoomOut': () => changeZoom(zoom - ZOOM_STEP),
       'view.zoomReset': () => changeZoom(1),
@@ -1099,6 +1464,11 @@ export function App() {
       changeZoom,
       zoom,
       navigateHistory,
+      copyAs,
+      pasteAs,
+      printNote,
+      exportDocx,
+      exportTextbundle,
     ],
   );
 
@@ -1558,6 +1928,11 @@ export function App() {
               sortTodosOnCompletion={session.sortTodosOnCompletion}
               completion={completion}
               concealEverywhere={session.concealEverywhere}
+              paste={{
+                asMarkdown: session.pasteAsMarkdown,
+                fetchTitles: session.fetchLinkTitles,
+                fetchTitle: (url) => api.fetchPageTitle(url),
+              }}
               ref={editorRef}
             />
           ) : drawing ? (
@@ -1705,6 +2080,9 @@ export function App() {
               theme: session.theme,
               typography: session.typography,
               noteList: session.noteList,
+              pasteAsMarkdown: session.pasteAsMarkdown,
+              fetchLinkTitles: session.fetchLinkTitles,
+              copyStripsTags: session.copyStripsTags,
             }}
             themes={vaultThemes}
             onChange={(next) => void ws.updateSettings(session.info.root, next)}
@@ -1777,6 +2155,10 @@ export function App() {
       {contextTarget && (
         <ContextMenu
           target={contextTarget}
+          onExportFolder={(folder, mode) => {
+            setContextTarget(null);
+            void exportFolder(folder, mode);
+          }}
           onClose={() => setContextTarget(null)}
           onNewNote={(parent) => {
             setContextTarget(null);
@@ -1860,6 +2242,23 @@ export function App() {
             void rename(from, name);
           }}
         />
+      )}
+
+      {bulkExport && (
+        <div className="bulk-export" role="status">
+          <span>
+            Exporting {bulkExport.done} of {bulkExport.total}…
+          </span>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              bulkCancelled.current = true;
+            }}
+          >
+            Cancel
+          </button>
+        </div>
       )}
 
       {deleting && (

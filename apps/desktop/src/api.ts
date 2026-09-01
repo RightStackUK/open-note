@@ -104,6 +104,10 @@ export const api = {
   /** Ask where to export; resolves to null if the user cancelled. */
   pickExportPath: (suggested: string) => invoke<string | null>('pick_export_path', { suggested }),
   writeExport: (path: string, contents: string) => invoke<void>('write_export', { path, contents }),
+  writeExportBinary: (path: string, data: string) =>
+    invoke<void>('write_export_binary', { path, data }),
+  /** Page title of a URL, or null. Only called when the user opted in. */
+  fetchPageTitle: (url: string) => invoke<string | null>('fetch_page_title', { url }),
 
   /** Store a pasted attachment; resolves to its vault-relative path. */
   writeAttachment: (root: string, folder: string, extension: string, data: string) =>

@@ -19,6 +19,9 @@ export interface EditingPrefs {
   theme: string;
   typography: TypographySettings;
   noteList: NoteListPrefs;
+  pasteAsMarkdown: boolean;
+  fetchLinkTitles: boolean;
+  copyStripsTags: boolean;
 }
 
 interface SettingsPanelProps {
@@ -227,6 +230,44 @@ export function SettingsPanel({
         <span>
           <strong>Always hide Markdown syntax</strong>
           <small>Conceal markers on the line being edited too</small>
+        </span>
+      </label>
+
+      <label className="setting-row">
+        <input
+          type="checkbox"
+          checked={prefs.pasteAsMarkdown}
+          onChange={(e) => onPrefsChange({ pasteAsMarkdown: e.target.checked })}
+        />
+        <span>
+          <strong>Paste as Markdown</strong>
+          <small>Convert pasted web content to clean Markdown</small>
+        </span>
+      </label>
+
+      <label className="setting-row">
+        <input
+          type="checkbox"
+          checked={prefs.fetchLinkTitles}
+          onChange={(e) => onPrefsChange({ fetchLinkTitles: e.target.checked })}
+        />
+        <span>
+          <strong>Fetch titles for pasted links</strong>
+          <small>Turns a pasted URL into a named link. Makes a network request per paste.</small>
+        </span>
+      </label>
+
+      <label className="setting-row">
+        <input
+          type="checkbox"
+          checked={prefs.copyStripsTags}
+          onChange={(e) => onPrefsChange({ copyStripsTags: e.target.checked })}
+        />
+        <span>
+          <strong>Copy As strips tags</strong>
+          <small>
+            Drop <code>#tag</code> tokens from copied text
+          </small>
         </span>
       </label>
 

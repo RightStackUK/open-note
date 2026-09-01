@@ -136,6 +136,29 @@ export function partialTagBefore(before: string): { start: number; query: string
   return { start: before.length - query.length - 1, query };
 }
 
+/**
+ * Remove `#tag` tokens from prose, for Copy As with tags stripped.
+ *
+ * Uses the same rule as `extractTags` — masked code is untouched, and a `#`
+ * that the indexer would not call a tag stays exactly where it is.
+ */
+export function stripTags(body: string): string {
+  const masked = maskCode(body);
+  let out = '';
+  let last = 0;
+  for (const match of masked.matchAll(TAG_RE)) {
+    const tag = match[2] ?? '';
+    if (/^\d+$/.test(tag)) continue;
+    const lead = match[1] ?? '';
+    const start = (match.index ?? 0) + lead.length;
+    out += body.slice(last, start);
+    last = start + 1 + tag.length;
+  }
+  out += body.slice(last);
+  // Collapse the double spaces removed tags leave mid-line.
+  return out.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/gm, '');
+}
+
 export function extractLinks(body: string): WikiLink[] {
   const masked = maskCode(body);
   const links: WikiLink[] = [];

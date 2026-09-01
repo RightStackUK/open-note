@@ -14,7 +14,7 @@ This plan does **not** revisit the decisions in
 they conflict with them — recorded in [Rejected](#rejected) at the end so they
 stop coming back as feature requests.
 
-**Status:** in progress. Blocks 1–4 landed; Block 5 next.
+**Status:** in progress. Blocks 1–5 landed; Block 6 next.
 
 ---
 
@@ -272,7 +272,7 @@ a fourth component.
 
 ---
 
-## Block 5 — Clipboard, export and print
+## Block 5 — Clipboard, export and print ✅
 
 *Everything in this block shares one piece of machinery: a Markdown ↔ HTML
 converter in both directions. `marked` already gives us one direction.*
@@ -727,6 +727,8 @@ Audited, and deliberately not planned. Recorded so they do not return.
 | What may a theme set? | **A whitelisted set of colour variables, values validated as colours.** A vault can be cloned from anywhere, so a theme file is untrusted input: it gets to recolour the app, not to define arbitrary custom properties. |
 | Font pickers: enumerate system fonts? | **No — a datalist of suggestions over a free-text input.** The webview cannot enumerate installed fonts without a native call on each platform, and an unknown family name degrades gracefully to the default stack anyway. |
 | Where does zoom live? | **Per machine (localStorage), not in the vault.** Zoom is a reading posture for this screen; the font size in `.opennote/settings.json` is the setting that travels. |
+| Bulk export scope | **Folders (and the vault root), from the context menu** — as one HTML file per note with the tree preserved, or merged into one page in tree order with anchors. Per-tag export arrives with the Block 7 tag management surface, where tags get their menu. |
+| DOCX images | **Alt text, not embedded bytes.** Embedding means fetching and re-encoding every attachment into OOXML for a format chosen to *send text*. The HTML export is the faithful one. |
 | Where do the layout panes persist? | **Per machine (localStorage).** Which panes are open is a posture of this window, like zoom; the note list's sort, density and toggles are per-vault settings, as planned. |
 | How is history captured? | **A per-window pair of stacks above the editor**, recording path, scroll position and caret. Ordinary navigation pushes and clears the forward stack — the browser rule, because it is the one people already know. A vault switch clears both: paths from another vault mean nothing here. |
 | How are created dates computed? | **One `git log --reverse --diff-filter=A --name-only` walk per vault open**, not `--follow` per file — follow is quadratic over thousands of files. A rename therefore starts a new history for the new path; documented behaviour. A never-committed note ranks by its mtime, which is honest: it is brand new. |

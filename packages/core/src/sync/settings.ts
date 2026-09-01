@@ -65,6 +65,12 @@ export interface VaultSettings {
   insertTagsAt: 'top' | 'bottom';
   /** How the note list pane filters, sorts and draws. */
   noteList: NoteListPrefs;
+  /** Convert pasted HTML to Markdown. The default, and the point of pasting. */
+  pasteAsMarkdown: boolean;
+  /** Fetch a pasted bare URL's page title. A network request per keystroke, so off by default. */
+  fetchLinkTitles: boolean;
+  /** Copy As drops `#tag` tokens from what lands on the clipboard. */
+  copyStripsTags: boolean;
 }
 
 export const DEFAULT_ATTACHMENT_FOLDER = 'assets';
@@ -81,6 +87,9 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   newNoteHeading: 'h1',
   insertTagsAt: 'bottom',
   noteList: DEFAULT_NOTE_LIST_PREFS,
+  pasteAsMarkdown: true,
+  fetchLinkTitles: false,
+  copyStripsTags: false,
 };
 
 /**
@@ -138,6 +147,9 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     newNoteHeading: 'h1',
     insertTagsAt: 'bottom',
     noteList: { ...DEFAULT_NOTE_LIST_PREFS },
+    pasteAsMarkdown: true,
+    fetchLinkTitles: false,
+    copyStripsTags: false,
   });
   if (!raw) return defaults();
 
@@ -180,6 +192,9 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
   const rawInsertAt = (parsed as { insertTagsAt?: unknown }).insertTagsAt;
   const insertTagsAt = rawInsertAt === 'top' ? 'top' : 'bottom';
   const noteList = parseNoteListPrefs((parsed as { noteList?: unknown }).noteList);
+  const pasteAsMarkdown = bool((parsed as { pasteAsMarkdown?: unknown }).pasteAsMarkdown, true);
+  const fetchLinkTitles = bool((parsed as { fetchLinkTitles?: unknown }).fetchLinkTitles, false);
+  const copyStripsTags = bool((parsed as { copyStripsTags?: unknown }).copyStripsTags, false);
 
   const prefs = {
     attachmentFolder,
@@ -192,6 +207,9 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     newNoteHeading,
     insertTagsAt,
     noteList,
+    pasteAsMarkdown,
+    fetchLinkTitles,
+    copyStripsTags,
   } as const;
 
   if (typeof sync !== 'object' || sync === null) {

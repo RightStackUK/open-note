@@ -45,6 +45,12 @@ export interface VaultSession {
   insertTagsAt: 'top' | 'bottom';
   /** How the note list pane filters, sorts and draws. */
   noteList: NoteListPrefs;
+  /** Convert pasted HTML to Markdown. */
+  pasteAsMarkdown: boolean;
+  /** Fetch a pasted bare URL's page title. */
+  fetchLinkTitles: boolean;
+  /** Copy As drops `#tag` tokens. */
+  copyStripsTags: boolean;
 }
 
 /**
@@ -126,6 +132,9 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             newNoteHeading: vaultSettings.newNoteHeading,
             insertTagsAt: vaultSettings.insertTagsAt,
             noteList: vaultSettings.noteList,
+            pasteAsMarkdown: vaultSettings.pasteAsMarkdown,
+            fetchLinkTitles: vaultSettings.fetchLinkTitles,
+            copyStripsTags: vaultSettings.copyStripsTags,
           },
         }));
         setActiveRoot(info.root);
@@ -206,6 +215,9 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             newNoteHeading: session.newNoteHeading,
             insertTagsAt: session.insertTagsAt,
             noteList: session.noteList,
+            pasteAsMarkdown: session.pasteAsMarkdown,
+            fetchLinkTitles: session.fetchLinkTitles,
+            copyStripsTags: session.copyStripsTags,
             ...override,
           }),
         );

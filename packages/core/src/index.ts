@@ -30,10 +30,18 @@ export {
   dailyNoteTemplate,
   localIsoDate,
 } from './notes/daily';
+export { exportNoteToDocx } from './notes/docx';
 export type { Emoji } from './notes/emoji';
 export { EMOJI, searchEmoji } from './notes/emoji';
 export type { ExportOptions } from './notes/export';
-export { exportNoteToHtml } from './notes/export';
+export {
+  exportAnchor,
+  exportFileName,
+  exportNotesToHtml,
+  exportNoteToHtml,
+  renderNoteBody,
+} from './notes/export';
+export { htmlToMarkdown, isBareUrl } from './notes/htmlToMarkdown';
 export type {
   BuildNoteListInput,
   Collection,
@@ -68,10 +76,18 @@ export {
   parseNote,
   partialTagBefore,
   splitFrontmatter,
+  stripTags,
   toPlainText,
 } from './notes/parse';
 export type { LinkRewrite } from './notes/rename';
 export { replacementTarget, rewriteLinks } from './notes/rename';
+export type { TextbundleAsset } from './notes/textbundle';
+export {
+  buildTextpack,
+  bytesToBase64,
+  dataUrlToBytes,
+  localAssetReferences,
+} from './notes/textbundle';
 export type { Backlink, IndexedNote, SearchHit, TagCount, TodoItem } from './notes/vaultIndex';
 export { fuzzyScore, snippetFor, VaultIndex } from './notes/vaultIndex';
 export type { VaultSyncOptions } from './sync/engine';

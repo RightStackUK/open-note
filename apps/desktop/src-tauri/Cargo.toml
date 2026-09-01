@@ -24,6 +24,10 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 thiserror = { workspace = true }
+# For the (off-by-default) pasted-URL title lookup. `ureq` over reqwest: one
+# blocking call from a command thread, no async runtime, a fraction of the
+# compile weight.
+ureq = { version = "2", default-features = false, features = ["tls"] }
 
 [dev-dependencies]
 tempfile = "3"

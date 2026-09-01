@@ -2,7 +2,7 @@ pub mod prefs;
 // Public so the integration tests can drive the same code the commands wrap.
 pub mod vault;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use git_port::{
     Branch, CommitInfo, ConflictSide, GitPort, MergeOutcome, MergeResult, RepoStatus, SystemGit,
@@ -178,11 +178,10 @@ async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
         .pick_folder(move |path| {
             let _ = tx.send(path);
         });
-    rx.recv()
-        .ok()
-        .flatten()
-        .and_then(|p| p.into_path().ok())
-        .map(|p| p.display().to_string())
+    let picked = rx.recv().ok().flatten().and_then(|p| p.into_path().ok())?;
+    // Bulk export writes many files under a picked folder.
+    approve_export(&picked);
+    Some(picked.display().to_string())
 }
 
 #[tauri::command]
@@ -322,32 +321,196 @@ fn write_drawing(root: String, path: String, contents: String) -> Result<(), Vau
 // File management.
 // ---------------------------------------------------------------------------
 
+/// Destinations the user actually chose in an OS dialog.
+///
+/// Exports deliberately write outside the vault — that is their point — but
+/// "outside the vault" must not mean "anywhere the webview names". A write is
+/// only honoured at a path (or under a folder) that came back from a dialog,
+/// so a compromised webview cannot aim `write_export` at `~/.zshrc`.
+static APPROVED_EXPORTS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+fn approve_export(path: &Path) {
+    let mut approved = APPROVED_EXPORTS.lock().expect("approved exports lock");
+    approved.push(path.to_path_buf());
+    // The window's export history is small; keep the list from growing forever.
+    let excess = approved.len().saturating_sub(64);
+    if excess > 0 {
+        approved.drain(..excess);
+    }
+}
+
+fn export_destination(path: &str) -> Result<PathBuf, VaultError> {
+    let wanted = PathBuf::from(path);
+    // Reject `..` outright: it could walk out from under an approved folder.
+    if wanted
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(VaultError::Io("export path may not contain ..".into()));
+    }
+    let approved = APPROVED_EXPORTS.lock().expect("approved exports lock");
+    if approved
+        .iter()
+        .any(|a| wanted == *a || wanted.starts_with(a))
+    {
+        return Ok(wanted);
+    }
+    Err(VaultError::Io(
+        "export destination was not chosen in a dialog".into(),
+    ))
+}
+
 /// Ask where an export should be written. `None` means the user cancelled.
 #[tauri::command]
 async fn pick_export_path(app: tauri::AppHandle, suggested: String) -> Option<String> {
+    // The filter follows the format being exported, not a hard-coded one —
+    // a DOCX export offered a "Web page" filter mis-names files on macOS.
+    let extension = suggested.rsplit('.').next().unwrap_or("html").to_string();
+    let label = match extension.as_str() {
+        "html" => "Web page",
+        "docx" => "Word document",
+        "textpack" => "Textbundle archive",
+        "md" => "Markdown",
+        _ => "File",
+    };
+
     let (tx, rx) = std::sync::mpsc::channel();
     app.dialog()
         .file()
         .set_title("Export note")
         .set_file_name(&suggested)
-        .add_filter("Web page", &["html"])
+        .add_filter(label, &[&extension])
         .save_file(move |path| {
             let _ = tx.send(path);
         });
-    rx.recv()
-        .ok()
-        .flatten()
-        .and_then(|p| p.into_path().ok())
-        .map(|p| p.display().to_string())
+    let picked = rx.recv().ok().flatten().and_then(|p| p.into_path().ok())?;
+    approve_export(&picked);
+    Some(picked.display().to_string())
 }
 
 /// Write an exported file to a path the user chose in the save dialog.
-///
-/// Deliberately not vault-scoped: the whole point of an export is to put a copy
-/// somewhere else. The path comes from the OS dialog rather than the webview.
 #[tauri::command]
 fn write_export(path: String, contents: String) -> Result<(), VaultError> {
-    std::fs::write(&path, contents).map_err(|e| VaultError::Io(e.to_string()))
+    let destination = export_destination(&path)?;
+    // Bulk export preserves the vault's folder tree under the picked directory,
+    // so parents may not exist yet.
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| VaultError::Io(e.to_string()))?;
+    }
+    std::fs::write(&destination, contents).map_err(|e| VaultError::Io(e.to_string()))
+}
+
+/// As `write_export`, for formats that are bytes rather than text.
+#[tauri::command]
+fn write_export_binary(path: String, data: String) -> Result<(), VaultError> {
+    use base64::Engine;
+    let destination = export_destination(&path)?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|e| VaultError::Io(format!("invalid export payload: {e}")))?;
+    std::fs::write(&destination, bytes).map_err(|e| VaultError::Io(e.to_string()))
+}
+
+/// The `<title>` of a web page, for turning a pasted URL into a named link.
+///
+/// Guarded by a setting that is off by default — this is a network request
+/// triggered by a keystroke. The read is bounded and the errors are silent by
+/// design: a failed lookup means the paste stays a bare URL, not a dialog.
+#[tauri::command]
+async fn fetch_page_title(url: String) -> Option<String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return None;
+    }
+    // A pasted URL is untrusted input pointed at the network from inside the
+    // user's machine: loopback, private-range and link-local destinations are
+    // refused, and redirects are not followed — a public URL redirecting to
+    // 169.254.169.254 is the classic way around a host check.
+    if let Some(host) = url
+        .split("//")
+        .nth(1)
+        .and_then(|rest| rest.split(['/', '?', '#']).next())
+    {
+        let bare = host.rsplit('@').next().unwrap_or(host);
+        let name = bare.trim_start_matches('[');
+        let name = name.split([']', ':']).next().unwrap_or(name);
+        if is_private_host(name) {
+            return None;
+        }
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new()
+            .redirects(0)
+            .timeout(std::time::Duration::from_secs(5))
+            .build();
+        let response = agent.get(&url).call().ok()?;
+        if !response
+            .content_type()
+            .to_ascii_lowercase()
+            .contains("html")
+        {
+            return None;
+        }
+        // Titles live in the head; 128 KiB is generous and bounds the read.
+        let mut buffer = String::new();
+        use std::io::Read;
+        response
+            .into_reader()
+            .take(128 * 1024)
+            .read_to_string(&mut buffer)
+            .ok()?;
+
+        let lower = buffer.to_lowercase();
+        let start = lower.find("<title")?;
+        let open = buffer[start..].find('>')? + start + 1;
+        let close = lower[open..].find("</title")? + open;
+        let raw = buffer[open..close].trim();
+        if raw.is_empty() {
+            return None;
+        }
+        // The handful of entities that actually appear in titles.
+        let title = raw
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace(char::is_control, " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        (!title.is_empty()).then(|| title.chars().take(200).collect())
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Hosts a title lookup must never reach: the machine itself and its networks.
+fn is_private_host(host: &str) -> bool {
+    let lower = host.to_ascii_lowercase();
+    if lower == "localhost" || lower.ends_with(".localhost") || lower.ends_with(".local") {
+        return true;
+    }
+    if let Ok(v4) = lower.parse::<std::net::Ipv4Addr>() {
+        return v4.is_loopback()
+            || v4.is_private()
+            || v4.is_link_local()
+            || v4.is_unspecified()
+            || v4.is_broadcast()
+            // Carrier-grade NAT, 100.64.0.0/10.
+            || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64);
+    }
+    if let Ok(v6) = lower.parse::<std::net::Ipv6Addr>() {
+        return v6.is_loopback()
+            || v6.is_unspecified()
+            // Unique-local fc00::/7 and link-local fe80::/10.
+            || (v6.segments()[0] & 0xfe00) == 0xfc00
+            || (v6.segments()[0] & 0xffc0) == 0xfe80
+            || v6.to_ipv4_mapped().is_some_and(|v4| {
+                v4.is_loopback() || v4.is_private() || v4.is_link_local()
+            });
+    }
+    false
 }
 
 /// Store a pasted or dropped attachment; returns its vault-relative path.
@@ -554,6 +717,8 @@ pub fn run() {
             write_drawing,
             pick_export_path,
             write_export,
+            write_export_binary,
+            fetch_page_title,
             write_attachment,
             create_folder,
             create_note,
@@ -577,6 +742,48 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exports_only_write_where_a_dialog_pointed() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let inside = dir.path().join("out.html");
+        let elsewhere = std::env::temp_dir().join("open-note-unapproved.html");
+
+        // Unapproved: refused, nothing written.
+        assert!(write_export(elsewhere.display().to_string(), "x".into()).is_err());
+        assert!(!elsewhere.exists());
+
+        // Approved folder: files under it may be written, `..` may not.
+        approve_export(dir.path());
+        write_export(inside.display().to_string(), "ok".into()).expect("approved write");
+        assert_eq!(std::fs::read_to_string(&inside).unwrap(), "ok");
+        let escape = dir.path().join("../escape.html");
+        assert!(write_export(escape.display().to_string(), "x".into()).is_err());
+    }
+
+    #[test]
+    fn private_hosts_are_refused_for_title_lookups() {
+        for host in [
+            "localhost",
+            "sub.localhost",
+            "printer.local",
+            "127.0.0.1",
+            "10.1.2.3",
+            "192.168.1.1",
+            "172.16.0.9",
+            "169.254.169.254",
+            "100.64.1.1",
+            "0.0.0.0",
+            "::1",
+            "fe80::1",
+            "fd00::2",
+        ] {
+            assert!(is_private_host(host), "{host} should be refused");
+        }
+        for host in ["example.com", "93.184.216.34", "2606:2800:220:1::1"] {
+            assert!(!is_private_host(host), "{host} should be allowed");
+        }
+    }
 
     #[test]
     fn git_probe_reports_the_system_git() {

@@ -6,6 +6,13 @@ export interface ExportOptions {
   title: string;
   /** Resolve a local image reference to a data URL, or null to leave it out. */
   resolveImage?: (path: string) => Promise<string | null>;
+  /**
+   * Resolve a `[[wikilink]]` target to an href — typically the relative HTML
+   * file exported beside this one. Without it, links flatten to their text:
+   * an export of one note has nothing for them to point at, but an export of
+   * a folder does, and dead ends there would make the export a maze.
+   */
+  resolveWikiLink?: (target: string) => string | null;
 }
 
 /** Minimal, readable styling — this has to stand on its own outside the app. */
@@ -46,6 +53,13 @@ const STYLES = `
     th, td { border-color: #302e2a; }
     a { color: #fb923c; }
   }
+  /* Print is a first-class output: ink on paper, no dark scheme, no cropped code. */
+  @media print {
+    body { max-width: none; margin: 0; color: #000; background: #fff; }
+    pre { white-space: pre-wrap; }
+    a { color: inherit; }
+    section { break-inside: avoid-page; }
+  }
 `;
 
 function escapeHtml(value: string): string {
@@ -65,12 +79,37 @@ function escapeHtml(value: string): string {
  * point at outside the app.
  */
 export async function exportNoteToHtml(source: string, options: ExportOptions): Promise<string> {
+  const html = await renderNoteBody(source, options);
+  return htmlPage(options.title, html);
+}
+
+/**
+ * The body of a note as HTML, without the page shell.
+ *
+ * Shared by the file export, Copy as HTML/rich text, and the print path — one
+ * renderer, several outputs, exactly so they can never disagree about what a
+ * note looks like.
+ */
+export async function renderNoteBody(source: string, options: ExportOptions): Promise<string> {
   const { body } = splitFrontmatter(source);
 
-  // Wikilinks have no meaning outside the vault; show the text they carried.
+  // A wikilink becomes a link when the caller can say where it goes, and its
+  // text when it cannot — outside the vault there is nothing to point at.
   const withoutWikiLinks = body.replace(
     /\[\[([^\]|#\n]+)(?:#[^\]|\n]+)?(?:\|([^\]\n]+))?\]\]/g,
-    (_whole, target: string, alias: string | undefined) => alias ?? target,
+    (_whole, target: string, alias: string | undefined) => {
+      const text = alias ?? target;
+      const href = options.resolveWikiLink?.(target.trim()) ?? null;
+      if (!href) return text;
+      // Per-segment encoding, because `#` and `?` are legal in note names and
+      // `encodeURI` would leave them structural — `C# Notes.html` must not
+      // become a fragment. A `#anchor` href from a merged export is already
+      // structural and passes through whole.
+      const encoded = href.startsWith('#')
+        ? `#${encodeURIComponent(href.slice(1))}`
+        : href.split('/').map(encodeURIComponent).join('/');
+      return `[${text}](${encoded})`;
+    },
   );
 
   let html = await marked.parse(withoutWikiLinks, { async: true, gfm: true });
@@ -87,16 +126,66 @@ export async function exportNoteToHtml(source: string, options: ExportOptions): 
     }
   }
 
+  return html;
+}
+
+function htmlPage(title: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(options.title)}</title>
+<title>${escapeHtml(title)}</title>
 <style>${STYLES}</style>
 </head>
 <body>
-${html}</body>
+${body}</body>
 </html>
 `;
+}
+
+/**
+ * Merge several notes into one page, in the order given — which the caller
+ * makes tree order. Each note gets an `id` anchor so wikilinks between the
+ * merged notes stay meaningful inside the single file.
+ */
+export async function exportNotesToHtml(
+  notes: Array<{
+    title: string;
+    source: string;
+    anchor: string;
+    /** Per note, because relative image references resolve against *its* folder. */
+    resolveImage?: ExportOptions['resolveImage'];
+  }>,
+  options: Omit<ExportOptions, 'title' | 'resolveImage'> & { title: string },
+): Promise<string> {
+  const sections: string[] = [];
+  const seen = new Set<string>();
+  for (const note of notes) {
+    // Anchors must be unique or links jump to whichever twin renders first.
+    let anchor = note.anchor;
+    for (let n = 2; seen.has(anchor); n++) anchor = `${note.anchor}-${n}`;
+    seen.add(anchor);
+
+    const body = await renderNoteBody(note.source, { ...options, resolveImage: note.resolveImage });
+    sections.push(
+      `<section id="${escapeHtml(anchor)}">\n<h1>${escapeHtml(note.title)}</h1>\n${body}</section>`,
+    );
+  }
+  return htmlPage(options.title, sections.join('\n<hr>\n'));
+}
+
+/** The anchor a note gets inside a merged export. */
+export function exportAnchor(path: string): string {
+  return path
+    .replace(/\.(md|markdown|mdown|mkd)$/i, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** The file name a note gets when exported beside its neighbours. */
+export function exportFileName(path: string, extension: string): string {
+  const base = path.slice(path.lastIndexOf('/') + 1).replace(/\.(md|markdown|mdown|mkd)$/i, '');
+  return `${base}.${extension}`;
 }
