@@ -43,23 +43,21 @@ import { RELEASES_PAGE } from '../lib/releases';
       <div class="section-head">
         <h2>Installing</h2>
         <p>
-          macOS builds are signed and notarised, so they just open. Windows still warns. Here is
-          exactly what you will see and why.
+          Three platforms, three short sets of steps. Windows adds a warning you will have to
+          click through.
         </p>
       </div>
 
       <div class="prose" style="max-width: none">
         <div class="notice" style="margin-bottom: 1.25rem">
-          <h3>Why Windows still warns</h3>
+          <h3>Why Windows warns</h3>
           <p>
-            Code signing certificates are a recurring cost. macOS is covered: every build is signed
-            with a Developer ID certificate and notarised by Apple. Windows needs a separate signing
-            service or EV certificate, and until that is in place SmartScreen will warn about the
-            installer.
+            SmartScreen flags installers from publishers it does not recognise, and becoming
+            recognised is a recurring cost we have not taken on yet.
           </p>
           <p>
             The builds are produced by a public GitHub Actions workflow from a public commit, and
-            you can read both. Windows signing is tracked
+            you can read both. It is tracked
             <a href="https://github.com/RightStackUK/open-note/issues/2" rel="noopener">in the open</a>.
           </p>
         </div>
@@ -67,16 +65,13 @@ import { RELEASES_PAGE } from '../lib/releases';
         <div class="grid">
           <div class="card">
             <h3>macOS</h3>
-            <p>No warning. Signed and notarised, so it opens like anything else.</p>
             <ol class="steps">
               <li>Open the <code>.dmg</code>.</li>
               <li>Drag Open Note to Applications.</li>
               <li>Launch it.</li>
             </ol>
             <p class="small">
-              The notarisation ticket is stapled to the download, so Gatekeeper clears it without
-              asking Apple — it works on a machine that has never been online. Requires macOS 10.13
-              or later.
+              One universal build for both Apple silicon and Intel. Requires macOS 10.13 or later.
             </p>
           </div>
 
@@ -97,7 +92,6 @@ import { RELEASES_PAGE } from '../lib/releases';
 
           <div class="card">
             <h3>Linux</h3>
-            <p>No warning — Linux does not gate unsigned binaries this way.</p>
             <ol class="steps">
               <li>
                 <strong>AppImage:</strong> <code>chmod +x Open*.AppImage</code> then run it.
