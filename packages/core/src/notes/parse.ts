@@ -260,6 +260,9 @@ export function toPlainText(body: string): string {
     .replace(/^\s{0,3}>\s?/gm, '')
     .replace(/^\s*[-*+]\s+\[[ xX]\]\s+/gm, '')
     .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/==([^=\n]+)==/g, '$1')
+    .replace(/<\/?u>/g, '')
+    .replace(/\[\^[^\]\s]+\]:?/g, '')
     .replace(/[*_~]{1,3}/g, '')
     .replace(/\s+/g, ' ')
     .trim();

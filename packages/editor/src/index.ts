@@ -13,9 +13,14 @@ import {
 } from '@codemirror/view';
 
 import { type AttachmentOptions, attachmentPaste, inlineImages } from './attachments';
+import { callouts } from './callouts';
 import { type CompletionOptions, noteCompletion } from './completion';
 import { concealMarkdown } from './conceal';
 import { type DiagramOptions, diagramBlocks } from './diagrams';
+import { headingFolding } from './folding';
+import { footnotes } from './footnotes';
+import { inlineStyles } from './inlineStyles';
+import { mathRendering } from './math';
 import { type RichPasteOptions, richPaste } from './paste';
 import { autoSortCompletedTasks, taskCheckboxes } from './tasks';
 import { markdownTheme } from './theme';
@@ -24,6 +29,7 @@ import { type WikiLinkOptions, wikiLinks } from './wikilinks';
 export type { EditorView } from '@codemirror/view';
 export type { AttachmentOptions } from './attachments';
 export { attachmentPaste, inlineImages } from './attachments';
+export { calloutLinesForTest, callouts } from './callouts';
 export { editorCommands, isEditorCommand } from './commands';
 export type { CompletionNote, CompletionOptions } from './completion';
 export { noteCompletion } from './completion';
@@ -31,6 +37,10 @@ export type { ConcealOptions } from './conceal';
 export { concealedRangesForTest, concealMarkdown, concealMarkdownSyntax } from './conceal';
 export type { DiagramOptions, DiagramRenderResult } from './diagrams';
 export { diagramBlocks } from './diagrams';
+export { headingFolding, headingFoldRange } from './folding';
+export { footnotes, footnoteTokensForTest, renumberFootnotes } from './footnotes';
+export { inlineStyleSpansForTest, inlineStyles } from './inlineStyles';
+export { mathRendering, mathSpansForTest } from './math';
 export type { RichPasteOptions } from './paste';
 export { richPaste } from './paste';
 export type { Alignment, ParsedTable } from './tables';
@@ -95,6 +105,11 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     EditorView.lineWrapping,
     markdownTheme,
     concealMarkdown({ everywhere: options.concealEverywhere }),
+    callouts,
+    mathRendering,
+    footnotes,
+    inlineStyles,
+    headingFolding,
     taskCheckboxes,
     options.sortTodosOnCompletion ? autoSortCompletedTasks(options.sortTodosOnCompletion) : [],
     options.wikiLinks ? wikiLinks(options.wikiLinks) : [],

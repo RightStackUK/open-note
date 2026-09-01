@@ -86,6 +86,14 @@ describe('extractTags', () => {
   });
 });
 
+describe('toPlainText and Block 6 syntax', () => {
+  it('strips highlight markers, underline tags and footnote tokens', () => {
+    expect(toPlainText('==important== and <u>held</u> words[^1]\n\n[^1]: a footnote')).toBe(
+      'important and held words a footnote',
+    );
+  });
+});
+
 describe('partialTagBefore', () => {
   it('finds a tag being typed at the start of a line', () => {
     expect(partialTagBefore('#wo')).toEqual({ start: 0, query: 'wo' });

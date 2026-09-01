@@ -1,7 +1,10 @@
 import { moveLineDown, moveLineUp } from '@codemirror/commands';
+import { foldAll, foldCode, unfoldAll, unfoldCode } from '@codemirror/language';
 import { type ChangeSpec, EditorSelection, type StateCommand } from '@codemirror/state';
+import type { EditorView } from '@codemirror/view';
 import { localIsoDate } from '@open-note/core';
 
+import { renumberFootnotes } from './footnotes';
 import { tableCommands } from './tables';
 import { sortCompletedTasksAt, taskListAround } from './tasks';
 
@@ -526,6 +529,48 @@ const moveCompletedToBottom: StateCommand = ({ state, dispatch }) => {
 };
 
 /**
+ * Toggle `<u>…</u>` around the selection or the word under the caret.
+ *
+ * `<u>` and not `~text~`: the HTML renders everywhere Markdown allows inline
+ * HTML, while the tilde collides with strikethrough and shows literally on the
+ * forge — the plan records the decision.
+ */
+const toggleUnderline: StateCommand = ({ state, dispatch }) => {
+  const text = state.doc.toString();
+  const transaction = state.changeByRange((range) => {
+    let { from, to } = range;
+    if (from === to) {
+      const word = wordAt(text, from);
+      from = word.from;
+      to = word.to;
+    }
+
+    const before = text.slice(Math.max(0, from - 3), from);
+    const after = text.slice(to, to + 4);
+    if (before === '<u>' && after === '</u>') {
+      return {
+        changes: [
+          { from: from - 3, to: from, insert: '' },
+          { from: to, to: to + 4, insert: '' },
+        ],
+        range: EditorSelection.range(from - 3, to - 3),
+      };
+    }
+
+    return {
+      changes: [
+        { from, to: from, insert: '<u>' },
+        { from: to, to, insert: '</u>' },
+      ],
+      range:
+        from === to ? EditorSelection.cursor(from + 3) : EditorSelection.range(from + 3, to + 3),
+    };
+  });
+  dispatch(state.update(transaction, { scrollIntoView: true, userEvent: 'input.format' }));
+  return true;
+};
+
+/**
  * Command implementations, keyed by the ids in `@open-note/core`'s registry.
  *
  * The app looks commands up here; anything missing is a command that claims to
@@ -563,6 +608,16 @@ export const editorCommands: Record<string, StateCommand> = {
   'task.markAllComplete': setAllTasksDone(true),
   'task.markAllIncomplete': setAllTasksDone(false),
   'task.moveCompletedToBottom': moveCompletedToBottom,
+  'edit.highlight': toggleWrap('=='),
+  'edit.underline': toggleUnderline,
+  'edit.renumberFootnotes': renumberFootnotes,
+  // Folding needs the fold service's state, which lives on the view — these
+  // are view commands the dispatcher happens to reach through the same table.
+  // On the bare EditorState the tests use they simply find nothing to fold.
+  'view.foldHeading': (target) => foldCode(target as EditorView),
+  'view.unfoldHeading': (target) => unfoldCode(target as EditorView),
+  'view.foldAll': (target) => foldAll(target as EditorView),
+  'view.unfoldAll': (target) => unfoldAll(target as EditorView),
   ...tableCommands,
 };
 

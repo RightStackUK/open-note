@@ -14,7 +14,7 @@ This plan does **not** revisit the decisions in
 they conflict with them — recorded in [Rejected](#rejected) at the end so they
 stop coming back as feature requests.
 
-**Status:** in progress. Blocks 1–5 landed; Block 6 next.
+**Status:** in progress. Blocks 1–6 landed; Block 7 next.
 
 ---
 
@@ -330,7 +330,7 @@ ePub, RTF and JPG are deferred — see below.
 
 ---
 
-## Block 6 — Markdown syntax coverage
+## Block 6 — Markdown syntax coverage ✅
 
 *Five extensions to the parser and its decorations. The ordering principle from
 ROADMAP §4 applies to syntax too: **prefer what still renders when someone opens
@@ -727,6 +727,8 @@ Audited, and deliberately not planned. Recorded so they do not return.
 | What may a theme set? | **A whitelisted set of colour variables, values validated as colours.** A vault can be cloned from anywhere, so a theme file is untrusted input: it gets to recolour the app, not to define arbitrary custom properties. |
 | Font pickers: enumerate system fonts? | **No — a datalist of suggestions over a free-text input.** The webview cannot enumerate installed fonts without a native call on each platform, and an unknown family name degrades gracefully to the default stack anyway. |
 | Where does zoom live? | **Per machine (localStorage), not in the vault.** Zoom is a reading posture for this screen; the font size in `.opennote/settings.json` is the setting that travels. |
+| How is math distinguished from money? | **An inline `$…$` only renders when the content looks like TeX** — a letter, an operator, a command. `lunch was $5 and dinner $10` stays prose. Block `$$…$$` always renders. |
+| Which footnotes does renumbering touch? | **Numeric ones only, in document order.** A named footnote (`[^caveat]`) is a choice and stays exactly as written. |
 | Bulk export scope | **Folders (and the vault root), from the context menu** — as one HTML file per note with the tree preserved, or merged into one page in tree order with anchors. Per-tag export arrives with the Block 7 tag management surface, where tags get their menu. |
 | DOCX images | **Alt text, not embedded bytes.** Embedding means fetching and re-encoding every attachment into OOXML for a format chosen to *send text*. The HTML export is the faithful one. |
 | Where do the layout panes persist? | **Per machine (localStorage).** Which panes are open is a posture of this window, like zoom; the note list's sort, density and toggles are per-vault settings, as planned. |
