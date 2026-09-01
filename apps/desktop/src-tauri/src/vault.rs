@@ -24,11 +24,11 @@ const DRAWING_EXTENSIONS: &[&str] = &["excalidraw"];
 /// to grow forever to keep up. Anything not listed here is offered as text and
 /// refused at read time if it turns out not to decode as UTF-8.
 const BINARY_EXTENSIONS: &[&str] = &[
-    "pdf", "zip", "gz", "tar", "bz2", "xz", "7z", "rar", "dmg", "iso", "exe", "dll", "so", "dylib",
-    "a", "o", "bin", "wasm", "class", "jar", "pyc", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-    "odt", "ods", "key", "pages", "numbers", "mp3", "wav", "flac", "aac", "ogg", "m4a", "mp4",
-    "mov", "avi", "mkv", "webm", "ttf", "otf", "woff", "woff2", "eot", "psd", "ai", "sketch",
-    "sqlite", "db", "ico", "icns", "heic", "tiff", "tif",
+    "zip", "gz", "tar", "bz2", "xz", "7z", "rar", "dmg", "iso", "exe", "dll", "so", "dylib", "a",
+    "o", "bin", "wasm", "class", "jar", "pyc", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt",
+    "ods", "key", "pages", "numbers", "mp3", "wav", "flac", "aac", "ogg", "m4a", "mp4", "mov",
+    "avi", "mkv", "webm", "ttf", "otf", "woff", "woff2", "eot", "psd", "ai", "sketch", "sqlite",
+    "db", "ico", "icns", "heic", "tiff", "tif",
 ];
 
 /// Per-vault configuration, hidden from the tree.
@@ -136,6 +136,8 @@ pub enum FileKind {
     Image,
     /// Editable in the drawing canvas.
     Drawing,
+    /// Previewed in the webview's own PDF viewer; never edited.
+    Pdf,
     /// Editable as plain text, with syntax highlighting where we know the format.
     Text,
     /// Listed by name only.
@@ -158,6 +160,8 @@ impl FileKind {
             FileKind::Image
         } else if DRAWING_EXTENSIONS.contains(&ext.as_str()) {
             FileKind::Drawing
+        } else if ext == "pdf" {
+            FileKind::Pdf
         } else if BINARY_EXTENSIONS.contains(&ext.as_str()) {
             FileKind::Other
         } else {
@@ -445,6 +449,27 @@ pub fn write_note(root: &Path, relative: &str, contents: &str) -> Result<()> {
 ///
 /// Inlining avoids configuring Tauri's asset protocol and, more usefully, means
 /// the vault's files are never exposed to the webview by path.
+/// A PDF as a data URL, for the webview's native viewer.
+///
+/// The same ceiling as image previews: the whole string crosses the IPC
+/// bridge, and base64 inflates by a third.
+pub fn read_pdf_data_url(root: &Path, relative: &str) -> Result<String> {
+    let path = resolve_within(root, relative)?;
+    if FileKind::of(&path) != FileKind::Pdf {
+        return Err(VaultError::NotEditable(relative.to_string()));
+    }
+    let size = fs::metadata(&path)?.len();
+    if size > MAX_PREVIEW_BYTES {
+        return Err(VaultError::TooLarge(size));
+    }
+    let bytes = fs::read(&path)?;
+    use base64::Engine;
+    Ok(format!(
+        "data:application/pdf;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
 pub fn read_image_data_url(root: &Path, relative: &str) -> Result<String> {
     let path = resolve_within(root, relative)?;
     if FileKind::of(&path) != FileKind::Image {
@@ -846,7 +871,8 @@ mod tests {
         assert_eq!(FileKind::of(Path::new("a.markdown")), FileKind::Markdown);
         assert_eq!(FileKind::of(Path::new("a.png")), FileKind::Image);
         assert_eq!(FileKind::of(Path::new("a.JPEG")), FileKind::Image);
-        assert_eq!(FileKind::of(Path::new("a.pdf")), FileKind::Other);
+        // PDFs preview in the webview's own viewer, so they left the denylist.
+        assert_eq!(FileKind::of(Path::new("a.pdf")), FileKind::Pdf);
         assert_eq!(FileKind::of(Path::new("a.zip")), FileKind::Other);
     }
 

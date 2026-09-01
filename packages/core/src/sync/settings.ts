@@ -77,6 +77,8 @@ export interface VaultSettings {
   tagIcons: Record<string, string>;
   /** Tag browser order. */
   tagSort: 'name' | 'count';
+  /** Images in notes: full width, or contained thumbnails. */
+  imageDisplay: 'full' | 'thumbnail';
 }
 
 export const DEFAULT_ATTACHMENT_FOLDER = 'assets';
@@ -99,6 +101,7 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   pinnedTags: [],
   tagIcons: {},
   tagSort: 'count',
+  imageDisplay: 'full',
 };
 
 /**
@@ -162,6 +165,7 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     pinnedTags: [],
     tagIcons: {},
     tagSort: 'count',
+    imageDisplay: 'full',
   });
   if (!raw) return defaults();
 
@@ -220,6 +224,8 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     }
   }
   const tagSort = (parsed as { tagSort?: unknown }).tagSort === 'name' ? 'name' : 'count';
+  const imageDisplay =
+    (parsed as { imageDisplay?: unknown }).imageDisplay === 'thumbnail' ? 'thumbnail' : 'full';
 
   const prefs = {
     attachmentFolder,
@@ -238,6 +244,7 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     pinnedTags,
     tagIcons,
     tagSort,
+    imageDisplay,
   } as const;
 
   if (typeof sync !== 'object' || sync === null) {

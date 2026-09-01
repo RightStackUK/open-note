@@ -37,6 +37,7 @@ import {
   typographyCssVariables,
   ZOOM_STEP,
 } from '@open-note/core';
+import { sanitiseSvg } from '@open-note/diagrams';
 import { editorCommands } from '@open-note/editor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -109,7 +110,13 @@ interface OpenNote {
 
 export function App() {
   const [note, setNote] = useState<OpenNote | null>(null);
-  const [preview, setPreview] = useState<{ path: string; url: string } | null>(null);
+  const [preview, setPreview] = useState<{
+    path: string;
+    url: string;
+    kind: 'image' | 'pdf';
+  } | null>(null);
+  /** Embeds collapsed in this window, by path. A reading posture, unpersisted. */
+  const [collapsedEmbeds, setCollapsedEmbeds] = useState<Set<string>>(new Set());
   const [drawing, setDrawing] = useState<{ path: string; source: string } | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [recents, setRecents] = useState<string[]>([]);
@@ -446,7 +453,14 @@ export function App() {
         if (file.kind === 'image') {
           setNote(null);
           setDrawing(null);
-          setPreview({ path: file.path, url: await api.readImage(root, file.path) });
+          setPreview({ path: file.path, url: await api.readImage(root, file.path), kind: 'image' });
+          return;
+        }
+        if (file.kind === 'pdf') {
+          setNote(null);
+          setDrawing(null);
+          // The webview's own viewer does the rendering; nothing to bundle.
+          setPreview({ path: file.path, url: await api.readPdf(root, file.path), kind: 'pdf' });
           return;
         }
         if (file.kind === 'drawing') {
@@ -860,6 +874,12 @@ export function App() {
         const root = ws.activeRoot;
         const open = noteRef.current;
         if (!root || !open) throw new Error('no note is open');
+        // The bytes are materialised four times on the way to disk; a ceiling
+        // keeps a dropped ISO from taking the window with it.
+        if (file.size > 256 * 1024 * 1024) {
+          setMessage(`${file.name} is too large to attach (over 256 MB).`);
+          throw new Error('attachment too large');
+        }
 
         const buffer = await file.arrayBuffer();
         // btoa needs a binary string, and spreading a large array blows the
@@ -878,7 +898,73 @@ export function App() {
         const path = await api.writeAttachment(root, folder, extension, btoa(binary));
         void ws.refreshFiles(root);
         ws.noteSaved(root);
+        // The honest caveat: a vault is a Git repo, and large binaries make it
+        // a slow one. Stored anyway — it is the user's repository — but said.
+        if (file.size > 10 * 1024 * 1024) {
+          setMessage(
+            `${file.name} is ${(file.size / (1024 * 1024)).toFixed(1)} MB. Large binaries slow a Git repository — consider git-lfs, which Open Note picks up automatically.`,
+          );
+        }
         return relativeFrom(open.path, path);
+      },
+      fileMeta(path: string) {
+        const open = noteRef.current;
+        const root = ws.activeRoot;
+        if (!root || !open) return null;
+        const absolute = resolveAgainst(open.path, path);
+        const file = ws.sessions[root]?.files.find((f) => f.path === absolute);
+        return file ? { size: file.size, kind: file.kind } : null;
+      },
+      openFile(path: string) {
+        const open = noteRef.current;
+        const root = ws.activeRoot;
+        if (!root || !open) return;
+        const absolute = resolveAgainst(open.path, path);
+        const file = ws.sessions[root]?.files.find((f) => f.path === absolute);
+        if (!file) return;
+        if (file.kind === 'other') {
+          // The OS knows what handles a zip; the app does not pretend to.
+          void api.openInDefaultApp(root, absolute).catch((e) => ws.setError(errorText(e)));
+          return;
+        }
+        void select(file);
+      },
+      async renderDrawing(path: string) {
+        const open = noteRef.current;
+        const root = ws.activeRoot;
+        if (!root || !open) return null;
+        try {
+          const absolute = resolveAgainst(open.path, path);
+          const source = await api.readDrawing(root, absolute);
+          const scene = JSON.parse(source) as {
+            elements?: unknown[];
+            appState?: Record<string, unknown>;
+            files?: Record<string, unknown>;
+          };
+          const { exportToSvg } = await import('@excalidraw/excalidraw');
+          const svg = await exportToSvg({
+            elements: (scene.elements ?? []) as never,
+            appState: { ...(scene.appState ?? {}), exportBackground: false } as never,
+            files: (scene.files ?? null) as never,
+          });
+          // A vault can be cloned from anywhere; drawings get the same
+          // sanitiser every rendered diagram goes through — and anchors go
+          // entirely, because a linked shape must not navigate the webview.
+          return sanitiseSvg(svg.outerHTML)
+            .replace(/<a\b[^>]*>/gi, '<g>')
+            .replace(/<\/a>/gi, '</g>');
+        } catch {
+          return null;
+        }
+      },
+      display: () => sessionsRef.current?.imageDisplay ?? 'full',
+      isCollapsed: (path: string) => collapsedEmbedsRef.current.has(path),
+      toggleCollapsed(path: string) {
+        setCollapsedEmbeds((prev) => {
+          const next = new Set(prev);
+          if (!next.delete(path)) next.add(path);
+          return next;
+        });
       },
       async resolveImage(path: string) {
         const root = ws.activeRoot;
@@ -891,8 +977,22 @@ export function App() {
         }
       },
     }),
-    [ws, session?.attachmentFolder],
+    [ws, session?.attachmentFolder, select],
   );
+
+  // Changes only when the chips' inputs change, so the repaint nudge fires
+  // exactly then and not on every render.
+  const attachmentsStamp = useMemo(
+    () => [session?.files, session?.imageDisplay] as const,
+    [session?.files, session?.imageDisplay],
+  );
+
+  // Refs so the attachment callbacks read current values without rebuilding
+  // the editor, matching how every other option is threaded.
+  const sessionsRef = useRef(session);
+  sessionsRef.current = session;
+  const collapsedEmbedsRef = useRef(collapsedEmbeds);
+  collapsedEmbedsRef.current = collapsedEmbeds;
 
   /**
    * Vault data for `[[`, `#` and `:` completion.
@@ -1582,6 +1682,34 @@ export function App() {
     [ws, vaultIndex],
   );
 
+  /** Pick any file and reference it from the caret, via the paste pipeline. */
+  const attachFile = useCallback(async () => {
+    const root = ws.activeRoot;
+    const open = noteRef.current;
+    if (!root || !open) return;
+    try {
+      const folder = attachmentFolderFor(open.path, session?.attachmentFolder ?? 'assets');
+      const stored = await api.pickAttachment(root, folder);
+      if (!stored) return;
+      const relative = relativeFrom(open.path, stored.path);
+      const isImage = /\.(png|jpe?g|gif|webp|svg|avif|bmp)$/i.test(stored.path);
+      editorRef.current?.insertAtSelection(
+        isImage
+          ? `![${stored.name.replace(/\.[^.]+$/, '')}](${relative})`
+          : `[${stored.name}](${relative})`,
+      );
+      void ws.refreshFiles(root);
+      ws.noteSaved(root);
+      if (stored.size > 10 * 1024 * 1024) {
+        setMessage(
+          `${stored.name} is ${(stored.size / (1024 * 1024)).toFixed(1)} MB. Large binaries slow a Git repository — consider git-lfs.`,
+        );
+      }
+    } catch (e) {
+      ws.setError(errorText(e));
+    }
+  }, [ws, session?.attachmentFolder]);
+
   const openPalette = useCallback((mode: PaletteMode) => {
     setPaletteQuery('');
     // Each opening starts scoped to where you are; dismissing the chip widens.
@@ -1629,6 +1757,23 @@ export function App() {
       'paste.plain': () => void pasteAs('plain'),
       'paste.html': () => void pasteAs('html'),
       'paste.codeBlock': () => void pasteAs('codeBlock'),
+      'insert.file': () => void attachFile(),
+      'note.reveal': () => {
+        const open = noteRef.current;
+        if (ws.activeRoot && open) {
+          void api
+            .revealInFileManager(ws.activeRoot, open.path)
+            .catch((e) => ws.setError(errorText(e)));
+        }
+      },
+      'note.openWith': () => {
+        const open = noteRef.current;
+        if (ws.activeRoot && open) {
+          void api
+            .openInDefaultApp(ws.activeRoot, open.path)
+            .catch((e) => ws.setError(errorText(e)));
+        }
+      },
       'note.print': () => void printNote(),
       'note.exportPdf': () => void printNote(),
       'note.exportDocx': () => void exportDocx(),
@@ -1682,6 +1827,7 @@ export function App() {
       printNote,
       exportDocx,
       exportTextbundle,
+      attachFile,
     ],
   );
 
@@ -2162,6 +2308,8 @@ export function App() {
               sortTodosOnCompletion={session.sortTodosOnCompletion}
               completion={completion}
               concealEverywhere={session.concealEverywhere}
+              collapsedEmbeds={collapsedEmbeds}
+              attachmentsStamp={attachmentsStamp}
               paste={{
                 asMarkdown: session.pasteAsMarkdown,
                 fetchTitles: session.fetchLinkTitles,
@@ -2178,7 +2326,16 @@ export function App() {
             />
           ) : preview ? (
             <div className="preview">
-              <img src={preview.url} alt={preview.path} />
+              {preview.kind === 'pdf' ? (
+                <embed
+                  className="preview-pdf"
+                  src={preview.url}
+                  type="application/pdf"
+                  title={preview.path}
+                />
+              ) : (
+                <img src={preview.url} alt={preview.path} />
+              )}
               <p className="preview-caption">{preview.path} — preview only</p>
             </div>
           ) : (
@@ -2358,6 +2515,8 @@ export function App() {
               theme: session.theme,
               typography: session.typography,
               noteList: session.noteList,
+              attachmentFolder: session.attachmentFolder,
+              imageDisplay: session.imageDisplay,
               pasteAsMarkdown: session.pasteAsMarkdown,
               fetchLinkTitles: session.fetchLinkTitles,
               copyStripsTags: session.copyStripsTags,
@@ -2436,6 +2595,22 @@ export function App() {
           onExportFolder={(folder, mode) => {
             setContextTarget(null);
             void exportFolder(folder, mode);
+          }}
+          onReveal={(path) => {
+            setContextTarget(null);
+            if (ws.activeRoot) {
+              void api
+                .revealInFileManager(ws.activeRoot, path)
+                .catch((e) => ws.setError(errorText(e)));
+            }
+          }}
+          onOpenWith={(path) => {
+            setContextTarget(null);
+            if (ws.activeRoot) {
+              void api
+                .openInDefaultApp(ws.activeRoot, path)
+                .catch((e) => ws.setError(errorText(e)));
+            }
           }}
           onClose={() => setContextTarget(null)}
           onNewNote={(parent) => {

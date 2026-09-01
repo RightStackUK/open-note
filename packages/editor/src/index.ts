@@ -17,6 +17,7 @@ import { callouts } from './callouts';
 import { type CompletionOptions, noteCompletion } from './completion';
 import { concealMarkdown } from './conceal';
 import { type DiagramOptions, diagramBlocks } from './diagrams';
+import { fileEmbeds } from './fileEmbeds';
 import { headingFolding } from './folding';
 import { footnotes } from './footnotes';
 import { inlineStyles } from './inlineStyles';
@@ -28,7 +29,7 @@ import { type WikiLinkOptions, wikiLinks } from './wikilinks';
 
 export type { EditorView } from '@codemirror/view';
 export type { AttachmentOptions } from './attachments';
-export { attachmentPaste, inlineImages } from './attachments';
+export { attachmentMarkdown, attachmentPaste, inlineImages } from './attachments';
 export { calloutLinesForTest, callouts } from './callouts';
 export { editorCommands, isEditorCommand } from './commands';
 export type { CompletionNote, CompletionOptions } from './completion';
@@ -37,6 +38,7 @@ export type { ConcealOptions } from './conceal';
 export { concealedRangesForTest, concealMarkdown, concealMarkdownSyntax } from './conceal';
 export type { DiagramOptions, DiagramRenderResult } from './diagrams';
 export { diagramBlocks } from './diagrams';
+export { fileEmbeds } from './fileEmbeds';
 export { headingFolding, headingFoldRange } from './folding';
 export { footnotes, footnoteTokensForTest, renumberFootnotes } from './footnotes';
 export { inlineStyleSpansForTest, inlineStyles } from './inlineStyles';
@@ -117,7 +119,11 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     // Before the attachment paste handler, which takes files; this takes text.
     options.paste ? richPaste(options.paste) : [],
     options.attachments
-      ? [attachmentPaste(options.attachments), inlineImages(options.attachments)]
+      ? [
+          attachmentPaste(options.attachments),
+          inlineImages(options.attachments),
+          fileEmbeds(options.attachments),
+        ]
       : [],
     // Before the keymaps below, so an open completion panel gets Escape and the
     // arrow keys before the editor's own bindings claim them.

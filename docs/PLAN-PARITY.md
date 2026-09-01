@@ -14,7 +14,7 @@ This plan does **not** revisit the decisions in
 they conflict with them — recorded in [Rejected](#rejected) at the end so they
 stop coming back as feature requests.
 
-**Status:** in progress. Blocks 1–7 landed; Block 8 next.
+**Status:** in progress. Blocks 1–8 landed; Block 9 next.
 
 ---
 
@@ -442,7 +442,7 @@ text, is debounced, and is capped. Each result gets a one-click "link it".
 
 ---
 
-## Block 8 — Attachments and media
+## Block 8 — Attachments and media ✅
 
 ### 8.1 Attach any file
 
@@ -727,6 +727,8 @@ Audited, and deliberately not planned. Recorded so they do not return.
 | What may a theme set? | **A whitelisted set of colour variables, values validated as colours.** A vault can be cloned from anywhere, so a theme file is untrusted input: it gets to recolour the app, not to define arbitrary custom properties. |
 | Font pickers: enumerate system fonts? | **No — a datalist of suggestions over a free-text input.** The webview cannot enumerate installed fonts without a native call on each platform, and an unknown family name degrades gracefully to the default stack anyway. |
 | Where does zoom live? | **Per machine (localStorage), not in the vault.** Zoom is a reading posture for this screen; the font size in `.opennote/settings.json` is the setting that travels. |
+| PDF inline: thumbnail, or a chip? | **A chip that opens the full preview.** A page-one thumbnail means bundling a PDF renderer; the webview's own viewer does the real work and the chip is honest about being a file. Same reasoning as print-over-bundled-PDF-engine. |
+| Can any file be pasted, or only dropped? | **Paste stays images-only; a drop takes anything.** The clipboard holding a file is almost always an accident, and quietly copying it into the repository is a surprise. A drop is deliberate. |
 | `expandAllTags` / `collapseAllTags` | **Buttons on the tag panel, not registry commands.** They only mean anything while the panel is open; a global keybinding for a closed panel is a command that does nothing, which the coverage test exists to prevent. |
 | Tag exports? | Deferred to the tag panel's next pass; folder export landed in Block 5 and covers the shape. |
 | How is math distinguished from money? | **An inline `$…$` only renders when the content looks like TeX** — a letter, an operator, a command. `lunch was $5 and dinner $10` stays prose. Block `$$…$$` always renders. |

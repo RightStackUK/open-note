@@ -19,6 +19,8 @@ export interface EditingPrefs {
   theme: string;
   typography: TypographySettings;
   noteList: NoteListPrefs;
+  attachmentFolder: string;
+  imageDisplay: 'full' | 'thumbnail';
   pasteAsMarkdown: boolean;
   fetchLinkTitles: boolean;
   copyStripsTags: boolean;
@@ -349,6 +351,44 @@ export function SettingsPanel({
           </small>
         </span>
       </label>
+
+      <h2 className="settings-section">Attachments</h2>
+
+      <label className="setting-number">
+        <span className="setting-label">
+          Attachment folder
+          <small>
+            Vault-relative. <code>.</code> keeps files beside their note.
+          </small>
+        </span>
+        <span className="setting-input">
+          <input
+            type="text"
+            value={prefs.attachmentFolder}
+            onChange={(e) => onPrefsChange({ attachmentFolder: e.target.value })}
+          />
+        </span>
+      </label>
+
+      <label className="setting-select">
+        <span className="setting-label">
+          Images in notes
+          <small>Full width, or contained thumbnails</small>
+        </span>
+        <select
+          value={prefs.imageDisplay}
+          onChange={(e) => onPrefsChange({ imageDisplay: e.target.value as 'full' | 'thumbnail' })}
+        >
+          <option value="full">Full width</option>
+          <option value="thumbnail">Thumbnails</option>
+        </select>
+      </label>
+
+      <p className="settings-note">
+        A vault is a Git repository, and large binaries make it a slow one. For big attachments,
+        consider <code>git-lfs</code> — Open Note uses your own <code>git</code>, so it is picked up
+        automatically.
+      </p>
 
       <h2 className="settings-section">Appearance</h2>
 

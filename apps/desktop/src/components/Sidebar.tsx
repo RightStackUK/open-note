@@ -23,6 +23,7 @@ function kindIcon(kind: FileKind): string {
   if (kind === 'markdown') return '¶';
   if (kind === 'image') return '▣';
   if (kind === 'drawing') return '◇';
+  if (kind === 'pdf') return '⬒';
   if (kind === 'text') return '‹›';
   return '·';
 }

@@ -534,6 +534,27 @@ export const COMMANDS: CommandDefinition[] = [
     keywords: ['textpack', 'archive', 'attachments'],
   },
   {
+    id: 'insert.file',
+    title: 'Attach a file…',
+    category: 'Edit',
+    binding: null,
+    keywords: ['attachment', 'upload', 'embed'],
+  },
+  {
+    id: 'note.reveal',
+    title: 'Reveal in file manager',
+    category: 'Note',
+    binding: null,
+    keywords: ['finder', 'explorer', 'show'],
+  },
+  {
+    id: 'note.openWith',
+    title: 'Open in default app',
+    category: 'Note',
+    binding: null,
+    keywords: ['external', 'preview', 'system'],
+  },
+  {
     id: 'nav.back',
     title: 'Go back',
     category: 'Navigate',

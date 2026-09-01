@@ -98,6 +98,95 @@ fn read_image(root: String, path: String) -> Result<String, VaultError> {
     vault::read_image_data_url(&PathBuf::from(root), &path)
 }
 
+/// Extensions the OS would *execute* rather than open for viewing. A vault can
+/// be cloned from anywhere, so a committed script must not be one click from
+/// running; those are revealed in the file manager instead, where launching is
+/// an explicit second decision.
+const EXECUTABLE_EXTENSIONS: &[&str] = &[
+    "app", "sh", "command", "bat", "cmd", "exe", "msi", "scpt", "ps1", "jar", "com", "vbs",
+    "desktop", "url", "lnk",
+];
+
+/// Open a vault file in whatever the OS considers its handler.
+#[tauri::command]
+fn open_in_default_app(root: String, path: String) -> Result<(), VaultError> {
+    let resolved = vault::resolve_within(&PathBuf::from(root), &path)?;
+    let ext = resolved
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if EXECUTABLE_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(VaultError::Io(format!(
+            "{path} looks executable; reveal it in the file manager and open it there deliberately"
+        )));
+    }
+    tauri_plugin_opener::open_path(resolved.display().to_string(), None::<String>)
+        .map_err(|e| VaultError::Io(e.to_string()))
+}
+
+/// Reveal a vault file in Finder / Explorer / the file manager.
+#[tauri::command]
+fn reveal_in_file_manager(root: String, path: String) -> Result<(), VaultError> {
+    let resolved = vault::resolve_within(&PathBuf::from(root), &path)?;
+    tauri_plugin_opener::reveal_item_in_dir(&resolved).map_err(|e| VaultError::Io(e.to_string()))
+}
+
+#[tauri::command]
+fn read_pdf(root: String, path: String) -> Result<String, VaultError> {
+    vault::read_pdf_data_url(&PathBuf::from(root), &path)
+}
+
+/// Pick any file and store it as an attachment; `None` means cancelled.
+///
+/// The read happens here rather than in the webview so no file bytes cross the
+/// IPC twice, and the storing goes through the same content-hash pipeline as a
+/// pasted image.
+#[tauri::command]
+async fn pick_attachment(
+    app: tauri::AppHandle,
+    root: String,
+    folder: String,
+) -> Result<Option<serde_json::Value>, VaultError> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .set_title("Attach a file")
+        .pick_file(move |path| {
+            let _ = tx.send(path);
+        });
+    let Some(picked) = rx.recv().ok().flatten().and_then(|p| p.into_path().ok()) else {
+        return Ok(None);
+    };
+
+    // The whole file is read into memory to hash and store it; a ceiling keeps
+    // an accidental 8 GB video from taking the process with it.
+    const MAX_ATTACHMENT_BYTES: u64 = 256 * 1024 * 1024;
+    let size = std::fs::metadata(&picked)
+        .map_err(|e| VaultError::Io(e.to_string()))?
+        .len();
+    if size > MAX_ATTACHMENT_BYTES {
+        return Err(VaultError::TooLarge(size));
+    }
+
+    let bytes = std::fs::read(&picked).map_err(|e| VaultError::Io(e.to_string()))?;
+    let extension = picked
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("bin")
+        .to_string();
+    let name = picked
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file")
+        .to_string();
+    let size = bytes.len() as u64;
+    let relative = vault::write_attachment(&PathBuf::from(root), &folder, &extension, &bytes)?;
+    Ok(Some(
+        serde_json::json!({ "path": relative, "name": name, "size": size }),
+    ))
+}
+
 #[tauri::command]
 fn vault_status(root: String) -> Result<RepoStatus, VaultError> {
     Ok(SystemGit::new().status(&PathBuf::from(root))?)
@@ -720,6 +809,10 @@ pub fn run() {
             write_export_binary,
             fetch_page_title,
             write_attachment,
+            read_pdf,
+            pick_attachment,
+            open_in_default_app,
+            reveal_in_file_manager,
             create_folder,
             create_note,
             duplicate_note,

@@ -57,6 +57,8 @@ export interface VaultSession {
   tagIcons: Record<string, string>;
   /** Tag browser order. */
   tagSort: 'name' | 'count';
+  /** Images: full width, or thumbnails. */
+  imageDisplay: 'full' | 'thumbnail';
 }
 
 /**
@@ -144,6 +146,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             pinnedTags: vaultSettings.pinnedTags,
             tagIcons: vaultSettings.tagIcons,
             tagSort: vaultSettings.tagSort,
+            imageDisplay: vaultSettings.imageDisplay,
           },
         }));
         setActiveRoot(info.root);
@@ -230,6 +233,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             pinnedTags: session.pinnedTags,
             tagIcons: session.tagIcons,
             tagSort: session.tagSort,
+            imageDisplay: session.imageDisplay,
             ...override,
           }),
         );

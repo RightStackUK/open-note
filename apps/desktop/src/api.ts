@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
-export type FileKind = 'markdown' | 'image' | 'drawing' | 'text' | 'other' | 'folder';
+export type FileKind = 'markdown' | 'image' | 'drawing' | 'pdf' | 'text' | 'other' | 'folder';
 
 export interface VaultFile {
   path: string;
@@ -78,6 +78,17 @@ export const api = {
   writeNote: (root: string, path: string, contents: string) =>
     invoke<void>('write_note', { root, path, contents }),
   readImage: (root: string, path: string) => invoke<string>('read_image', { root, path }),
+  readPdf: (root: string, path: string) => invoke<string>('read_pdf', { root, path }),
+  /** Pick any file and store it as an attachment. Null means cancelled. */
+  pickAttachment: (root: string, folder: string) =>
+    invoke<{ path: string; name: string; size: number } | null>('pick_attachment', {
+      root,
+      folder,
+    }),
+  openInDefaultApp: (root: string, path: string) =>
+    invoke<void>('open_in_default_app', { root, path }),
+  revealInFileManager: (root: string, path: string) =>
+    invoke<void>('reveal_in_file_manager', { root, path }),
   readDrawing: (root: string, path: string) => invoke<string>('read_drawing', { root, path }),
   writeDrawing: (root: string, path: string, contents: string) =>
     invoke<void>('write_drawing', { root, path, contents }),

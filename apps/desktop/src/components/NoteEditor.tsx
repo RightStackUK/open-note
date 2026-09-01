@@ -21,8 +21,12 @@ interface NoteEditorProps {
   onFollowLink: (target: string, path: string | null) => void;
   /** Colour scheme, so rendered diagrams match the app. */
   dark: boolean;
-  /** Storing pasted images and resolving local ones for display. */
+  /** Storing pasted/dropped files and resolving local ones for display. */
   attachments: AttachmentOptions;
+  /** Paths whose embeds are collapsed; a per-window reading posture. */
+  collapsedEmbeds: Set<string>;
+  /** Bumped when the file listing or image display changes, to repaint chips. */
+  attachmentsStamp: unknown;
   /** Move a task to the bottom of its list when it is ticked. */
   sortTodosOnCompletion: boolean;
   /** Vault data and the on/off switch for `[[`, `#` and `:` completion. */
@@ -74,6 +78,8 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
     sortTodosOnCompletion,
     completion,
     concealEverywhere,
+    collapsedEmbeds,
+    attachmentsStamp,
     paste,
   },
   ref,
@@ -97,12 +103,17 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
   const pasteRef = useRef(paste);
   pasteRef.current = paste;
 
-  // The conceal plugin only recomputes on an update, so an idle editor would
-  // otherwise keep showing the old mode until the next keystroke. An empty
-  // transaction is exactly a repaint request.
-  useEffect(() => {
-    editorView.current?.dispatch({});
-  }, [concealEverywhere]);
+  // The conceal, image and chip plugins only recompute on an update, so an
+  // idle editor would otherwise keep showing the old state until the next
+  // keystroke. A dispatch that re-sets the selection is the cheapest
+  // transaction their `docChanged || selection` checks actually notice — a
+  // truly empty one is invisible to them.
+  const nudge = () => {
+    const view = editorView.current;
+    if (view) view.dispatch({ selection: view.state.selection });
+  };
+  // The dependency values are triggers, not inputs: `nudge` reads nothing.
+  useEffect(nudge, [concealEverywhere, collapsedEmbeds, attachmentsStamp]);
 
   useEffect(() => {
     if (!host.current) return;
@@ -120,6 +131,13 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
       attachments: {
         store: (file) => attachmentsRef.current.store(file),
         resolveImage: (path) => attachmentsRef.current.resolveImage(path),
+        fileMeta: (path) => attachmentsRef.current.fileMeta?.(path) ?? null,
+        openFile: (path) => attachmentsRef.current.openFile?.(path),
+        renderDrawing: (path) =>
+          attachmentsRef.current.renderDrawing?.(path) ?? Promise.resolve(null),
+        display: () => attachmentsRef.current.display?.() ?? 'full',
+        isCollapsed: (path) => attachmentsRef.current.isCollapsed?.(path) ?? false,
+        toggleCollapsed: (path) => attachmentsRef.current.toggleCollapsed?.(path),
       },
       // Read through a ref so toggling the setting does not rebuild the editor.
       sortTodosOnCompletion: () => sortTodosRef.current,

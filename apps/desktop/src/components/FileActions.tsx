@@ -16,6 +16,8 @@ interface ContextMenuProps {
   onDelete: (path: string) => void;
   /** Bulk export of a folder (or the vault root). */
   onExportFolder: (folder: string, mode: 'files' | 'merged') => void;
+  onReveal: (path: string) => void;
+  onOpenWith: (path: string) => void;
   onClose: () => void;
 }
 
@@ -34,6 +36,8 @@ export function ContextMenu({
   onRename,
   onDelete,
   onExportFolder,
+  onReveal,
+  onOpenWith,
   onClose,
 }: ContextMenuProps) {
   const menu = useRef<HTMLDivElement>(null);
@@ -86,6 +90,15 @@ export function ContextMenu({
       )}
       {!isRoot && (
         <>
+          <hr />
+          <button type="button" onClick={() => onReveal(target.path)}>
+            Reveal in file manager
+          </button>
+          {target.kind === 'file' && (
+            <button type="button" onClick={() => onOpenWith(target.path)}>
+              Open in default app
+            </button>
+          )}
           <hr />
           <button type="button" onClick={() => onRename(target.path)}>
             Rename…
