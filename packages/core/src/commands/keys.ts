@@ -29,6 +29,9 @@ const ALIASES: Record<string, string> = {
   space: ' ',
   del: 'Delete',
   ins: 'Insert',
+  // `-` and `+` collide with the separator, so bindings spell them out.
+  minus: 'Minus',
+  plus: 'Plus',
 };
 
 function canonicalKey(key: string): string {
@@ -36,6 +39,9 @@ function canonicalKey(key: string): string {
   if (ALIASES[lower] && !MODIFIER_ORDER.includes(ALIASES[lower] as never)) {
     return ALIASES[lower];
   }
+  // The characters that cannot appear literally in a binding string.
+  if (key === '-') return 'Minus';
+  if (key === '+') return 'Plus';
   if (key.length === 1) return key.toUpperCase();
   // Arrow keys, F-keys, Home, PageUp and friends keep their canonical casing.
   return key.charAt(0).toUpperCase() + key.slice(1);
@@ -112,6 +118,6 @@ export function formatBinding(binding: string, platform: Platform): string {
     return mod === 'Mod' ? 'Ctrl' : mod;
   });
 
-  const label = key === ' ' ? 'Space' : key;
+  const label = key === ' ' ? 'Space' : key === 'Minus' ? '-' : key === 'Plus' ? '+' : key;
   return platform === 'mac' ? `${symbols.join('')}${label}` : [...symbols, label].join('+');
 }

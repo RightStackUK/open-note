@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   attachmentFolderFor,
   DEFAULT_SYNC_SETTINGS,
+  DEFAULT_VAULT_SETTINGS,
   parseVaultSettings,
   serialiseVaultSettings,
 } from './settings';
@@ -74,13 +75,7 @@ describe('parseVaultSettings', () => {
   });
 
   it('serialises to readable, newline-terminated JSON for the repo', () => {
-    const text = serialiseVaultSettings({
-      sync: DEFAULT_SYNC_SETTINGS,
-      attachmentFolder: 'assets',
-      pinned: [],
-      sortTodosOnCompletion: false,
-      completion: true,
-    });
+    const text = serialiseVaultSettings(DEFAULT_VAULT_SETTINGS);
     expect(text.endsWith('\n')).toBe(true);
     expect(text).toContain('\n  "sync"');
   });

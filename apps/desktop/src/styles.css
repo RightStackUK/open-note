@@ -8,6 +8,12 @@
   --selection: #f8d9c6;
   --code-bg: #ece8e1;
   --danger: #b91c1c;
+  --success: #2f855a;
+  /* Text sitting on an accent-coloured surface. */
+  --on-accent: #fff;
+  /* Every drop shadow derives from this; the backdrop carries its own alpha. */
+  --shadow-base: #000;
+  --shadow: rgb(0 0 0 / 38%);
 
   /* Syntax colours for the plain-text editor. Chosen to sit beside the warm
      accent rather than compete with it, and to hold up on the raised surface. */
@@ -36,6 +42,9 @@
     --selection: #45301f;
     --code-bg: #26241f;
     --danger: #f87171;
+    --success: #57b98a;
+    --on-accent: #1c1207;
+    --shadow: rgb(0 0 0 / 55%);
 
     --code-string: #5eead4;
     --code-literal: #fcd34d;
@@ -104,7 +113,7 @@ button {
   padding: 0.55rem 1.1rem;
   border-radius: 7px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 550;
 }
 
@@ -469,10 +478,10 @@ button {
 /* Phase colours. Green means "your work is safe on the remote"; anything the
    user must act on is warm; a conflict is unmistakable. */
 .sync-badge.is-idle {
-  color: #2f855a;
+  color: var(--success);
 }
 .tab-dot.is-idle {
-  background: #2f855a;
+  background: var(--success);
 }
 
 .sync-badge.is-dirty,
@@ -568,6 +577,41 @@ button {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--border);
+}
+
+.settings-section {
+  margin: 1rem 0 0.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.95rem;
+}
+
+.setting-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0;
+}
+
+.setting-select select {
+  flex-shrink: 0;
+  max-width: 12rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.setting-input input[type="text"] {
+  width: 9rem;
+}
+
+.settings-restore {
+  margin-top: 0.5rem;
 }
 
 .setting-number {
@@ -691,7 +735,7 @@ button {
 }
 
 .conflict-done {
-  color: #2f855a;
+  color: var(--success);
   font-size: 0.88rem;
 }
 
@@ -747,7 +791,7 @@ button {
      one match should be one match tall. */
   align-items: flex-start;
   padding-top: 12vh;
-  background: color-mix(in srgb, #000 38%, transparent);
+  background: var(--shadow);
   backdrop-filter: blur(2px);
 }
 
@@ -760,7 +804,7 @@ button {
   border: 1px solid var(--border);
   border-radius: 11px;
   background: var(--bg);
-  box-shadow: 0 18px 48px rgb(0 0 0 / 35%);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--shadow-base) 35%, transparent);
 }
 
 .palette-input {
@@ -1206,7 +1250,7 @@ button {
 }
 
 .diff-line.is-add {
-  background: color-mix(in srgb, #2f855a 22%, transparent);
+  background: color-mix(in srgb, var(--success) 22%, transparent);
 }
 
 .diff-line.is-del {
@@ -1337,7 +1381,7 @@ button {
   border: 1px solid var(--border);
   border-radius: 11px;
   background: var(--bg);
-  box-shadow: 0 18px 48px rgb(0 0 0 / 35%);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--shadow-base) 35%, transparent);
 }
 
 .clone h2 {
@@ -1413,7 +1457,7 @@ button {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg);
-  box-shadow: 0 10px 30px rgb(0 0 0 / 30%);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--shadow-base) 30%, transparent);
 }
 
 .context-menu button {
@@ -1447,7 +1491,7 @@ button {
   border: 1px solid var(--border);
   border-radius: 11px;
   background: var(--bg);
-  box-shadow: 0 18px 48px rgb(0 0 0 / 35%);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--shadow-base) 35%, transparent);
 }
 
 .prompt h2 {
@@ -1496,7 +1540,7 @@ button {
 
 .tag.is-selected {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .tag-count {
@@ -1867,7 +1911,7 @@ button {
 .actions button.primary-action {
   border-color: transparent;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 550;
 }
 

@@ -379,6 +379,34 @@ export const COMMANDS: CommandDefinition[] = [
     binding: null,
     keywords: ['keys', 'bindings', 'shortcuts'],
   },
+  {
+    id: 'view.zoomIn',
+    title: 'Zoom in',
+    category: 'View',
+    binding: 'Mod-=',
+    keywords: ['bigger', 'font', 'size'],
+  },
+  {
+    id: 'view.zoomOut',
+    title: 'Zoom out',
+    category: 'View',
+    binding: 'Mod-Minus',
+    keywords: ['smaller', 'font', 'size'],
+  },
+  {
+    id: 'view.zoomReset',
+    title: 'Reset zoom',
+    category: 'View',
+    binding: null,
+    keywords: ['font', 'size', 'default'],
+  },
+  {
+    id: 'note.addTag',
+    title: 'Add tag to note',
+    category: 'Note',
+    binding: null,
+    keywords: ['tag', 'label'],
+  },
 ];
 
 /**

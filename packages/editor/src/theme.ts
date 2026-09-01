@@ -18,17 +18,22 @@ export const editorTheme = EditorView.theme({
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': {
     fontFamily: 'var(--note-font, ui-serif, Georgia, Cambria, serif)',
-    lineHeight: '1.7',
+    lineHeight: 'var(--note-line-height, 1.7)',
     overflow: 'auto',
   },
-  // A comfortable measure, centred, the way a writing app should read.
+  // A comfortable measure, centred, the way a writing app should read. All the
+  // typography settings land through these variables, so changing one reflows
+  // the text without rebuilding the editor.
   '.cm-content': {
     padding: '3rem 0 40vh',
-    maxWidth: '46rem',
+    maxWidth: 'var(--note-line-width, 46rem)',
     margin: '0 auto',
     caretColor: 'var(--accent)',
   },
-  '.cm-line': { padding: '0 2rem' },
+  '.cm-line': {
+    padding: '0 2rem var(--note-paragraph-spacing, 0)',
+    textIndent: 'var(--note-paragraph-indent, 0)',
+  },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
     backgroundColor: 'var(--selection)',
@@ -53,7 +58,7 @@ const headingStyles = HEADING_STEPS.map(([tag, size], i) => ({
   fontSize: `${size}em`,
   fontWeight: i < 3 ? '650' : '600',
   lineHeight: '1.3',
-  fontFamily: 'var(--ui-font, ui-sans-serif, system-ui, sans-serif)',
+  fontFamily: 'var(--heading-font, var(--ui-font, ui-sans-serif, system-ui, sans-serif))',
   letterSpacing: '-0.015em',
 }));
 

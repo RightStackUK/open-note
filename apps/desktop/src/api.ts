@@ -115,6 +115,8 @@ export const api = {
     invoke<void>('create_note', { root, path, contents }),
   /** Returns the vault-relative path of the copy. */
   duplicateNote: (root: string, path: string) => invoke<string>('duplicate_note', { root, path }),
+  /** Raw JSON of every `.opennote/themes/*.json`; parsing happens in core. */
+  readThemes: (root: string) => invoke<string[]>('read_vault_themes', { root }),
   renameEntry: (root: string, from: string, to: string) =>
     invoke<void>('rename_entry', { root, from, to }),
   deleteEntry: (root: string, path: string) => invoke<void>('delete_entry', { root, path }),

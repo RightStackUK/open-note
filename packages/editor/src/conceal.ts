@@ -34,16 +34,19 @@ const hidden = Decoration.replace({});
  * Markdown is always one caret movement away — nothing is ever rewritten
  * behind the user's back, since this is presentation only.
  */
-function buildDecorations(view: EditorView): DecorationSet {
+function buildDecorations(view: EditorView, everywhere: boolean): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const { state } = view;
 
-  // Lines touched by any selection range stay fully revealed.
+  // Lines touched by any selection range stay fully revealed — unless the
+  // conceal-everywhere preference is on, in which case nothing ever is.
   const activeLines = new Set<number>();
-  for (const range of state.selection.ranges) {
-    const first = state.doc.lineAt(range.from).number;
-    const last = state.doc.lineAt(range.to).number;
-    for (let n = first; n <= last; n++) activeLines.add(n);
+  if (!everywhere) {
+    for (const range of state.selection.ranges) {
+      const first = state.doc.lineAt(range.from).number;
+      const last = state.doc.lineAt(range.to).number;
+      for (let n = first; n <= last; n++) activeLines.add(n);
+    }
   }
 
   for (const { from, to } of view.visibleRanges) {
@@ -78,37 +81,71 @@ function buildDecorations(view: EditorView): DecorationSet {
   return builder.finish();
 }
 
-class ConcealPlugin implements PluginValue {
-  decorations: DecorationSet;
-
-  constructor(view: EditorView) {
-    this.decorations = buildDecorations(view);
-  }
-
-  update(update: ViewUpdate) {
-    // Selection changes matter as much as edits here: moving the caret onto a
-    // line is what reveals its markers.
-    if (update.docChanged || update.selectionSet || update.viewportChanged) {
-      this.decorations = buildDecorations(update.view);
-    }
-  }
+export interface ConcealOptions {
+  /**
+   * Hide markers on the active line too.
+   *
+   * A callback so the preference can flip without rebuilding the editor; the
+   * decorations recompute on the next update either way.
+   */
+  everywhere?: () => boolean;
 }
 
-const concealPlugin: ViewPlugin<ConcealPlugin> = ViewPlugin.fromClass(ConcealPlugin, {
-  decorations: (plugin) => plugin.decorations,
-});
+/**
+ * The active-line reveal is the better default, but it is a preference and not
+ * a law — `everywhere` turns it off for people who never want to see syntax.
+ */
+export function concealMarkdown(options: ConcealOptions = {}): Extension {
+  class ConcealPlugin implements PluginValue {
+    decorations: DecorationSet;
+    /** What `everywhere` said last build, to catch the setting flipping. */
+    private mode: boolean;
 
-export const concealMarkdownSyntax: Extension = [
-  concealPlugin,
-  // Treat hidden markers as single units so arrow keys step over them instead
-  // of appearing to stall on invisible characters.
-  EditorView.atomicRanges.of((view) => view.plugin(concealPlugin)?.decorations ?? Decoration.none),
-];
+    constructor(view: EditorView) {
+      this.mode = options.everywhere?.() ?? false;
+      this.decorations = buildDecorations(view, this.mode);
+    }
+
+    update(update: ViewUpdate) {
+      const mode = options.everywhere?.() ?? false;
+      // Selection changes matter as much as edits here: moving the caret onto
+      // a line is what reveals its markers.
+      if (
+        update.docChanged ||
+        update.selectionSet ||
+        update.viewportChanged ||
+        mode !== this.mode
+      ) {
+        this.mode = mode;
+        this.decorations = buildDecorations(update.view, mode);
+      }
+    }
+  }
+
+  const concealPlugin: ViewPlugin<ConcealPlugin> = ViewPlugin.fromClass(ConcealPlugin, {
+    decorations: (plugin) => plugin.decorations,
+  });
+
+  return [
+    concealPlugin,
+    // Treat hidden markers as single units so arrow keys step over them
+    // instead of appearing to stall on invisible characters.
+    EditorView.atomicRanges.of(
+      (view) => view.plugin(concealPlugin)?.decorations ?? Decoration.none,
+    ),
+  ];
+}
+
+/** The default behaviour, kept for callers that predate the option. */
+export const concealMarkdownSyntax: Extension = concealMarkdown();
 
 /** Exposed for tests: which ranges would be hidden for a given view. */
-export function concealedRangesForTest(view: EditorView): Array<Range<Decoration>> {
+export function concealedRangesForTest(
+  view: EditorView,
+  everywhere = false,
+): Array<Range<Decoration>> {
   const out: Array<Range<Decoration>> = [];
-  const set = buildDecorations(view);
+  const set = buildDecorations(view, everywhere);
   const iter = set.iter();
   while (iter.value) {
     out.push({ from: iter.from, to: iter.to, value: iter.value });

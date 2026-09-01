@@ -1,3 +1,5 @@
+import { DEFAULT_TYPOGRAPHY, parseTypography, type TypographySettings } from './typography';
+
 /**
  * Per-vault sync settings, stored in `.opennote/settings.json` inside the repo
  * so they travel between a user's machines.
@@ -50,6 +52,16 @@ export interface VaultSettings {
   sortTodosOnCompletion: boolean;
   /** Offer `[[` link, `#` tag and `:` emoji completion while typing. */
   completion: boolean;
+  /** How the prose looks. Applied as CSS variables, never a rebuild. */
+  typography: TypographySettings;
+  /** Theme name — a built-in or a `.opennote/themes/*.json` file. Empty follows the OS. */
+  theme: string;
+  /** Conceal Markdown syntax on every line, not just off the active one. */
+  concealEverywhere: boolean;
+  /** What a new note starts with: an H1 of its title, or an empty buffer. */
+  newNoteHeading: 'h1' | 'none';
+  /** Where `note.addTag` puts the tag. */
+  insertTagsAt: 'top' | 'bottom';
 }
 
 export const DEFAULT_ATTACHMENT_FOLDER = 'assets';
@@ -60,6 +72,11 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   pinned: [],
   sortTodosOnCompletion: false,
   completion: true,
+  typography: DEFAULT_TYPOGRAPHY,
+  theme: '',
+  concealEverywhere: false,
+  newNoteHeading: 'h1',
+  insertTagsAt: 'bottom',
 };
 
 /**
@@ -111,6 +128,11 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     pinned: [],
     sortTodosOnCompletion: false,
     completion: true,
+    typography: { ...DEFAULT_TYPOGRAPHY },
+    theme: '',
+    concealEverywhere: false,
+    newNoteHeading: 'h1',
+    insertTagsAt: 'bottom',
   });
   if (!raw) return defaults();
 
@@ -141,23 +163,37 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     false,
   );
   const completion = bool((parsed as { completion?: unknown }).completion, true);
+  const typography = parseTypography((parsed as { typography?: unknown }).typography);
+  const rawTheme = (parsed as { theme?: unknown }).theme;
+  const theme = typeof rawTheme === 'string' ? rawTheme.trim().slice(0, 60) : '';
+  const concealEverywhere = bool(
+    (parsed as { concealEverywhere?: unknown }).concealEverywhere,
+    false,
+  );
+  const rawHeading = (parsed as { newNoteHeading?: unknown }).newNoteHeading;
+  const newNoteHeading = rawHeading === 'none' ? 'none' : 'h1';
+  const rawInsertAt = (parsed as { insertTagsAt?: unknown }).insertTagsAt;
+  const insertTagsAt = rawInsertAt === 'top' ? 'top' : 'bottom';
 
-  if (typeof sync !== 'object' || sync === null) {
-    return {
-      sync: { ...DEFAULT_SYNC_SETTINGS },
-      attachmentFolder,
-      pinned,
-      sortTodosOnCompletion,
-      completion,
-    };
-  }
-
-  const d = DEFAULT_SYNC_SETTINGS;
-  return {
+  const prefs = {
     attachmentFolder,
     pinned,
     sortTodosOnCompletion,
     completion,
+    typography,
+    theme,
+    concealEverywhere,
+    newNoteHeading,
+    insertTagsAt,
+  } as const;
+
+  if (typeof sync !== 'object' || sync === null) {
+    return { sync: { ...DEFAULT_SYNC_SETTINGS }, ...prefs };
+  }
+
+  const d = DEFAULT_SYNC_SETTINGS;
+  return {
+    ...prefs,
     sync: {
       autoCommit: bool(sync.autoCommit, d.autoCommit),
       autoPush: bool(sync.autoPush, d.autoPush),

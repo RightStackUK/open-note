@@ -44,6 +44,11 @@ describe('normaliseBinding', () => {
     expect(normaliseBinding('alt-ArrowUp')).toBe('Alt-ArrowUp');
   });
 
+  it('spells the minus and plus keys out, since they collide with the separator', () => {
+    expect(normaliseBinding('Mod-Minus')).toBe('Mod-Minus');
+    expect(normaliseBinding('mod-plus')).toBe('Mod-Plus');
+  });
+
   it('returns empty for a modifier with no key', () => {
     expect(normaliseBinding('Mod-Shift')).toBe('');
   });
@@ -82,6 +87,13 @@ describe('bindingFromEvent', () => {
     const event = keyEvent({ key: 'k', metaKey: true, shiftKey: true });
     expect(bindingFromEvent(event, 'mac')).toBe(normaliseBinding('Mod-Shift-K'));
   });
+
+  it('maps a pressed - onto the Minus spelling', () => {
+    // The zoom-out default; `Mod--` cannot survive splitting on `-`.
+    expect(bindingFromEvent(keyEvent({ key: '-', metaKey: true }), 'mac')).toBe(
+      normaliseBinding('Mod-Minus'),
+    );
+  });
 });
 
 describe('formatBinding', () => {
@@ -95,6 +107,10 @@ describe('formatBinding', () => {
 
   it('names the space key', () => {
     expect(formatBinding('Mod- ', 'mac')).toContain('Space');
+  });
+
+  it('shows Minus as the character it stands for', () => {
+    expect(formatBinding('Mod-Minus', 'mac')).toBe('⌘-');
   });
 });
 

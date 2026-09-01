@@ -69,6 +69,14 @@ export {
   parseVaultSettings,
   serialiseVaultSettings,
 } from './sync/settings';
+export type { Theme, ThemeAppearance } from './sync/themes';
+export {
+  BUILT_IN_THEMES,
+  parseTheme,
+  resolveTheme,
+  THEME_COLOR_KEYS,
+  themeCssVariables,
+} from './sync/themes';
 export type {
   FileChange,
   FileState,
@@ -81,3 +89,13 @@ export type {
   SyncState,
 } from './sync/types';
 export { errorCode, errorMessage } from './sync/types';
+export type { TypographySettings } from './sync/typography';
+export {
+  clampZoom,
+  DEFAULT_TYPOGRAPHY,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  parseTypography,
+  typographyCssVariables,
+  ZOOM_STEP,
+} from './sync/typography';

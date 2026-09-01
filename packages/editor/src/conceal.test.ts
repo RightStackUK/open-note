@@ -108,3 +108,26 @@ describe('conceal', () => {
     expect(concealed('just some ordinary words', 0)).toHaveLength(0);
   });
 });
+
+describe('conceal everywhere', () => {
+  /** Same as `concealed`, with the always-conceal preference on. */
+  function concealedEverywhere(doc: string, cursor: number): string[] {
+    const v = view(doc, cursor);
+    const ranges = concealedRangesForTest(v, true);
+    const out = ranges.map((r) => v.state.doc.sliceString(r.from, r.to));
+    v.destroy();
+    return out;
+  }
+
+  it('hides markers on the active line too', () => {
+    // Caret inside the bold text: the default reveals `**`, the preference
+    // keeps hiding it.
+    expect(concealed('some **bold** text', 9)).toEqual([]);
+    expect(concealedEverywhere('some **bold** text', 9)).toEqual(['**', '**']);
+  });
+
+  it('changes nothing off the active line', () => {
+    const doc = '# Title\n\nprose';
+    expect(concealedEverywhere(doc, doc.length)).toEqual(concealed(doc, doc.length));
+  });
+});

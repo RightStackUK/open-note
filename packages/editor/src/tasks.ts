@@ -308,7 +308,7 @@ const taskStyles = EditorView.theme({
     top: '0.08em',
     width: '0.24em',
     height: '0.5em',
-    border: 'solid #fff',
+    border: 'solid var(--on-accent, #fff)',
     borderWidth: '0 2px 2px 0',
     transform: 'rotate(42deg)',
   },

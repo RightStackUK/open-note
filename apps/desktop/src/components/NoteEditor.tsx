@@ -1,3 +1,4 @@
+import { splitFrontmatter } from '@open-note/core';
 import { knownLanguages, renderDiagram } from '@open-note/diagrams';
 import {
   type AttachmentOptions,
@@ -26,6 +27,8 @@ interface NoteEditorProps {
   sortTodosOnCompletion: boolean;
   /** Vault data and the on/off switch for `[[`, `#` and `:` completion. */
   completion: CompletionOptions;
+  /** Conceal Markdown syntax on every line, not just off the active one. */
+  concealEverywhere: boolean;
 }
 
 export interface NoteEditorHandle {
@@ -43,6 +46,8 @@ export interface NoteEditorHandle {
    * the replacement happened.
    */
   replaceRangeIfUnchanged: (from: number, to: number, expected: string, text: string) => boolean;
+  /** Insert a `#tag` line at the top or the bottom of the note. */
+  insertTag: (tag: string, at: 'top' | 'bottom') => void;
 }
 
 export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
@@ -56,6 +61,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
     attachments,
     sortTodosOnCompletion,
     completion,
+    concealEverywhere,
   },
   ref,
 ) {
@@ -73,6 +79,15 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
   sortTodosRef.current = sortTodosOnCompletion;
   const completionRef = useRef(completion);
   completionRef.current = completion;
+  const concealRef = useRef(concealEverywhere);
+  concealRef.current = concealEverywhere;
+
+  // The conceal plugin only recomputes on an update, so an idle editor would
+  // otherwise keep showing the old mode until the next keystroke. An empty
+  // transaction is exactly a repaint request.
+  useEffect(() => {
+    editorView.current?.dispatch({});
+  }, [concealEverywhere]);
 
   useEffect(() => {
     if (!host.current) return;
@@ -93,6 +108,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
       },
       // Read through a ref so toggling the setting does not rebuild the editor.
       sortTodosOnCompletion: () => sortTodosRef.current,
+      concealEverywhere: () => concealRef.current,
       // Likewise: the sources read the index at query time, so a note added
       // since the editor mounted is offered without rebuilding anything.
       completion: {
@@ -151,6 +167,24 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
         if (!view) return { from: 0, to: 0, text: '' };
         const { from, to } = view.state.selection.main;
         return { from, to, text: view.state.doc.sliceString(from, to) };
+      },
+      insertTag(tag: string, at: 'top' | 'bottom') {
+        const view = editorView.current;
+        if (!view) return;
+        const doc = view.state.doc.toString();
+        const line = `#${tag.replace(/^#+/, '')}`;
+
+        if (at === 'bottom') {
+          const insert = doc.length === 0 ? line : doc.endsWith('\n') ? `${line}\n` : `\n\n${line}`;
+          view.dispatch({ changes: { from: doc.length, to: doc.length, insert } });
+          return;
+        }
+
+        // Top means below the frontmatter when there is one: a tag line above
+        // the `---` would corrupt the YAML block. `splitFrontmatter` is the
+        // parser's own reading of where it ends, so the two cannot disagree.
+        const from = splitFrontmatter(doc).bodyOffset;
+        view.dispatch({ changes: { from, to: from, insert: `${line}\n\n` } });
       },
       replaceRangeIfUnchanged(from: number, to: number, expected: string, text: string) {
         const view = editorView.current;

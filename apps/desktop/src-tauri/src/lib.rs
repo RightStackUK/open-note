@@ -429,6 +429,11 @@ fn write_vault_settings(root: String, json: String) -> Result<(), VaultError> {
     vault::write_settings(&PathBuf::from(root), &json)
 }
 
+#[tauri::command]
+fn read_vault_themes(root: String) -> Result<Vec<String>, VaultError> {
+    vault::read_themes(&PathBuf::from(root))
+}
+
 /// What a manual sync actually did, so the UI can say something specific rather
 /// than just "done".
 #[derive(Debug, Serialize)]
@@ -551,6 +556,7 @@ pub fn run() {
             write_vault_keymap,
             read_vault_settings,
             write_vault_settings,
+            read_vault_themes,
             sync_vault,
         ])
         .run(tauri::generate_context!())

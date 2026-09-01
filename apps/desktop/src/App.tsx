@@ -1,13 +1,21 @@
 import {
   attachmentFolderFor,
   COMMANDS,
+  clampZoom,
+  DEFAULT_TYPOGRAPHY,
   dailyNotePath,
   dailyNoteTemplate,
   exportNoteToHtml,
   formatBinding,
+  parseTheme,
+  resolveTheme,
   rewriteLinks,
   searchCommands,
+  type Theme,
   type TodoItem,
+  themeCssVariables,
+  typographyCssVariables,
+  ZOOM_STEP,
 } from '@open-note/core';
 import { editorCommands } from '@open-note/editor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -95,7 +103,10 @@ export function App() {
   const [showClone, setShowClone] = useState(false);
   const [contextTarget, setContextTarget] = useState<ContextTarget | null>(null);
   const [prompt, setPrompt] = useState<
-    { kind: 'newNote' | 'newFolder'; parent: string } | { kind: 'rename'; path: string } | null
+    | { kind: 'newNote' | 'newFolder'; parent: string }
+    | { kind: 'rename'; path: string }
+    | { kind: 'addTag' }
+    | null
   >(null);
   const [deleting, setDeleting] = useState<{ path: string; tracked: boolean | null } | null>(null);
 
@@ -133,7 +144,67 @@ export function App() {
   const session = ws.activeRoot ? ws.sessions[ws.activeRoot] : undefined;
   const paused = ws.activeRoot ? ws.isPaused(ws.activeRoot) : false;
   const vaultIndex = useVaultIndex(ws.activeRoot);
-  const dark = useDarkMode();
+  const systemDark = useDarkMode();
+
+  // -- appearance -----------------------------------------------------------
+
+  const [vaultThemes, setVaultThemes] = useState<Theme[]>([]);
+  useEffect(() => {
+    // Cleared before fetching: the old vault's themes must not stay applied to
+    // the new one while its own are still loading — a same-named theme would
+    // wear the wrong colours.
+    setVaultThemes([]);
+    const root = ws.activeRoot;
+    if (!root) return;
+    let cancelled = false;
+    void api
+      .readThemes(root)
+      .then((raws) => {
+        if (cancelled) return;
+        // parseTheme returns null for unusable files; they are simply absent
+        // from the picker rather than an error in the way.
+        setVaultThemes(raws.map(parseTheme).filter((t): t is Theme => t !== null));
+      })
+      .catch(() => {
+        // A late rejection from the vault being left must not clear the new
+        // vault's already-loaded themes.
+        if (!cancelled) setVaultThemes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ws.activeRoot]);
+
+  // An explicit theme pins the appearance; no theme follows the OS.
+  const activeTheme = session?.theme ? resolveTheme(session.theme, vaultThemes) : null;
+  const dark = activeTheme ? activeTheme.appearance === 'dark' : systemDark;
+
+  /** Zoom is a per-machine reading posture, not a property of the vault. */
+  const [zoom, setZoom] = useState(() =>
+    clampZoom(Number(localStorage.getItem('opennote:zoom') ?? '1')),
+  );
+  const changeZoom = useCallback((next: number) => {
+    const clamped = clampZoom(next);
+    setZoom(clamped);
+    localStorage.setItem('opennote:zoom', String(clamped));
+  }, []);
+
+  // Everything lands as CSS custom properties on the root element: the theme's
+  // colours, then typography. Nothing rebuilds; the text reflows.
+  useEffect(() => {
+    const style = document.documentElement.style;
+    const vars: Record<string, string> = {
+      ...(activeTheme ? themeCssVariables(activeTheme) : {}),
+      ...typographyCssVariables(session?.typography ?? DEFAULT_TYPOGRAPHY, zoom),
+    };
+    for (const [key, value] of Object.entries(vars)) style.setProperty(key, value);
+    // A pinned theme also pins the chrome; otherwise both schemes stay allowed.
+    style.setProperty('color-scheme', activeTheme ? activeTheme.appearance : 'light dark');
+    return () => {
+      for (const key of Object.keys(vars)) style.removeProperty(key);
+      style.removeProperty('color-scheme');
+    };
+  }, [activeTheme, session?.typography, zoom]);
 
   const openVault = ws.openVault;
   useEffect(() => {
@@ -193,6 +264,19 @@ export function App() {
       ws.setError(errorText(e));
     }
   }, [ws, vaultIndex]);
+
+  /**
+   * The freshest known text for the open note.
+   *
+   * Typing lands in `pending` (a ref) ahead of the autosave, so remounting the
+   * editor from `note.doc` alone — which a theme flip does, via the React key —
+   * would resurrect a version up to 500ms stale and let the next keystroke
+   * overwrite what was really written.
+   */
+  const freshestDoc = (open: OpenNote): string =>
+    pending.current && pending.current.root === open.root && pending.current.path === open.path
+      ? pending.current.doc
+      : open.doc;
 
   const onDocChange = useCallback(
     (doc: string) => {
@@ -340,6 +424,12 @@ export function App() {
     editorRef.current?.goToLine(line);
   }, [note]);
 
+  /** What a fresh note contains, per the vault's `newNoteHeading` preference. */
+  const newNoteBody = useCallback(
+    (title: string) => (session?.newNoteHeading === 'none' ? '' : `# ${title}\n\n`),
+    [session?.newNoteHeading],
+  );
+
   const createNote = useCallback(
     async (path: string, body: string) => {
       const root = ws.activeRoot;
@@ -372,9 +462,9 @@ export function App() {
         return;
       }
       const path = target.endsWith('.md') ? target : `${target}.md`;
-      void createNote(path, `# ${target}\n\n`);
+      void createNote(path, newNoteBody(target));
     },
-    [openNoteAt, createNote],
+    [openNoteAt, createNote, newNoteBody],
   );
 
   const saveDrawing = useCallback(
@@ -430,7 +520,7 @@ export function App() {
       const fileName = name.endsWith('.md') ? name : `${name}.md`;
       const path = joinPath(parent, fileName);
       try {
-        const body = `# ${fileName.replace(/\.md$/, '')}\n\n`;
+        const body = newNoteBody(fileName.replace(/\.md$/, ''));
         await api.createNote(root, path, body);
         vaultIndex.updateNote(path, body);
         ws.noteSaved(root);
@@ -440,7 +530,7 @@ export function App() {
         ws.setError(errorText(e));
       }
     },
-    [ws, vaultIndex, openNoteAt],
+    [ws, vaultIndex, openNoteAt, newNoteBody],
   );
 
   const newFolder = useCallback(
@@ -808,6 +898,12 @@ export function App() {
       'note.togglePin': () => void togglePin(),
       'note.duplicate': () => void duplicateNote(),
       'note.fromSelection': () => void noteFromSelection(),
+      'note.addTag': () => {
+        if (noteRef.current) setPrompt({ kind: 'addTag' });
+      },
+      'view.zoomIn': () => changeZoom(zoom + ZOOM_STEP),
+      'view.zoomOut': () => changeZoom(zoom - ZOOM_STEP),
+      'view.zoomReset': () => changeZoom(1),
       // Editing commands are implemented in the editor package and reached
       // through the handle, so there is still exactly one key dispatcher.
       ...Object.fromEntries(
@@ -822,7 +918,18 @@ export function App() {
       'view.branches': () => togglePanel('branches'),
       'vault.clone': () => setShowClone(true),
     }),
-    [openPalette, createNote, sync, ws, paused, togglePanel, duplicateNote, noteFromSelection],
+    [
+      openPalette,
+      createNote,
+      sync,
+      ws,
+      paused,
+      togglePanel,
+      duplicateNote,
+      noteFromSelection,
+      changeZoom,
+      zoom,
+    ],
   );
 
   useCommandKeys(vaultIndex.keymap, handlers, palette === null);
@@ -952,7 +1059,7 @@ export function App() {
     }
     if (id.startsWith(CREATE_PREFIX)) {
       const name = id.slice(CREATE_PREFIX.length);
-      void createNote(`${name}.md`, `# ${name}\n\n`);
+      void createNote(`${name}.md`, newNoteBody(name));
       return;
     }
     void openNoteAt(id);
@@ -1176,16 +1283,19 @@ export function App() {
             <TextEditor
               key={`${session.info.root}:${note.path}:${note.revision}`}
               path={note.path}
-              doc={note.doc}
+              doc={freshestDoc(note)}
               onChange={onDocChange}
             />
           ) : note ? (
             <NoteEditor
               // `dark` is in the key because diagram SVGs bake in their colours
-              // and must be redrawn when the theme changes.
+              // and must be redrawn when the appearance flips. That remount is
+              // why the doc comes from `freshestDoc`: state can be an autosave
+              // interval behind the editor. Typography changes stay pure CSS
+              // and never come through here.
               key={`${session.info.root}:${note.path}:${note.revision}:${dark}`}
               path={note.path}
-              doc={note.doc}
+              doc={freshestDoc(note)}
               onChange={onDocChange}
               resolveLink={(target) => vaultIndex.index.resolveLink(target)}
               onFollowLink={followLink}
@@ -1193,6 +1303,7 @@ export function App() {
               attachments={attachments}
               sortTodosOnCompletion={session.sortTodosOnCompletion}
               completion={completion}
+              concealEverywhere={session.concealEverywhere}
               ref={editorRef}
             />
           ) : drawing ? (
@@ -1334,7 +1445,13 @@ export function App() {
             prefs={{
               sortTodosOnCompletion: session.sortTodosOnCompletion,
               completion: session.completion,
+              concealEverywhere: session.concealEverywhere,
+              newNoteHeading: session.newNoteHeading,
+              insertTagsAt: session.insertTagsAt,
+              theme: session.theme,
+              typography: session.typography,
             }}
+            themes={vaultThemes}
             onChange={(next) => void ws.updateSettings(session.info.root, next)}
             onPausedChange={(p) => ws.setPaused(session.info.root, p)}
             onPrefsChange={(next) => void ws.updatePrefs(session.info.root, next)}
@@ -1446,6 +1563,30 @@ export function App() {
           onConfirm={(name) => {
             setPrompt(null);
             void newFolder(prompt.parent, name);
+          }}
+        />
+      )}
+
+      {prompt?.kind === 'addTag' && (
+        <Prompt
+          title="Add tag"
+          label="Tag"
+          hint={`Added at the ${session?.insertTagsAt ?? 'bottom'} of the note. Nested tags like project/alpha work too.`}
+          confirmLabel="Add"
+          onClose={() => setPrompt(null)}
+          onConfirm={(tag) => {
+            setPrompt(null);
+            // Normalise to something the indexer will actually record —
+            // inserting `#hello world` and reporting success while the index
+            // only sees `#hello` would be a quiet lie.
+            const cleaned = tag.trim().replace(/^#+/, '').replace(/\s+/g, '-');
+            const valid = /^[\p{L}\p{N}][\p{L}\p{N}_/-]*$/u.test(cleaned) && !/^\d+$/.test(cleaned);
+            if (!cleaned) return;
+            if (!valid) {
+              setMessage(`“${cleaned}” cannot be a tag — tags are letters, numbers, - _ and /.`);
+              return;
+            }
+            editorRef.current?.insertTag(cleaned, session?.insertTagsAt ?? 'bottom');
           }}
         />
       )}

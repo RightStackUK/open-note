@@ -14,7 +14,7 @@ import {
 
 import { type AttachmentOptions, attachmentPaste, inlineImages } from './attachments';
 import { type CompletionOptions, noteCompletion } from './completion';
-import { concealMarkdownSyntax } from './conceal';
+import { concealMarkdown } from './conceal';
 import { type DiagramOptions, diagramBlocks } from './diagrams';
 import { autoSortCompletedTasks, taskCheckboxes } from './tasks';
 import { markdownTheme } from './theme';
@@ -26,7 +26,8 @@ export { attachmentPaste, inlineImages } from './attachments';
 export { editorCommands, isEditorCommand } from './commands';
 export type { CompletionNote, CompletionOptions } from './completion';
 export { noteCompletion } from './completion';
-export { concealedRangesForTest, concealMarkdownSyntax } from './conceal';
+export type { ConcealOptions } from './conceal';
+export { concealedRangesForTest, concealMarkdown, concealMarkdownSyntax } from './conceal';
 export type { DiagramOptions, DiagramRenderResult } from './diagrams';
 export { diagramBlocks } from './diagrams';
 export type { Alignment, ParsedTable } from './tables';
@@ -68,6 +69,8 @@ export interface CreateEditorOptions {
   sortTodosOnCompletion?: () => boolean;
   /** Enables `[[`, `#` and `:` completion when provided. */
   completion?: CompletionOptions;
+  /** Conceal Markdown syntax on every line, not just off the active one. */
+  concealEverywhere?: () => boolean;
 }
 
 export function markdownEditorExtensions(options: CreateEditorOptions = { parent: null as never }) {
@@ -86,7 +89,7 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     search({ top: true }),
     EditorView.lineWrapping,
     markdownTheme,
-    concealMarkdownSyntax,
+    concealMarkdown({ everywhere: options.concealEverywhere }),
     taskCheckboxes,
     options.sortTodosOnCompletion ? autoSortCompletedTasks(options.sortTodosOnCompletion) : [],
     options.wikiLinks ? wikiLinks(options.wikiLinks) : [],

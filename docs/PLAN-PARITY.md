@@ -14,7 +14,7 @@ This plan does **not** revisit the decisions in
 they conflict with them — recorded in [Rejected](#rejected) at the end so they
 stop coming back as feature requests.
 
-**Status:** in progress. Blocks 1 and 2 landed; Block 3 next.
+**Status:** in progress. Blocks 1–3 landed; Block 4 next.
 
 ---
 
@@ -164,7 +164,7 @@ Details that decide whether this is good or annoying:
 
 ---
 
-## Block 3 — Typography, themes and the settings surface
+## Block 3 — Typography, themes and the settings surface ✅
 
 *The app is for writing prose and offers no control over how the prose looks.
 `editorTheme` was deliberately written CSS-variable-first for exactly this and
@@ -724,6 +724,10 @@ Audited, and deliberately not planned. Recorded so they do not return.
 | Fetch page titles for pasted URLs? | **Yes, but off by default.** It is a network request triggered by a keystroke. |
 | Where does completion decide what a `#` means? | **The tag grammar is shared with the indexer** via `partialTagBefore` in `parse.ts`, so completion can never offer a tag the index then refuses to record. Whether the caret is *in code* comes from the editor's own syntax tree rather than the indexer's regex mask — on screen, agreeing with the tree is what looks right. |
 | A full emoji table, or a curated one? | **Curated (~100 entries), GitHub shortcode names.** The full Unicode set is ~1,800 entries loaded on every `:` keystroke for choices nobody scrolls to. It lives in `core` because the Block 7 tag-icon picker needs the same table. |
+| What may a theme set? | **A whitelisted set of colour variables, values validated as colours.** A vault can be cloned from anywhere, so a theme file is untrusted input: it gets to recolour the app, not to define arbitrary custom properties. |
+| Font pickers: enumerate system fonts? | **No — a datalist of suggestions over a free-text input.** The webview cannot enumerate installed fonts without a native call on each platform, and an unknown family name degrades gracefully to the default stack anyway. |
+| Where does zoom live? | **Per machine (localStorage), not in the vault.** Zoom is a reading posture for this screen; the font size in `.opennote/settings.json` is the setting that travels. |
+| Does switching theme rebuild the editor? | **Only when the appearance flips between light and dark**, because rendered diagram SVGs bake their colours in and must be redrawn. Same-appearance theme changes and every typography change are pure CSS. The remount reads the freshest document — including edits still inside the autosave window — so it can never lose typing. |
 | Is anything destructive reachable by URL? | **No.** No delete, no overwrite. `append` is additive, `new` refuses to clobber. |
 | Automation surface: native frameworks or a CLI? | **A CLI plus a URL scheme.** Works on all three platforms, needs no native target, and survives the move to mobile. |
 | Multiple windows, or split view first? | **Split view first** ([#5](https://github.com/RightStackUK/open-note/issues/5)). It forces the same refactor while keeping state in one process. |

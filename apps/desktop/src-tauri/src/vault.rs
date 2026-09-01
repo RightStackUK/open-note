@@ -735,6 +735,72 @@ pub fn read_keymap(root: &Path) -> Result<Option<String>> {
     read_config(root, KEYMAP_PATH)
 }
 
+/// Cap so a directory of junk cannot balloon the IPC payload.
+const MAX_THEMES: usize = 100;
+const MAX_THEME_BYTES: u64 = 64 * 1024;
+/// Stop scanning a directory stuffed with entries; collecting and sorting all
+/// of them first would make the caps above advisory rather than real.
+const MAX_THEME_DIR_SCAN: usize = 1000;
+
+/// Every `.opennote/themes/*.json`, raw. Parsing and validation belong to the
+/// frontend, which owns the schema; this side only moves bytes, like settings.
+///
+/// A vault can be cloned from anywhere, so the directory's contents are
+/// untrusted: symlinks are skipped rather than followed (a committed link to
+/// `~/.ssh/config.json` must not read it), and every read is capped at the
+/// open file descriptor rather than by a separate stat that a concurrent
+/// replace could race past.
+pub fn read_themes(root: &Path) -> Result<Vec<String>> {
+    use std::io::Read;
+
+    let dir = match resolve_within(root, &format!("{CONFIG_DIR}/themes")) {
+        Ok(dir) => dir,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+    };
+
+    // Sorted so the list is stable across platforms and runs; readdir order
+    // is neither. The scan itself is bounded before collecting.
+    let mut paths: Vec<PathBuf> = entries
+        .take(MAX_THEME_DIR_SCAN)
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            // `file_type` on the entry does not follow links, which is the point.
+            entry.file_type().is_ok_and(|t| t.is_file())
+        })
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+        })
+        .collect();
+    paths.sort();
+
+    let mut themes = Vec::new();
+    for path in paths.into_iter().take(MAX_THEMES) {
+        let Ok(file) = fs::File::open(&path) else {
+            continue;
+        };
+        // Belt and braces for the window between readdir and open.
+        let Ok(meta) = file.metadata() else { continue };
+        if !meta.is_file() || meta.len() > MAX_THEME_BYTES {
+            continue;
+        }
+        let mut raw = String::new();
+        // The cap is on this descriptor, so growing the file concurrently
+        // cannot smuggle more bytes past it.
+        if file.take(MAX_THEME_BYTES).read_to_string(&mut raw).is_ok() {
+            themes.push(raw);
+        }
+    }
+    Ok(themes)
+}
+
 pub fn write_keymap(root: &Path, json: &str) -> Result<()> {
     write_config(root, KEYMAP_PATH, json)
 }
@@ -1346,6 +1412,53 @@ mod tests {
             read_settings(&root).expect("read").as_deref(),
             Some(r#"{"sync":{"autoPush":true}}"#)
         );
+    }
+
+    #[test]
+    fn reads_themes_sorted_and_skips_non_json() {
+        let (_d, root) = vault();
+        let dir = root.join(".opennote/themes");
+        fs::create_dir_all(&dir).expect("mkdir");
+        fs::write(dir.join("b.json"), r#"{"name":"B"}"#).expect("write");
+        fs::write(dir.join("a.json"), r#"{"name":"A"}"#).expect("write");
+        fs::write(dir.join("readme.txt"), "not a theme").expect("write");
+
+        let themes = read_themes(&root).expect("read");
+        assert_eq!(themes, vec![r#"{"name":"A"}"#, r#"{"name":"B"}"#]);
+    }
+
+    #[test]
+    fn a_vault_without_themes_reads_as_empty() {
+        let (_d, root) = vault();
+        assert!(read_themes(&root).expect("read").is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_theme_symlink_is_never_followed() {
+        // A vault can be cloned from anywhere; a committed symlink pointing at
+        // a file outside the vault must not read it.
+        let (_d, root) = vault();
+        let dir = root.join(".opennote/themes");
+        fs::create_dir_all(&dir).expect("mkdir");
+
+        let outside = TempDir::new().expect("outside dir");
+        let secret = outside.path().join("secret.json");
+        fs::write(&secret, r#"{"name":"stolen"}"#).expect("write secret");
+        std::os::unix::fs::symlink(&secret, dir.join("evil.json")).expect("symlink");
+        fs::write(dir.join("ok.json"), r#"{"name":"ok"}"#).expect("write");
+
+        assert_eq!(read_themes(&root).expect("read"), vec![r#"{"name":"ok"}"#]);
+    }
+
+    #[test]
+    fn an_oversized_theme_file_is_skipped_not_fatal() {
+        let (_d, root) = vault();
+        let dir = root.join(".opennote/themes");
+        fs::create_dir_all(&dir).expect("mkdir");
+        fs::write(dir.join("big.json"), "x".repeat(65 * 1024)).expect("write");
+        fs::write(dir.join("ok.json"), r#"{"name":"ok"}"#).expect("write");
+        assert_eq!(read_themes(&root).expect("read"), vec![r#"{"name":"ok"}"#]);
     }
 
     #[test]

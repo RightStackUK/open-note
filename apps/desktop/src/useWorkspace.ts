@@ -4,6 +4,7 @@ import {
   type SyncSettings,
   type SyncState,
   serialiseVaultSettings,
+  type TypographySettings,
   type VaultSettings,
   VaultSync,
 } from '@open-note/core';
@@ -31,6 +32,16 @@ export interface VaultSession {
   sortTodosOnCompletion: boolean;
   /** Offer `[[`, `#` and `:` completion while typing. */
   completion: boolean;
+  /** How the prose looks; applied as CSS variables. */
+  typography: TypographySettings;
+  /** Theme name; empty follows the OS. */
+  theme: string;
+  /** Conceal Markdown syntax on every line, not just off the active one. */
+  concealEverywhere: boolean;
+  /** What a new note starts with. */
+  newNoteHeading: 'h1' | 'none';
+  /** Where `note.addTag` puts the tag. */
+  insertTagsAt: 'top' | 'bottom';
 }
 
 /**
@@ -106,6 +117,11 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             pinned: vaultSettings.pinned,
             sortTodosOnCompletion: vaultSettings.sortTodosOnCompletion,
             completion: vaultSettings.completion,
+            typography: vaultSettings.typography,
+            theme: vaultSettings.theme,
+            concealEverywhere: vaultSettings.concealEverywhere,
+            newNoteHeading: vaultSettings.newNoteHeading,
+            insertTagsAt: vaultSettings.insertTagsAt,
           },
         }));
         setActiveRoot(info.root);
@@ -180,6 +196,11 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             pinned: session.pinned,
             sortTodosOnCompletion: session.sortTodosOnCompletion,
             completion: session.completion,
+            typography: session.typography,
+            theme: session.theme,
+            concealEverywhere: session.concealEverywhere,
+            newNoteHeading: session.newNoteHeading,
+            insertTagsAt: session.insertTagsAt,
             ...override,
           }),
         );
