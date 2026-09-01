@@ -122,10 +122,33 @@ Then trigger a deploy without waiting for a commit:
 gh workflow run deploy-site.yml
 ```
 
-State is local by default, which is fine while one person owns the stack. Point
-the commented backend in `versions.tf` at a bucket before a second person
-applies — two local states diverge silently, and the second apply starts trying
-to recreate everything.
+### State
+
+State lives in S3, in `open-note-terraform-state` under `site/terraform.tfstate`,
+with versioning on and 90 days of old versions kept. There is nothing to keep
+safe on your laptop.
+
+Locking is the S3-native kind (`use_lockfile`, Terraform 1.10+), which holds a
+`.tflock` object beside the state — a second `terraform` is refused with a 412
+rather than quietly racing. That replaces the DynamoDB table this used to
+require, which was a whole second resource to provision and pay for.
+
+The bucket is **created by hand**, not by this stack, and that is not an
+oversight: Terraform would need the bucket to already exist in order to store
+the state that records the bucket. It also means `terraform destroy` cannot take
+the state with it. To recreate it from nothing:
+
+```bash
+B=open-note-terraform-state
+aws s3api create-bucket --bucket $B --region eu-west-2 \
+  --create-bucket-configuration LocationConstraint=eu-west-2
+aws s3api put-public-access-block --bucket $B --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+aws s3api put-bucket-versioning --bucket $B --versioning-configuration Status=Enabled
+```
+
+Versioning matters more than it looks: it is the only way back from a state file
+that gets truncated or corrupted mid-write.
 
 ## What the deploy does
 

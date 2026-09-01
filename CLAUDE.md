@@ -162,7 +162,10 @@ photographs it with headless Chrome. Regenerate them after a UI change rather th
 letting them drift.
 
 `infra/site` is Terraform for the hosting — a private bucket, CloudFront, DNS, and the IAM
-role GitHub Actions assumes over OIDC — and it is applied **by hand**. `deploy-site.yml`
+role GitHub Actions assumes over OIDC — and it is applied **by hand**, with state in S3
+(`open-note-terraform-state`) locked via `use_lockfile`. That state bucket is deliberately
+not managed by the stack: Terraform would need it to exist in order to record its own
+existence. `deploy-site.yml`
 runs on push to `main` and can replace the site's contents and invalidate the cache, and
 deliberately nothing else.
 

@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.9"
+  required_version = ">= 1.10" # use_lockfile in the S3 backend needs it
 
   required_providers {
     aws = {
@@ -12,15 +12,25 @@ terraform {
     }
   }
 
-  # State is local by default, which is fine while one person owns this stack.
-  # Point it at a bucket before a second person applies it — two local states
-  # diverge silently and the second apply starts trying to recreate everything.
+  # State lives in S3, not on one laptop: a local state file is a single point
+  # of failure that, once lost, leaves Terraform unaware it owns any of this and
+  # planning to create all of it a second time.
   #
-  # backend "s3" {
-  #   bucket = "opennote-tfstate"
-  #   key    = "site/terraform.tfstate"
-  #   region = "eu-west-2"
-  # }
+  # The bucket is created out of band — see docs/DEPLOYING-SITE.md. It cannot be
+  # managed here, because Terraform would need the bucket to exist in order to
+  # store the state that records the bucket.
+  backend "s3" {
+    bucket = "open-note-terraform-state"
+    key    = "site/terraform.tfstate"
+    region = "eu-west-2"
+
+    # Native S3 locking, added in Terraform 1.10 — it holds a .tflock object
+    # beside the state. The DynamoDB table this used to require was a whole
+    # second resource to provision and pay for, and is now unnecessary.
+    use_lockfile = true
+
+    encrypt = true
+  }
 }
 
 provider "aws" {
