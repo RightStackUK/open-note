@@ -2315,6 +2315,19 @@ export function App() {
     dayStamp,
   ]);
 
+  // Hoisted above the `booting` / `!session` early returns: it is a hook, and
+  // a hook that renders only on some passes makes React count a different
+  // number each time and tear the component down.
+  // Every title against every body is real work, so it runs off the cached
+  // plain text, only while the panel is up, and capped — as the plan asks.
+  // biome-ignore format: the memo deps line up better unwrapped
+  const notePath = note?.path ?? null;
+  const infoOpen = info.open && info.tab === 'backlinks';
+  const mentions = useMemo(
+    () => (notePath && infoOpen ? vaultIndex.index.unlinkedMentions(notePath, 12) : []),
+    [notePath, infoOpen, vaultIndex],
+  );
+
   if (booting) return <main className="welcome" />;
 
   if (!session) {
@@ -2386,15 +2399,6 @@ export function App() {
   );
 
   const backlinks = note ? vaultIndex.index.backlinks(note.path) : [];
-  // Every title against every body is real work, so it runs off the cached
-  // plain text, only while the panel is up, and capped — as the plan asks.
-  // biome-ignore format: the memo deps line up better unwrapped
-  const notePath = note?.path ?? null;
-  const infoOpen = info.open && info.tab === 'backlinks';
-  const mentions = useMemo(
-    () => (notePath && infoOpen ? vaultIndex.index.unlinkedMentions(notePath, 12) : []),
-    [notePath, infoOpen, vaultIndex],
-  );
   const noteTags = note ? (vaultIndex.index.get(note.path)?.tags ?? []) : [];
   const todos = showTodos ? vaultIndex.index.todos() : [];
 
