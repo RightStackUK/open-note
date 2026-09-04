@@ -130,6 +130,15 @@ Every path crossing the IPC goes through `vault::resolve_within`, which rejects 
 `reject_protected`, which refuses the vault root and anything under `.git` — deleting is recursive,
 so either would be catastrophic.
 
+### The window chrome is ours to draw
+
+`titleBarStyle: "Overlay"` means there is no native bar, so the header strip carries
+`data-tauri-drag-region="deep"` and the runtime moves the window. `-webkit-app-region` is a
+Chromium property that WKWebView does not implement — it looks right and does nothing on macOS.
+The drag also needs `core:window:allow-start-dragging` in `capabilities/default.json`, which
+`core:default` does **not** include; without it the strip is dead and nothing says why.
+`apps/desktop/src/titlebarDrag.test.ts` pins all three.
+
 ### Settings live in the repo
 
 Per-vault settings are `.opennote/settings.json` and `.opennote/keymap.json`, so they travel with

@@ -2557,7 +2557,11 @@ export function App() {
 
   return (
     <div className="app">
-      <header className="titlebar">
+      {/* WKWebView ignores `-webkit-app-region`, so the drag region is
+          declared for Tauri instead. "deep" makes the whole strip
+          grabbable; the runtime still lets buttons take their own
+          clicks. Needs `core:window:allow-start-dragging`. */}
+      <header className="titlebar" data-tauri-drag-region="deep">
         <nav className="vault-tabs">
           {openVaults.map((s) => (
             <button
