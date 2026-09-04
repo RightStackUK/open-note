@@ -1,3 +1,4 @@
+pub mod menu;
 pub mod prefs;
 // Public so the integration tests can drive the same code the commands wrap.
 pub mod vault;
@@ -42,18 +43,31 @@ fn config_dir(app: &tauri::AppHandle) -> PathBuf {
         .expect("the platform always provides a config directory")
 }
 
-/// Vaults opened before, most recent first. Entries whose folder has since been
-/// moved or deleted are dropped rather than offered.
-#[tauri::command]
-fn recent_vaults(app: tauri::AppHandle) -> Vec<String> {
-    let dir = config_dir(&app);
+/// Read the recent list and bring File → Open Recent back in step with it.
+///
+/// Every read and every change goes through here, which is what keeps the menu
+/// and the welcome screen showing one list rather than two copies that
+/// disagree the first time an entry is removed. Pruning happens on read, so
+/// this is also where a vault that has since been deleted stops being offered.
+fn recents(app: &tauri::AppHandle) -> Vec<String> {
+    let dir = config_dir(app);
     let mut p = prefs::load(&dir);
     let before = p.recent_vaults.len();
     prefs::prune_missing(&mut p);
     if p.recent_vaults.len() != before {
         let _ = prefs::save(&dir, &p);
     }
+    // A menu that cannot be rebuilt is not a reason to fail the call the user
+    // actually made.
+    let _ = menu::refresh_recents(app, &p.recent_vaults);
     p.recent_vaults
+}
+
+/// Vaults opened before, most recent first. Entries whose folder has since been
+/// moved or deleted are dropped rather than offered.
+#[tauri::command]
+fn recent_vaults(app: tauri::AppHandle) -> Vec<String> {
+    recents(&app)
 }
 
 #[tauri::command]
@@ -62,6 +76,26 @@ fn forget_vault(app: tauri::AppHandle, root: String) {
     let mut p = prefs::load(&dir);
     prefs::forget(&mut p, &root);
     let _ = prefs::save(&dir, &p);
+    recents(&app);
+}
+
+/// Show the keymap's binding for `vault.open` next to File → Open…
+///
+/// Pushed from the webview because the keymap lives in the vault, is resolved
+/// there, and can change while the app is running.
+#[tauri::command]
+fn set_open_accelerator(app: tauri::AppHandle, accelerator: Option<String>) {
+    let _ = menu::set_open_accelerator(&app, accelerator.as_deref());
+}
+
+/// Empty the recent list — File → Open Recent → Clear Menu.
+#[tauri::command]
+fn clear_recent_vaults(app: tauri::AppHandle) {
+    let dir = config_dir(&app);
+    let mut p = prefs::load(&dir);
+    p.recent_vaults.clear();
+    let _ = prefs::save(&dir, &p);
+    recents(&app);
 }
 
 #[tauri::command]
@@ -74,6 +108,7 @@ fn open_vault(app: tauri::AppHandle, root: String) -> Result<VaultInfo, VaultErr
     let mut p = prefs::load(&dir);
     prefs::remember(&mut p, &info.root);
     let _ = prefs::save(&dir, &p);
+    recents(&app);
 
     Ok(info)
 }
@@ -840,12 +875,22 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .setup(|app| {
+            menu::install(app.handle())?;
+            // The list is read at startup anyway; doing it here fills the
+            // submenu before the window is first shown.
+            recents(app.handle());
+            Ok(())
+        })
+        .on_menu_event(menu::on_event)
         .invoke_handler(tauri::generate_handler![
             git_probe,
             pick_vault,
             open_vault,
             recent_vaults,
             forget_vault,
+            clear_recent_vaults,
+            set_open_accelerator,
             list_vault_files,
             read_note,
             write_note,

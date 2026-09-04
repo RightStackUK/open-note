@@ -73,6 +73,9 @@ export const api = {
   openVault: (root: string) => invoke<VaultInfo>('open_vault', { root }),
   recentVaults: () => invoke<string[]>('recent_vaults'),
   forgetVault: (root: string) => invoke<void>('forget_vault', { root }),
+  clearRecentVaults: () => invoke<void>('clear_recent_vaults'),
+  setOpenAccelerator: (accelerator: string | null) =>
+    invoke<void>('set_open_accelerator', { accelerator }),
   listFiles: (root: string) => invoke<VaultFile[]>('list_vault_files', { root }),
   readNote: (root: string, path: string) => invoke<string>('read_note', { root, path }),
   writeNote: (root: string, path: string, contents: string) =>

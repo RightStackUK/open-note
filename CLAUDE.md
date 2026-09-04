@@ -99,6 +99,18 @@ Ten commands once shipped declared, bound and listed while doing nothing.
 `apps/desktop/src/commandCoverage.test.ts` exists to stop that recurring — any new command needs an
 app handler or an editor implementation.
 
+The application menu (`apps/desktop/src-tauri/src/menu.rs`) is the third surface and does **nothing
+in Rust**: each item emits one `menu://command` event and `App.tsx` runs the registry handler, so
+the menu is not a second dispatcher. Two consequences worth knowing. Setting a menu *replaces* the
+platform default wholesale, so Quit, Hide, Edit's Cut/Copy/Paste and the rest are re-declared there
+— dropping one is silent. And File → Open Recent is **rebuilt from the recent list on every change**
+rather than built once at startup: `lib.rs`'s `recents()` is the only path that reads the list, and
+every command that changes it ends there. A submenu built at setup is wrong by the second vault
+opened and goes on offering vaults that have since been deleted, which reads as stale data rather
+than a bug. Menu accelerators are pushed from the webview (`set_open_accelerator`) for the same
+reason: one declared in Rust would both show a stale chord after a rebind and swallow it before the
+webview saw it.
+
 ### Two editors, one package
 
 `createMarkdownEditor` is for notes; `createTextEditor` (`text.ts`) is for everything else a

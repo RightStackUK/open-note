@@ -78,6 +78,7 @@ import { SyncBadge } from './components/SyncBadge';
 import { TagPanel } from './components/TagPanel';
 import { TextEditor } from './components/TextEditor';
 import { TodoView } from './components/TodoView';
+import { MENU_EVENT, MENU_ONLY, type MenuCommand } from './menu';
 import { relativeFrom, resolveAgainst } from './paths';
 import { PLATFORM, useCommandKeys } from './useCommands';
 import { useDarkMode } from './useDarkMode';
@@ -388,6 +389,21 @@ export function App() {
     await ws.openVault(picked);
     setRecents(await api.recentVaults());
   }, [ws]);
+
+  const openRecent = useCallback(
+    async (root: string) => {
+      await ws.openVault(root);
+      // Opening reorders the list, and a vault that has since been deleted is
+      // pruned on the way back out.
+      setRecents(await api.recentVaults());
+    },
+    [ws],
+  );
+
+  const clearRecents = useCallback(async () => {
+    await api.clearRecentVaults();
+    setRecents(await api.recentVaults());
+  }, []);
 
   const flush = useCallback(async () => {
     const outstanding = pending.current;
@@ -2169,6 +2185,7 @@ export function App() {
         void focusWindow();
         setPrompt({ kind: 'newNote', parent: '' });
       },
+      'vault.open': () => void choose(),
       'vault.importFolder': () => void importFolder(),
       'note.fromSelection': () => void noteFromSelection(),
       'note.addTag': () => {
@@ -2237,6 +2254,7 @@ export function App() {
     [
       openPalette,
       createNote,
+      choose,
       sync,
       ws,
       paused,
@@ -2259,6 +2277,62 @@ export function App() {
 
   useCommandKeys(vaultIndex.keymap, handlers, palette === null);
   handlersRef.current = handlers;
+
+  /**
+   * The application menu.
+   *
+   * It is built in Rust but performs nothing there: each item emits one event
+   * and the work happens here, so opening a vault has a single implementation.
+   * Anything that names a `COMMANDS` id runs the registry handler — the same
+   * one the palette and the keymap reach — rather than becoming a second
+   * dispatcher beside it. The recent-vault items are the exception, and
+   * deliberately so: they take an argument, which a registry command cannot.
+   */
+  const onMenuRef = useRef<(payload: MenuCommand) => void>(() => {});
+  onMenuRef.current = ({ command, arg }) => {
+    if (command === MENU_ONLY.openRecent) {
+      if (arg) void openRecent(arg);
+      return;
+    }
+    if (command === MENU_ONLY.clearRecents) {
+      void clearRecents();
+      return;
+    }
+    (handlers as Record<string, (() => void) | undefined>)[command]?.();
+  };
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    // Unmounting before `listen` resolves would otherwise leave the listener
+    // attached and the next mount would add a second one — which under
+    // StrictMode is every mount, and shows up as two folder pickers.
+    let cancelled = false;
+    void (async () => {
+      const { listen } = await import('@tauri-apps/api/event');
+      const stop = await listen<MenuCommand>(MENU_EVENT, (event) => {
+        onMenuRef.current(event.payload);
+      });
+      if (cancelled) stop();
+      else unlisten = stop;
+    })().catch(() => {
+      // No shell, no menu — the browser harness.
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // File → Open… shows whatever the keymap currently binds, and claims the
+  // chord only while the keymap does. Declaring it in Rust would go stale the
+  // moment someone rebinds the command.
+  const openBinding = vaultIndex.keymap.byCommand.get('vault.open') ?? null;
+  useEffect(() => {
+    void api
+      .setOpenAccelerator(openBinding ? bindingToAccelerator(openBinding) : null)
+      .catch(() => {
+        // Older shell, or the browser harness.
+      });
+  }, [openBinding]);
 
   // Confirmations should not need dismissing; errors should, because an error
   // the user never read is an error they will hit again.

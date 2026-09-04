@@ -96,6 +96,13 @@ export const COMMANDS: CommandDefinition[] = [
     keywords: ['archive', 'put away', 'hide'],
   },
   {
+    id: 'vault.open',
+    title: 'Open vault…',
+    category: 'Note',
+    binding: 'Mod-O',
+    keywords: ['vault', 'folder', 'switch', 'repository'],
+  },
+  {
     id: 'vault.importFolder',
     title: 'New vault from a folder…',
     category: 'Note',
@@ -656,6 +663,9 @@ export const KEYMAP_SCHEMES: Record<string, Record<string, string | null>> = {
     'search.open': 'Mod-K',
     'edit.wikilink': 'Mod-Shift-K',
     'switcher.open': 'Mod-O',
+    // Which leaves the vault picker with no chord in this scheme; it is still
+    // in the palette and on File → Open…
+    'vault.open': null,
   },
 };
 
