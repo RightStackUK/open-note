@@ -426,6 +426,15 @@ export const COMMANDS: CommandDefinition[] = [
   // View
   { id: 'view.toggleSidebar', title: 'Toggle sidebar', category: 'View', binding: 'Mod-\\' },
   {
+    id: 'view.toggleList',
+    title: 'Toggle note list',
+    category: 'View',
+    // Beside the sidebar's chord: the two panes sit next to each other and are
+    // hidden and shown for the same reasons.
+    binding: 'Mod-Shift-\\',
+    keywords: ['list', 'notes', 'pane', 'collections', 'today', 'untagged'],
+  },
+  {
     id: 'view.outline',
     title: 'Outline and word count',
     category: 'View',

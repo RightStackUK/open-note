@@ -46,7 +46,7 @@ import {
 } from '@open-note/core';
 import { sanitiseSvg } from '@open-note/diagrams';
 import { editorCommands } from '@open-note/editor';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api, type VaultFile } from './api';
 import { BranchMenu } from './components/BranchMenu';
@@ -72,6 +72,7 @@ import {
   type PaletteMode,
   searchItems,
 } from './components/Palette';
+import { PaneResizer } from './components/PaneResizer';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Sidebar } from './components/Sidebar';
 import { SyncBadge } from './components/SyncBadge';
@@ -79,6 +80,7 @@ import { TagPanel } from './components/TagPanel';
 import { TextEditor } from './components/TextEditor';
 import { TodoView } from './components/TodoView';
 import { MENU_EVENT, MENU_ONLY, type MenuCommand } from './menu';
+import { PANE_DEFAULTS, PANE_LIMITS, type PaneWidths, readPaneWidths } from './panes';
 import { relativeFrom, resolveAgainst } from './paths';
 import { PLATFORM, useCommandKeys } from './useCommands';
 import { useDarkMode } from './useDarkMode';
@@ -173,6 +175,14 @@ export function App() {
   const [showList, setShowList] = useState(
     () => localStorage.getItem('opennote:pane:list') !== 'off',
   );
+  // Pane widths, in px, machine-local like the pane visibility above: how wide
+  // the tree is on this screen has nothing to do with the vault, so it does not
+  // belong in `.opennote/` where it would travel to a laptop with a different
+  // display. Read once; `PANE_DEFAULTS` covers a first run or a corrupt value.
+  const [paneWidths, setPaneWidths] = useState(readPaneWidths);
+  const setPaneWidth = useCallback((pane: keyof PaneWidths, next: (previous: number) => number) => {
+    setPaneWidths((prev) => ({ ...prev, [pane]: Math.round(next(prev[pane])) }));
+  }, []);
   const [collection, setCollection] = useState<Collection>({ kind: 'all' });
   /** Search follows the active collection until the chip is dismissed. */
   const [searchScoped, setSearchScoped] = useState(true);
@@ -259,6 +269,10 @@ export function App() {
     localStorage.setItem('opennote:pane:tree', showSidebar ? 'on' : 'off');
     localStorage.setItem('opennote:pane:list', showList ? 'on' : 'off');
   }, [showSidebar, showList]);
+
+  useEffect(() => {
+    localStorage.setItem('opennote:pane:widths', JSON.stringify(paneWidths));
+  }, [paneWidths]);
 
   /**
    * Created dates, from the first commit that added each path.
@@ -2171,6 +2185,7 @@ export function App() {
       },
       'sync.settings': () => togglePanel('settings'),
       'view.toggleSidebar': () => setShowSidebar((v) => !v),
+      'view.toggleList': () => setShowList((v) => !v),
       'view.toggleBacklinks': () =>
         setInfo((prev) =>
           prev.open && prev.tab === 'backlinks'
@@ -2491,6 +2506,26 @@ export function App() {
   const openVaults = Object.values(ws.sessions);
   const conflicted = session.state.phase === 'conflict';
 
+  /**
+   * Whether anything is docked on the right, and so whether the divider that
+   * sizes it should be there at all.
+   *
+   * Derived once rather than repeated at the resizer: six panels share that
+   * edge, and a condition copied beside them would drift the first time one of
+   * them grew a new guard.
+   */
+  const infoPanelOpen = Boolean(
+    note?.kind === 'markdown' && info.open && !conflicted && !showTodos && panel === null,
+  );
+  const historyPanelOpen = panel === 'history' && Boolean(note);
+  const rightPanelOpen =
+    infoPanelOpen ||
+    historyPanelOpen ||
+    panel === 'tags' ||
+    panel === 'branches' ||
+    panel === 'keymap' ||
+    panel === 'settings';
+
   // `revision` is the dependency that matters: the index object is stable and
   // mutated in place, so React cannot see changes without it.
   // `readOnly: true` in frontmatter locks the editor; the frontmatter travels
@@ -2762,7 +2797,20 @@ export function App() {
         </div>
       )}
 
-      <div className="body">
+      {/* The widths ride down as custom properties rather than as props: the
+          right-hand panels are six different components sharing one rule, and
+          threading a width through each of them would be six chances to
+          forget one. */}
+      <div
+        className="body"
+        style={
+          {
+            '--sidebar-width': `${paneWidths.sidebar}px`,
+            '--list-width': `${paneWidths.list}px`,
+            '--panel-width': `${paneWidths.panel}px`,
+          } as CSSProperties
+        }
+      >
         {showSidebar && (
           <aside className="sidebar">
             <Sidebar
@@ -2777,6 +2825,17 @@ export function App() {
               pinned={session.pinned}
             />
           </aside>
+        )}
+        {showSidebar && (
+          <PaneResizer
+            pane="before"
+            label="Resize sidebar"
+            width={paneWidths.sidebar}
+            min={PANE_LIMITS.sidebar.min}
+            max={PANE_LIMITS.sidebar.max}
+            fallback={PANE_DEFAULTS.sidebar}
+            onResize={(next) => setPaneWidth('sidebar', next)}
+          />
         )}
 
         {showList && (
@@ -2804,6 +2863,17 @@ export function App() {
               onContext={(path, x, y) => setContextTarget({ path, kind: 'file', x, y })}
             />
           </aside>
+        )}
+        {showList && (
+          <PaneResizer
+            pane="before"
+            label="Resize note list"
+            width={paneWidths.list}
+            min={PANE_LIMITS.list.min}
+            max={PANE_LIMITS.list.max}
+            fallback={PANE_DEFAULTS.list}
+            onResize={(next) => setPaneWidth('list', next)}
+          />
         )}
 
         <section className="pane">
@@ -2992,7 +3062,19 @@ export function App() {
           )}
         </section>
 
-        {note?.kind === 'markdown' && info.open && !conflicted && !showTodos && panel === null && (
+        {rightPanelOpen && (
+          <PaneResizer
+            pane="after"
+            label="Resize panel"
+            width={paneWidths.panel}
+            min={PANE_LIMITS.panel.min}
+            max={PANE_LIMITS.panel.max}
+            fallback={PANE_DEFAULTS.panel}
+            onResize={(next) => setPaneWidth('panel', next)}
+          />
+        )}
+
+        {infoPanelOpen && note && (
           <InfoPanel
             path={note.path}
             tab={info.tab}
@@ -3018,7 +3100,7 @@ export function App() {
           />
         )}
 
-        {panel === 'history' && note && (
+        {historyPanelOpen && note && (
           <HistoryPanel
             root={session.info.root}
             path={note.path}
