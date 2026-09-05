@@ -103,6 +103,16 @@ export const COMMANDS: CommandDefinition[] = [
     keywords: ['vault', 'folder', 'switch', 'repository'],
   },
   {
+    id: 'vault.close',
+    title: 'Close vault',
+    category: 'Note',
+    // Deliberately unbound. The obvious chord is the platform's close chord,
+    // and that belongs to Close Window — closing the vault you are reading is
+    // not closing the window, and silently taking the chord would surprise.
+    binding: null,
+    keywords: ['close', 'vault', 'leave', 'dismiss'],
+  },
+  {
     id: 'vault.importFolder',
     title: 'New vault from a folder…',
     category: 'Note',

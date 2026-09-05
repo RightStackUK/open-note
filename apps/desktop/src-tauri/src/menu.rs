@@ -21,6 +21,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 pub const MENU_EVENT: &str = "menu://command";
 
 const OPEN: &str = "file.open";
+const CLOSE: &str = "file.close";
 const CLEAR_RECENTS: &str = "file.clearRecents";
 const RECENTS_SUBMENU: &str = "file.recents";
 
@@ -49,6 +50,9 @@ struct RecentsMenu<R: Runtime>(Submenu<R>);
 /// File → Open…, kept so its accelerator can follow the keymap.
 struct OpenItem<R: Runtime>(MenuItem<R>);
 
+/// File → Close <vault>, kept so its label can follow the active vault.
+struct CloseItem<R: Runtime>(MenuItem<R>);
+
 /// Build the menu and set it on the app.
 ///
 /// The recents submenu starts empty and disabled; `refresh_recents` fills it.
@@ -72,6 +76,10 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     // resolved binding instead, which makes the keymap the only source.
     let open = MenuItem::with_id(app, OPEN, "Open…", true, None::<&str>)?;
 
+    // Disabled, and named for no vault in particular, until one is open —
+    // which is the state on first run. `set_close_target` names it.
+    let close = MenuItem::with_id(app, CLOSE, "Close Vault", false, None::<&str>)?;
+
     let file = Submenu::with_items(
         app,
         "File",
@@ -79,6 +87,11 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         &[
             &open,
             &recents,
+            &PredefinedMenuItem::separator(app)?,
+            // Above the separator that starts the window-level items: closing
+            // a vault is not closing the window, and next to Close Window the
+            // difference has to be legible.
+            &close,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::close_window(app, None)?,
             #[cfg(not(target_os = "macos"))]
@@ -156,6 +169,7 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     app.set_menu(menu)?;
     app.manage(RecentsMenu(recents));
     app.manage(OpenItem(open));
+    app.manage(CloseItem(close));
     Ok(())
 }
 
@@ -172,6 +186,28 @@ pub fn set_open_accelerator<R: Runtime>(
         return Ok(());
     };
     state.0.clone().set_accelerator(accelerator)
+}
+
+/// Name File → Close … after the vault it would close.
+///
+/// `None` means no vault is open, which leaves the item disabled rather than
+/// offering to close nothing. The label carries the vault's own name because
+/// with several vaults open, "Close Vault" does not say *which*.
+pub fn set_close_target<R: Runtime>(app: &AppHandle<R>, name: Option<&str>) -> tauri::Result<()> {
+    let Some(state) = app.try_state::<CloseItem<R>>() else {
+        return Ok(());
+    };
+    let item = state.0.clone();
+    match name {
+        Some(name) => {
+            item.set_text(format!("Close {name}"))?;
+            item.set_enabled(true)
+        }
+        None => {
+            item.set_text("Close Vault")?;
+            item.set_enabled(false)
+        }
+    }
 }
 
 /// Repopulate File → Open Recent from the current list.
@@ -220,6 +256,11 @@ pub fn on_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
     } else if id == OPEN {
         MenuCommand {
             command: "vault.open".into(),
+            arg: None,
+        }
+    } else if id == CLOSE {
+        MenuCommand {
+            command: "vault.close".into(),
             arg: None,
         }
     } else if id == CLEAR_RECENTS {

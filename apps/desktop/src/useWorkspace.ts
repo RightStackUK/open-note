@@ -14,6 +14,26 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, createSyncPort, type VaultFile, type VaultInfo } from './api';
 
 /**
+ * Which vault to show once `closing` is gone.
+ *
+ * `open` is the list *before* the close is applied, because the caller reads it
+ * from state that React has not re-rendered yet — so `closing` is still in it
+ * and has to be skipped explicitly. Picking the first entry blind selects the
+ * vault that was just closed whenever it happens to sort first, which leaves
+ * the app pointed at a session that no longer exists.
+ *
+ * Closing a vault that is not the active one changes nothing.
+ */
+export function nextActiveRoot(
+  open: string[],
+  closing: string,
+  current: string | null,
+): string | null {
+  if (current !== closing) return current;
+  return open.find((root) => root !== closing) ?? null;
+}
+
+/**
  * The per-vault preferences, as they sit in `.opennote/settings.json` beside
  * the `sync` block. Named separately so a setter can take a partial of exactly
  * these without also accepting `info` or `files`.
@@ -173,9 +193,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
       const { [root]: _removed, ...rest } = prev;
       return rest;
     });
-    setActiveRoot((current) =>
-      current === root ? (Object.keys(sessionsRef.current)[0] ?? null) : current,
-    );
+    setActiveRoot((current) => nextActiveRoot(Object.keys(sessionsRef.current), root, current));
   }, []);
 
   // Mirror sessions into a ref so closeVault can pick a replacement without

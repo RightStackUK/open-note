@@ -88,6 +88,15 @@ fn set_open_accelerator(app: tauri::AppHandle, accelerator: Option<String>) {
     let _ = menu::set_open_accelerator(&app, accelerator.as_deref());
 }
 
+/// Name File → Close … after the vault the webview considers active.
+///
+/// Pushed from the webview for the same reason as the accelerator: which vault
+/// is active is frontend state, and it changes as tabs are switched.
+#[tauri::command]
+fn set_close_target(app: tauri::AppHandle, name: Option<String>) {
+    let _ = menu::set_close_target(&app, name.as_deref());
+}
+
 /// Empty the recent list — File → Open Recent → Clear Menu.
 #[tauri::command]
 fn clear_recent_vaults(app: tauri::AppHandle) {
@@ -891,6 +900,7 @@ pub fn run() {
             forget_vault,
             clear_recent_vaults,
             set_open_accelerator,
+            set_close_target,
             list_vault_files,
             read_note,
             write_note,

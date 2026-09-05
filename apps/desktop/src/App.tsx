@@ -464,6 +464,22 @@ export function App() {
   );
 
   /**
+   * Close one vault, leaving the others open.
+   *
+   * `closeVault` stops the engine and drops the session. What has to happen
+   * first is the save that has not landed yet: a debounced write may still be
+   * queued against this vault, and the engine that would commit it is about to
+   * go away. Closing a vault is not discarding what you last typed in it.
+   */
+  const closeVaultAt = useCallback(
+    async (root: string) => {
+      if (pending.current?.root === root) await flush();
+      ws.closeVault(root);
+    },
+    [ws, flush],
+  );
+
+  /**
    * Push where we are leaving onto the back stack, browser-style: every
    * ordinary navigation extends the trail and burns the forward path.
    *
@@ -2186,6 +2202,9 @@ export function App() {
         setPrompt({ kind: 'newNote', parent: '' });
       },
       'vault.open': () => void choose(),
+      'vault.close': () => {
+        if (ws.activeRoot) void closeVaultAt(ws.activeRoot);
+      },
       'vault.importFolder': () => void importFolder(),
       'note.fromSelection': () => void noteFromSelection(),
       'note.addTag': () => {
@@ -2255,6 +2274,7 @@ export function App() {
       openPalette,
       createNote,
       choose,
+      closeVaultAt,
       sync,
       ws,
       paused,
@@ -2333,6 +2353,16 @@ export function App() {
         // Older shell, or the browser harness.
       });
   }, [openBinding]);
+
+  // File → Close <vault> is named after whichever vault is active, so the
+  // label has to follow the tab strip. Rust cannot know this: which vault is
+  // active is frontend state.
+  const activeVaultName = session?.info.name ?? null;
+  useEffect(() => {
+    void api.setCloseTarget(activeVaultName).catch(() => {
+      // Older shell, or the browser harness.
+    });
+  }, [activeVaultName]);
 
   // Confirmations should not need dismissing; errors should, because an error
   // the user never read is an error they will hit again.
@@ -2641,17 +2671,34 @@ export function App() {
           clicks. Needs `core:window:allow-start-dragging`. */}
       <header className="titlebar" data-tauri-drag-region="deep">
         <nav className="vault-tabs">
+          {/* Two buttons, not one: a close control nested inside the tab
+              button would be a button inside a button. The wrapper carries the
+              tab's look, and the name button carries its padding, so the hit
+              area for selecting a vault is the whole tab bar the ×. */}
           {openVaults.map((s) => (
-            <button
+            <span
               key={s.info.root}
-              type="button"
               className={`vault-tab ${s.info.root === ws.activeRoot ? 'is-active' : ''}`}
-              onClick={() => ws.setActiveRoot(s.info.root)}
-              title={s.info.root}
             >
-              <span className={`tab-dot is-${s.state.phase}`} />
-              {s.info.name}
-            </button>
+              <button
+                type="button"
+                className="vault-tab-name"
+                onClick={() => ws.setActiveRoot(s.info.root)}
+                title={s.info.root}
+              >
+                <span className={`tab-dot is-${s.state.phase}`} />
+                {s.info.name}
+              </button>
+              <button
+                type="button"
+                className="vault-tab-close"
+                onClick={() => void closeVaultAt(s.info.root)}
+                aria-label={`Close ${s.info.name}`}
+                title={`Close ${s.info.name}`}
+              >
+                ×
+              </button>
+            </span>
           ))}
           <button type="button" className="vault-tab is-add" onClick={choose} title="Open a vault">
             +

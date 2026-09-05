@@ -44,6 +44,20 @@ describe('application menu', () => {
     expect(COMMANDS.some((c) => c.id === 'vault.open')).toBe(true);
   });
 
+  it('routes File → Close … through the command registry rather than beside it', () => {
+    expect(menuSource).toContain('command: "vault.close"');
+    expect(COMMANDS.some((c) => c.id === 'vault.close')).toBe(true);
+  });
+
+  it('names File → Close … after a vault rather than leaving it generic', () => {
+    // The label is the whole point of the item: with several vaults open,
+    // "Close Vault" does not say which one is about to go.
+    expect(menuSource).toContain('format!("Close {name}")');
+    // And it is disabled until there is something to close, rather than
+    // offering to close nothing on first run.
+    expect(menuSource).toContain('MenuItem::with_id(app, CLOSE, "Close Vault", false');
+  });
+
   it('backs every menu-only verb with a Rust emitter and a frontend branch', () => {
     for (const command of Object.values(MENU_ONLY)) {
       expect(menuSource, `${command} is never emitted`).toContain(`command: "${command}"`);
@@ -53,7 +67,7 @@ describe('application menu', () => {
   });
 
   it('exposes the commands the menu items call back into', () => {
-    for (const command of ['clear_recent_vaults', 'set_open_accelerator']) {
+    for (const command of ['clear_recent_vaults', 'set_open_accelerator', 'set_close_target']) {
       // Declared *and* registered: an unregistered command compiles fine and
       // fails only at the call site, in the shell, at runtime.
       expect(libSource).toContain(`fn ${command}(`);

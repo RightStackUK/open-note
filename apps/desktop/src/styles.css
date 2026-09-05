@@ -810,12 +810,33 @@ button {
 .vault-tab {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
   flex-shrink: 0;
-  padding: 0.25rem 0.6rem;
   border-radius: 6px;
   font-size: 0.84rem;
   color: var(--muted);
+}
+
+/* The padding lives on the children, not the tab: anything padded on the
+   wrapper would be inert, and inert space inside the title bar drags the
+   window rather than selecting the vault under the pointer. */
+.vault-tab-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.6rem;
+  border-radius: 6px 0 0 6px;
+}
+
+.vault-tab-close {
+  padding: 0.25rem 0.45rem;
+  border-radius: 0 6px 6px 0;
+  line-height: 1;
+  opacity: 0.5;
+}
+
+.vault-tab-close:hover {
+  opacity: 1;
+  color: var(--danger);
 }
 
 .vault-tab:hover {
