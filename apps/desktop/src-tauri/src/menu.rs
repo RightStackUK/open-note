@@ -22,6 +22,7 @@ pub const MENU_EVENT: &str = "menu://command";
 
 const OPEN: &str = "file.open";
 const CLOSE: &str = "file.close";
+const CHECK_UPDATES: &str = "app.checkUpdates";
 const CLEAR_RECENTS: &str = "file.clearRecents";
 const RECENTS_SUBMENU: &str = "file.recents";
 
@@ -79,6 +80,8 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     // Disabled, and named for no vault in particular, until one is open —
     // which is the state on first run. `set_close_target` names it.
     let close = MenuItem::with_id(app, CLOSE, "Close Vault", false, None::<&str>)?;
+    let check_updates =
+        MenuItem::with_id(app, CHECK_UPDATES, "Check for Updates…", true, None::<&str>)?;
 
     let file = Submenu::with_items(
         app,
@@ -136,6 +139,7 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                 true,
                 &[
                     &PredefinedMenuItem::about(app, None, Some(about.clone()))?,
+                    &check_updates,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::services(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
@@ -161,7 +165,11 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                 app,
                 "Help",
                 true,
-                &[&PredefinedMenuItem::about(app, None, Some(about))?],
+                &[
+                    &check_updates,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::about(app, None, Some(about))?,
+                ],
             )?,
         ],
     )?;
@@ -266,6 +274,11 @@ pub fn on_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
     } else if id == CLEAR_RECENTS {
         MenuCommand {
             command: "vault.clearRecents".into(),
+            arg: None,
+        }
+    } else if id == CHECK_UPDATES {
+        MenuCommand {
+            command: "app.checkUpdates".into(),
             arg: None,
         }
     } else {

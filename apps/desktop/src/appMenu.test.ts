@@ -49,6 +49,20 @@ describe('application menu', () => {
     expect(COMMANDS.some((c) => c.id === 'vault.close')).toBe(true);
   });
 
+  it('routes Check for Updates through the command registry', () => {
+    expect(menuSource).toContain('command: "app.checkUpdates"');
+    expect(COMMANDS.some((c) => c.id === 'app.checkUpdates')).toBe(true);
+    expect(appSource).toContain("'app.checkUpdates':");
+  });
+
+  it('places Check for Updates beside About on every platform', () => {
+    expect(menuSource).toContain('"Check for Updates…"');
+    expect(menuSource).toMatch(
+      /PredefinedMenuItem::about\(app, None, Some\(about\.clone\(\)\)\).*?&check_updates/s,
+    );
+    expect(menuSource).toMatch(/"Help".*?&check_updates.*?PredefinedMenuItem::about/s);
+  });
+
   it('names File → Close … after a vault rather than leaving it generic', () => {
     // The label is the whole point of the item: with several vaults open,
     // "Close Vault" does not say which one is about to go.

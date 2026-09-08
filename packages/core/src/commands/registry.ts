@@ -1,6 +1,6 @@
 import { normaliseBinding } from './keys';
 
-export type CommandCategory = 'Navigate' | 'Note' | 'Edit' | 'Sync' | 'View';
+export type CommandCategory = 'Navigate' | 'Note' | 'Edit' | 'Sync' | 'View' | 'App';
 
 export interface CommandDefinition {
   id: string;
@@ -20,6 +20,15 @@ export interface CommandDefinition {
  * it cannot be rebound, which defeats the point of a configurable keymap.
  */
 export const COMMANDS: CommandDefinition[] = [
+  // App
+  {
+    id: 'app.checkUpdates',
+    title: 'Check for updates…',
+    category: 'App',
+    binding: null,
+    keywords: ['upgrade', 'version', 'release'],
+  },
+
   // Navigate
   { id: 'palette.open', title: 'Command palette', category: 'Navigate', binding: 'Mod-Shift-P' },
   {

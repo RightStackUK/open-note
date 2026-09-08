@@ -27,6 +27,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": false,
     "targets": "all",
     "category": "Productivity",
     "shortDescription": "Markdown notes, backed by Git.",
@@ -44,6 +45,12 @@
       "desktop": {
         "schemes": ["opennote"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ3MzNDRDZGRDQ4MTFCMzMKUldRekc0SFViODB6Ujc2QkthK0YrdUUrb0dBR3FMQjNBRHB4dnFOWlYxL0k0OG1HUUIzNFJuRVQK",
+      "endpoints": [
+        "https://github.com/RightStackUK/open-note/releases/latest/download/latest.json"
+      ]
     }
   }
 }

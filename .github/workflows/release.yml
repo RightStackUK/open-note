@@ -50,8 +50,8 @@ jobs:
           - os: macos-latest
             label: macOS (universal)
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-            # Only the .dmg: "all" would also emit an .app.tar.gz, which is an
-            # updater artifact and just confusing next to the installer.
+            # Keep the human-facing bundle to the .dmg. createUpdaterArtifacts
+            # separately emits the signed .app.tar.gz used by in-app updates.
             args: --target universal-apple-darwin --bundles dmg
           - os: ubuntu-latest
             label: Linux
@@ -89,6 +89,20 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # This minisign key authenticates updater artifacts on every platform.
+      # It is separate from macOS code signing/notarisation and Windows
+      # Authenticode; without it Tauri deliberately refuses to install.
+      - name: Check the updater signing secret is present
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::Missing repository secret: TAURI_SIGNING_PRIVATE_KEY. See docs/RELEASING.md."
+            exit 1
+          fi
+          echo "Updater signing key is present."
+
       # The bundles must carry the released version, not the placeholder.
       - name: Stamp the version from the tag
         shell: bash
@@ -99,6 +113,9 @@ jobs:
             const path = 'apps/desktop/src-tauri/tauri.conf.json';
             const conf = JSON.parse(fs.readFileSync(path, 'utf8'));
             conf.version = process.argv[1];
+            // Ordinary local and nightly builds do not have the production
+            // updater key. Only tagged releases create updater artifacts.
+            conf.bundle.createUpdaterArtifacts = true;
             fs.writeFileSync(path, JSON.stringify(conf, null, 2) + '\n');
           " "$VERSION"
           echo "Building version $VERSION"
@@ -179,6 +196,7 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
@@ -204,9 +222,9 @@ jobs:
           # which would put an un-notarised DMG in front of people for the two
           # minutes the fix-up takes. The publish job below flips this off.
           releaseDraft: true
-          # No updater is configured yet (deliberately, until builds are signed),
-          # so an updater manifest would only be a misleading artifact.
-          includeUpdaterJson: false
+          # v0 calls this input includeUpdaterJson. Each matrix leg merges its
+          # signed platform artifact into the release's latest.json manifest.
+          includeUpdaterJson: true
           # A tag like v0.2.0-beta.1 publishes as a pre-release automatically.
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ steps.bundles.outputs.args }}

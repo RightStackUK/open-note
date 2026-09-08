@@ -19,7 +19,7 @@ interface KeymapPanelProps {
   onClose: () => void;
 }
 
-const CATEGORY_ORDER = ['Navigate', 'Note', 'Edit', 'Sync', 'View'] as const;
+const CATEGORY_ORDER = ['Navigate', 'Note', 'Edit', 'Sync', 'View', 'App'] as const;
 
 /**
  * Rebind any command.

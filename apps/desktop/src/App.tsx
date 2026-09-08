@@ -82,6 +82,7 @@ import { TodoView } from './components/TodoView';
 import { MENU_EVENT, MENU_ONLY, type MenuCommand } from './menu';
 import { PANE_DEFAULTS, PANE_LIMITS, type PaneWidths, readPaneWidths } from './panes';
 import { relativeFrom, resolveAgainst } from './paths';
+import { checkForAppUpdate } from './updates';
 import { PLATFORM, useCommandKeys } from './useCommands';
 import { useDarkMode } from './useDarkMode';
 import { useVaultIndex } from './useVaultIndex';
@@ -202,6 +203,8 @@ export function App() {
     title: string;
     body: string;
     confirmLabel: string;
+    tone?: 'primary' | 'danger';
+    onCancel?: () => void;
     run: () => void;
   } | null>(null);
   const [deleting, setDeleting] = useState<{ path: string; tracked: boolean | null } | null>(null);
@@ -419,38 +422,48 @@ export function App() {
     setRecents(await api.recentVaults());
   }, []);
 
-  const flush = useCallback(async () => {
-    const outstanding = pending.current;
-    if (!outstanding) return;
-    // The write goes to the vault the document was opened from, never to
-    // whichever vault is active now — the two differ for a save queued just
-    // before a tab switch.
-    const root = outstanding.root;
-    pending.current = null;
-    setSaveState('saving');
-    try {
-      await api.writeNote(root, outstanding.path, outstanding.doc);
-      setSaveState('saved');
-      // Adopt what was just written as the open document. Without this the
-      // counters, the outline and an export all read the text as it was when
-      // the note was opened. Doing it here rather than per keystroke means the
-      // app re-renders when typing pauses, not on every character; `revision`
-      // deliberately does not change, so the editor is not torn down.
-      setNote((prev) =>
-        prev && prev.root === root && prev.path === outstanding.path && prev.doc !== outstanding.doc
-          ? { ...prev, doc: outstanding.doc }
-          : prev,
-      );
-      // Search, backlinks and tasks must reflect what was just written — but
-      // the index belongs to the active vault, so only when they are the same.
-      if (root === ws.activeRoot) vaultIndex.updateNote(outstanding.path, outstanding.doc);
-      // Tell the sync engine a file landed; it owns the commit decision.
-      ws.noteSaved(root);
-    } catch (e) {
-      setSaveState('error');
-      ws.setError(errorText(e));
-    }
-  }, [ws, vaultIndex]);
+  const flush = useCallback(
+    async (throwOnError = false) => {
+      const outstanding = pending.current;
+      if (!outstanding) return;
+      // The write goes to the vault the document was opened from, never to
+      // whichever vault is active now — the two differ for a save queued just
+      // before a tab switch.
+      const root = outstanding.root;
+      pending.current = null;
+      setSaveState('saving');
+      try {
+        await api.writeNote(root, outstanding.path, outstanding.doc);
+        setSaveState('saved');
+        // Adopt what was just written as the open document. Without this the
+        // counters, the outline and an export all read the text as it was when
+        // the note was opened. Doing it here rather than per keystroke means the
+        // app re-renders when typing pauses, not on every character; `revision`
+        // deliberately does not change, so the editor is not torn down.
+        setNote((prev) =>
+          prev &&
+          prev.root === root &&
+          prev.path === outstanding.path &&
+          prev.doc !== outstanding.doc
+            ? { ...prev, doc: outstanding.doc }
+            : prev,
+        );
+        // Search, backlinks and tasks must reflect what was just written — but
+        // the index belongs to the active vault, so only when they are the same.
+        if (root === ws.activeRoot) vaultIndex.updateNote(outstanding.path, outstanding.doc);
+        // Tell the sync engine a file landed; it owns the commit decision.
+        ws.noteSaved(root);
+      } catch (e) {
+        // Keep the newest unsaved buffer queued. In particular, an update must
+        // not restart the app after a failed final save.
+        if (!pending.current) pending.current = outstanding;
+        setSaveState('error');
+        ws.setError(errorText(e));
+        if (throwOnError) throw e;
+      }
+    },
+    [ws, vaultIndex],
+  );
 
   /**
    * The freshest known text for the open note.
@@ -487,7 +500,14 @@ export function App() {
    */
   const closeVaultAt = useCallback(
     async (root: string) => {
-      if (pending.current?.root === root) await flush();
+      if (pending.current?.root === root) {
+        await flush();
+        // flush() re-queues the buffer on failure and has already surfaced the
+        // error. Closing anyway would strand that buffer against a root with
+        // no open session, ready to resurrect over newer content if the same
+        // vault and note are reopened later.
+        if (pending.current?.root === root) return;
+      }
       ws.closeVault(root);
     },
     [ws, flush],
@@ -2147,8 +2167,63 @@ export function App() {
     setPalette(mode);
   }, []);
 
+  const checkForUpdates = useCallback(async () => {
+    ws.setError(null);
+    setMessage('Checking for updates…');
+    try {
+      const update = await checkForAppUpdate();
+      if (!update) {
+        setMessage('Open Note is up to date.');
+        return;
+      }
+
+      setMessage(null);
+      setConfirmAction({
+        title: `Open Note ${update.version} is available`,
+        body: 'Download the signed update and restart Open Note now?',
+        confirmLabel: 'Update and restart',
+        tone: 'primary',
+        onCancel: () => void update.discard().catch(() => {}),
+        run: () => {
+          void (async () => {
+            let lastPercent = -1;
+            setMessage(`Downloading Open Note ${update.version}…`);
+            try {
+              await update.install(
+                ({ downloaded, total, finished }) => {
+                  if (finished) {
+                    setMessage('Installing update…');
+                  } else if (total && total > 0) {
+                    const percent = Math.min(100, Math.round((downloaded / total) * 100));
+                    if (percent !== lastPercent) {
+                      lastPercent = percent;
+                      setMessage(`Downloading Open Note ${update.version}… ${percent}%`);
+                    }
+                  }
+                },
+                async () => {
+                  if (saveTimer.current) window.clearTimeout(saveTimer.current);
+                  await flush(true);
+                  setMessage('Installing update…');
+                },
+              );
+            } catch (error) {
+              await update.discard().catch(() => {});
+              setMessage(null);
+              ws.setError(`Could not install the update: ${errorText(error)}`);
+            }
+          })();
+        },
+      });
+    } catch (error) {
+      setMessage(null);
+      ws.setError(`Could not check for updates: ${errorText(error)}`);
+    }
+  }, [flush, ws]);
+
   const handlers = useMemo(
     () => ({
+      'app.checkUpdates': () => void checkForUpdates(),
       'palette.open': () => openPalette('commands'),
       'switcher.open': () => openPalette('notes'),
       'search.open': () => openPalette('search'),
@@ -2307,6 +2382,7 @@ export function App() {
       exportDocx,
       exportTextbundle,
       attachFile,
+      checkForUpdates,
     ],
   );
 
@@ -3451,7 +3527,12 @@ export function App() {
           title={confirmAction.title}
           body={confirmAction.body}
           confirmLabel={confirmAction.confirmLabel}
-          onClose={() => setConfirmAction(null)}
+          tone={confirmAction.tone}
+          onClose={() => {
+            const { onCancel } = confirmAction;
+            setConfirmAction(null);
+            onCancel?.();
+          }}
           onConfirm={() => {
             const { run } = confirmAction;
             setConfirmAction(null);

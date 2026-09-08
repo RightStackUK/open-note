@@ -19,6 +19,8 @@ That triggers [`release.yml`](../.github/workflows/release.yml), which:
 3. **Builds on all three platforms** — a universal macOS binary (one download
    for both Intel and Apple silicon), Windows, and Linux.
 4. **Publishes a GitHub Release** with the installers attached.
+5. **Publishes signed updater artifacts and `latest.json`**, so installed copies
+   can update themselves from the app menu.
 
 ## Versioning
 
@@ -187,6 +189,40 @@ reminder.
 SmartScreen warns before running the installer; **More info** → **Run anyway**.
 Signing needs Azure Trusted Signing (~$10/month) or an EV certificate, and is
 tracked as its own issue.
+
+This is independent of **updater signing**. Every updater artifact, including
+Windows, is authenticated with Open Note's Tauri updater key before the app
+will install it. That prevents a replaced or corrupted download from being
+accepted, but it does not give the installer an Authenticode publisher name or
+remove SmartScreen warnings from manual downloads.
+
+## In-app updates
+
+**Check for Updates…** reads the stable manifest at
+`https://github.com/RightStackUK/open-note/releases/latest/download/latest.json`.
+GitHub's `releases/latest` route excludes pre-releases, so a stable install is
+never moved onto a beta. Nightlies remain unsigned workflow artifacts and are
+not an update channel.
+
+Tauri signs update artifacts with a dedicated minisign key. The public key is
+embedded in `apps/desktop/src-tauri/tauri.conf.json`; the private key must never
+enter the repository and is supplied to CI through the
+`TAURI_SIGNING_PRIVATE_KEY` Actions secret. The release fails before building
+if that secret is absent. A local backup currently lives at
+`~/.tauri/open-note-updater.key` with owner-only permissions. Back it up in the
+team's password manager: losing it means existing installs cannot trust any
+future replacement key and therefore cannot auto-update again.
+
+`createUpdaterArtifacts` is `false` in the checked-in configuration and the
+tagged release workflow switches it on while stamping the version. This keeps
+ordinary local builds and the deliberately unsigned nightly workflow from
+requiring access to the production updater key.
+
+The updater package is still the signed/notarised `.app` on macOS. Windows's
+NSIS/MSI installer remains unsigned at the OS level as described above. On
+Linux, in-place replacement is intended for the AppImage; `.deb` and `.rpm`
+users should continue updating through their package installation workflow if
+the install location is not writable.
 
 ## Local builds: the DMG step fails on macOS
 

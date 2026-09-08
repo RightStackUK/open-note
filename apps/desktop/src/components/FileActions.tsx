@@ -219,6 +219,7 @@ interface ConfirmActionProps {
   title: string;
   body: string;
   confirmLabel: string;
+  tone?: 'primary' | 'danger';
   onConfirm: () => void;
   onClose: () => void;
 }
@@ -228,6 +229,7 @@ export function ConfirmAction({
   title,
   body,
   confirmLabel,
+  tone = 'danger',
   onConfirm,
   onClose,
 }: ConfirmActionProps) {
@@ -246,7 +248,7 @@ export function ConfirmAction({
           <button type="button" className="ghost" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" className="danger" onClick={onConfirm}>
+          <button type="button" className={tone} onClick={onConfirm}>
             {confirmLabel}
           </button>
         </div>
