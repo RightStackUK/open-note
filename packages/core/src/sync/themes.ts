@@ -122,6 +122,13 @@ export function themeCssVariables(theme: Theme): Record<string, string> {
  * Light and Dark restate the stylesheet's own palette so that picking them
  * explicitly pins the appearance instead of following the OS. The others are
  * deliberately few — themes are meant to come from the vault.
+ *
+ * Every colour here is held to a contrast floor by `themes.test.ts`: body text
+ * at AAA against each surface, and secondary text, accents and syntax colours
+ * at AA. `selection` is audited against `fg` *and* `muted` because the app
+ * paints it behind whatever text happens to be selected, and it is deliberately
+ * a wash of the accent rather than a solid — a strong selection either hides
+ * secondary text or stops reading as a highlight at all.
  */
 export const BUILT_IN_THEMES: Theme[] = [
   {
@@ -131,21 +138,21 @@ export const BUILT_IN_THEMES: Theme[] = [
       bg: '#fbfaf8',
       'bg-raised': '#f3f1ed',
       fg: '#1c1b19',
-      muted: '#85807a',
+      muted: '#635e57',
       border: '#e2ded7',
       accent: '#c2410c',
-      selection: '#f8d9c6',
+      selection: '#f1d9ce',
       'code-bg': '#ece8e1',
       danger: '#b91c1c',
-      success: '#2f855a',
+      success: '#276749',
       'on-accent': '#fff',
       shadow: 'rgb(0 0 0 / 38%)',
       'shadow-base': '#000',
-      'code-string': '#0f766e',
-      'code-literal': '#a16207',
+      'code-string': '#0d6a63',
+      'code-literal': '#8a5307',
       'code-callable': '#1d4ed8',
       'code-type': '#7c3aed',
-      'code-property': '#b45309',
+      'code-property': '#a13d05',
     },
   },
   {
@@ -155,7 +162,7 @@ export const BUILT_IN_THEMES: Theme[] = [
       bg: '#171614',
       'bg-raised': '#1f1e1b',
       fg: '#eae7e2',
-      muted: '#8b857e',
+      muted: '#a59e96',
       border: '#302e2a',
       accent: '#fb923c',
       selection: '#45301f',
@@ -173,23 +180,47 @@ export const BUILT_IN_THEMES: Theme[] = [
     },
   },
   {
+    name: 'Blue',
+    appearance: 'light',
+    colors: {
+      bg: '#f7f9fc',
+      'bg-raised': '#eef2f8',
+      fg: '#14213a',
+      muted: '#4f627e',
+      border: '#d6e0ee',
+      accent: '#1d4ed8',
+      selection: '#d3e0fa',
+      'code-bg': '#e7edf6',
+      danger: '#b91c1c',
+      success: '#276749',
+      'on-accent': '#fff',
+      shadow: 'rgb(15 32 66 / 32%)',
+      'shadow-base': '#0f2042',
+      'code-string': '#0f766e',
+      'code-literal': '#8a5307',
+      'code-callable': '#0b62a4',
+      'code-type': '#6d28d9',
+      'code-property': '#be185d',
+    },
+  },
+  {
     name: 'Sepia',
     appearance: 'light',
     colors: {
       bg: '#f6efe2',
       'bg-raised': '#eee4d2',
       fg: '#3d3427',
-      muted: '#8a7d68',
+      muted: '#6a5e4b',
       border: '#ddd0ba',
-      accent: '#9a5b2d',
+      accent: '#8f5228',
       selection: '#ecd9bb',
       'code-bg': '#eadfc9',
       danger: '#a03a2e',
-      'code-string': '#3f6f5f',
-      'code-literal': '#8a6a1f',
-      'code-callable': '#4a5f8a',
-      'code-type': '#6f5a8a',
-      'code-property': '#8a5f2d',
+      'code-string': '#356053',
+      'code-literal': '#7a5c15',
+      'code-callable': '#41537a',
+      'code-type': '#61507a',
+      'code-property': '#8a4520',
     },
   },
   {
@@ -199,10 +230,10 @@ export const BUILT_IN_THEMES: Theme[] = [
       bg: '#0f172a',
       'bg-raised': '#1e293b',
       fg: '#e2e8f0',
-      muted: '#94a3b8',
+      muted: '#9fadc0',
       border: '#334155',
       accent: '#38bdf8',
-      selection: '#164e63',
+      selection: '#123f50',
       'code-bg': '#1e293b',
       danger: '#f87171',
       'code-string': '#5eead4',

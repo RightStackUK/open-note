@@ -2,13 +2,13 @@
   --bg: #fbfaf8;
   --bg-raised: #f3f1ed;
   --fg: #1c1b19;
-  --muted: #85807a;
+  --muted: #635e57;
   --border: #e2ded7;
   --accent: #c2410c;
-  --selection: #f8d9c6;
+  --selection: #f1d9ce;
   --code-bg: #ece8e1;
   --danger: #b91c1c;
-  --success: #2f855a;
+  --success: #276749;
   /* Text sitting on an accent-coloured surface. */
   --on-accent: #fff;
   /* Every drop shadow derives from this; the backdrop carries its own alpha. */
@@ -17,11 +17,11 @@
 
   /* Syntax colours for the plain-text editor. Chosen to sit beside the warm
      accent rather than compete with it, and to hold up on the raised surface. */
-  --code-string: #0f766e;
-  --code-literal: #a16207;
+  --code-string: #0d6a63;
+  --code-literal: #8a5307;
   --code-callable: #1d4ed8;
   --code-type: #7c3aed;
-  --code-property: #b45309;
+  --code-property: #a13d05;
 
   --ui-font: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
   --note-font: ui-serif, Charter, Georgia, Cambria, serif;
@@ -36,7 +36,7 @@
     --bg: #171614;
     --bg-raised: #1f1e1b;
     --fg: #eae7e2;
-    --muted: #8b857e;
+    --muted: #a59e96;
     --border: #302e2a;
     --accent: #fb923c;
     --selection: #45301f;
@@ -56,6 +56,20 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* ---------- Selection ---------- */
+
+/* Without this the OS highlight is used, which knows nothing about the active
+   theme: light text on a light system highlight is the readability bug this
+   fixes. Only the background is set. CodeMirror paints its own selection layer
+   *behind* the text, so a foreground declared here would flatten syntax colours
+   in the editor rather than help; instead every theme's `selection` is audited
+   to stay readable under both `--fg` and `--muted` (packages/core themes.test).
+   The editor restates the background for the same variable in its own theme,
+   because CodeMirror's baked-in styles win inside `.cm-line`. */
+::selection {
+  background-color: var(--selection);
 }
 
 html,
