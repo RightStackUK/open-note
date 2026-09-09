@@ -694,12 +694,65 @@ button {
   cursor: default;
 }
 
-.tree-caret,
-.tree-icon {
+.tree-caret {
   width: 0.9rem;
   flex-shrink: 0;
   color: var(--muted);
   font-size: 0.75rem;
+}
+
+/* File-type icons.
+ *
+ * Sized in `em` so they track the row's font, and tinted from the theme's own
+ * palette rather than from fixed hues: the code-* variables already exist for
+ * telling one kind of token from another, they are audited for contrast on
+ * every built-in theme, and a vault theme that recolours them recolours these
+ * too. A hard-coded icon palette would look wrong in Sepia within a week.
+ *
+ * Markdown stays muted on purpose. It is on almost every row, so colouring it
+ * would tint the whole sidebar and leave the handful of rows that are *not*
+ * notes with nothing to stand out against — the same reasoning that hides the
+ * `.md` extension in the first place. */
+.file-icon {
+  width: 0.95em;
+  height: 0.95em;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.file-icon.is-image {
+  color: var(--code-string);
+}
+
+.file-icon.is-drawing {
+  color: var(--code-type);
+}
+
+.file-icon.is-pdf {
+  color: var(--danger);
+}
+
+.file-icon.is-code {
+  color: var(--code-callable);
+}
+
+.file-icon.is-data {
+  color: var(--code-literal);
+}
+
+.file-icon.is-shell {
+  color: var(--success);
+}
+
+.file-icon.is-web {
+  color: var(--code-property);
+}
+
+/* The active row recolours its text; the icon follows, or it reads as a
+   leftover from the row that was selected a moment ago. */
+.tree-row.is-active .file-icon,
+.tree-row.is-inert .file-icon {
+  color: inherit;
 }
 
 .tree-folder {
@@ -2079,10 +2132,6 @@ button {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
-}
-
-.pinned .tree-icon {
-  color: var(--accent);
 }
 
 /* ---------- Sidebar tools ---------- */

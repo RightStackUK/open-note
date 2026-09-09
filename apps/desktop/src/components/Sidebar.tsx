@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
-import type { FileKind, VaultFile } from '../api';
+import type { VaultFile } from '../api';
+import { fileIconName } from '../fileIcons';
 import { buildTree, type TreeNode } from '../tree';
+import { FileIcon } from './FileIcon';
 
 interface SidebarProps {
   files: VaultFile[];
@@ -16,16 +18,6 @@ interface SidebarProps {
   onNewFolder: () => void;
   /** Move an entry by dragging it onto a folder. */
   onMove: (from: string, toFolder: string) => void;
-}
-
-/** A glyph per file kind, so the tree reads at a glance. */
-function kindIcon(kind: FileKind): string {
-  if (kind === 'markdown') return '¶';
-  if (kind === 'image') return '▣';
-  if (kind === 'drawing') return '◇';
-  if (kind === 'pdf') return '⬒';
-  if (kind === 'text') return '‹›';
-  return '·';
 }
 
 /**
@@ -97,6 +89,7 @@ function Node({
           aria-expanded={open}
         >
           <span className="tree-caret">{open ? '▾' : '▸'}</span>
+          <FileIcon name={open ? 'folder-open' : 'folder'} />
           <span className="tree-name">{node.name}</span>
         </button>
         {open && (
@@ -155,7 +148,7 @@ function Node({
         }}
         title={openable ? file.path : `${file.path} — not a text file, cannot be opened`}
       >
-        <span className="tree-icon">{kindIcon(file.kind)}</span>
+        <FileIcon name={fileIconName(file.path, file.kind)} />
         <span className="tree-name">{displayName(file)}</span>
         {changedPaths.has(file.path) && <span className="tree-dot" aria-label="unsaved changes" />}
       </button>
@@ -272,7 +265,7 @@ export function Sidebar({
                       }}
                       title={file.path}
                     >
-                      <span className="tree-icon">★</span>
+                      <FileIcon name={fileIconName(file.path, file.kind)} />
                       <span className="tree-name">{displayName(file)}</span>
                     </button>
                   </li>
