@@ -176,6 +176,19 @@ fn reveal_in_file_manager(root: String, path: String) -> Result<(), VaultError> 
     tauri_plugin_opener::reveal_item_in_dir(&resolved).map_err(|e| VaultError::Io(e.to_string()))
 }
 
+/// Where a vault file actually lives on this machine, as a string.
+///
+/// Through `resolve_within` rather than joining the two halves in TypeScript:
+/// the webview would then own a second, unchecked idea of what a path means,
+/// and this one answers with the canonical path — symlinks resolved — which is
+/// what someone pasting it into a terminal wants.
+#[tauri::command]
+fn absolute_path(root: String, path: String) -> Result<String, VaultError> {
+    Ok(vault::resolve_within(&PathBuf::from(root), &path)?
+        .display()
+        .to_string())
+}
+
 #[tauri::command]
 fn read_pdf(root: String, path: String) -> Result<String, VaultError> {
     vault::read_pdf_data_url(&PathBuf::from(root), &path)
@@ -943,6 +956,7 @@ pub fn run() {
             pick_attachment,
             open_in_default_app,
             reveal_in_file_manager,
+            absolute_path,
             create_folder,
             create_note,
             duplicate_note,
@@ -982,6 +996,35 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&inside).unwrap(), "ok");
         let escape = dir.path().join("../escape.html");
         assert!(write_export(escape.display().to_string(), "x".into()).is_err());
+    }
+
+    #[test]
+    fn absolute_path_answers_inside_the_vault_and_refuses_to_leave() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let root = dir.path().canonicalize().expect("canonical root");
+        std::fs::create_dir(root.join("Projects")).unwrap();
+        std::fs::write(root.join("Projects/note.md"), "x").unwrap();
+
+        let answered =
+            absolute_path(root.display().to_string(), "Projects/note.md".into()).expect("resolve");
+        assert_eq!(
+            answered,
+            root.join("Projects/note.md").display().to_string()
+        );
+
+        // A folder is a legitimate target; the menu offers this on folders too.
+        assert_eq!(
+            absolute_path(root.display().to_string(), "Projects".into()).expect("resolve"),
+            root.join("Projects").display().to_string()
+        );
+
+        // The path still comes from the webview, so it is still untrusted.
+        for attempt in ["../escape.md", "Projects/../../escape.md", "/etc/passwd"] {
+            assert!(
+                absolute_path(root.display().to_string(), attempt.into()).is_err(),
+                "traversal not blocked: {attempt}"
+            );
+        }
     }
 
     #[test]

@@ -93,6 +93,8 @@ export const api = {
     invoke<void>('open_in_default_app', { root, path }),
   revealInFileManager: (root: string, path: string) =>
     invoke<void>('reveal_in_file_manager', { root, path }),
+  /** Where a vault-relative path lives on this machine, symlinks resolved. */
+  absolutePath: (root: string, path: string) => invoke<string>('absolute_path', { root, path }),
   readDrawing: (root: string, path: string) => invoke<string>('read_drawing', { root, path }),
   writeDrawing: (root: string, path: string, contents: string) =>
     invoke<void>('write_drawing', { root, path, contents }),

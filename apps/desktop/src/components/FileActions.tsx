@@ -18,6 +18,8 @@ interface ContextMenuProps {
   onExportFolder: (folder: string, mode: 'files' | 'merged') => void;
   onReveal: (path: string) => void;
   onOpenWith: (path: string) => void;
+  /** Put the path on the clipboard: vault-relative, or absolute on this disk. */
+  onCopyPath: (path: string, form: 'relative' | 'absolute') => void;
   /** Move into (or back out of) the archive folder. */
   onArchive: (path: string) => void;
   isArchived: (path: string) => boolean;
@@ -43,6 +45,7 @@ export function ContextMenu({
   onExportFolder,
   onReveal,
   onOpenWith,
+  onCopyPath,
   onArchive,
   isArchived,
   onMergeFolder,
@@ -115,6 +118,12 @@ export function ContextMenu({
               Open in default app
             </button>
           )}
+          <button type="button" onClick={() => onCopyPath(target.path, 'relative')}>
+            Copy relative path
+          </button>
+          <button type="button" onClick={() => onCopyPath(target.path, 'absolute')}>
+            Copy absolute path
+          </button>
           <hr />
           <button type="button" onClick={() => onRename(target.path)}>
             Rename…

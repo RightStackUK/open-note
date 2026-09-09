@@ -1307,6 +1307,36 @@ export function App() {
     [copySource, ws],
   );
 
+  /**
+   * Put a file's path on the clipboard, vault-relative or absolute.
+   *
+   * The relative form is what the app already holds; the absolute one has to
+   * come from Rust, because `resolve_within` is the only thing that knows what
+   * a path means once symlinks are involved — and joining the two halves here
+   * would give the webview a second, unchecked answer.
+   *
+   * The write is handed a *promise* rather than an awaited string for the same
+   * reason `copyAs` does it: WebKit drops the user activation across an await,
+   * so a write that starts after the IPC returns is refused as unsolicited.
+   */
+  const copyPath = useCallback(
+    (path: string, form: 'relative' | 'absolute') => {
+      setContextTarget(null);
+      const root = ws.activeRoot;
+      if (!root) return;
+      const text = form === 'relative' ? Promise.resolve(path) : api.absolutePath(root, path);
+      void navigator.clipboard
+        .write([
+          new ClipboardItem({
+            'text/plain': text.then((value) => new Blob([value], { type: 'text/plain' })),
+          }),
+        ])
+        .then(() => setMessage('Copied.'))
+        .catch((e) => ws.setError(errorText(e)));
+    },
+    [ws],
+  );
+
   const pasteAs = useCallback(
     async (format: 'plain' | 'html' | 'codeBlock') => {
       try {
@@ -3402,6 +3432,7 @@ export function App() {
                 .catch((e) => ws.setError(errorText(e)));
             }
           }}
+          onCopyPath={(path, form) => copyPath(path, form)}
           onClose={() => setContextTarget(null)}
           onNewNote={(parent) => {
             setContextTarget(null);
