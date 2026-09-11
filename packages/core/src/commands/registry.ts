@@ -444,6 +444,29 @@ export const COMMANDS: CommandDefinition[] = [
     keywords: ['list', 'notes', 'pane', 'collections', 'today', 'untagged'],
   },
   {
+    id: 'view.splitRight',
+    title: 'Split the editor',
+    category: 'View',
+    // With the two pane toggles: `Mod-\` shows the tree, `Mod-Shift-\` the
+    // list, and this one adds a second editor beside the first.
+    binding: 'Mod-Alt-\\',
+    keywords: ['split', 'pane', 'side by side', 'compare', 'two'],
+  },
+  {
+    id: 'view.focusOtherPane',
+    title: 'Go to the other pane',
+    category: 'View',
+    binding: 'Mod-Alt-O',
+    keywords: ['pane', 'focus', 'switch', 'split', 'other'],
+  },
+  {
+    id: 'view.closePane',
+    title: 'Close the pane',
+    category: 'View',
+    binding: null,
+    keywords: ['pane', 'split', 'unsplit', 'close'],
+  },
+  {
     id: 'view.outline',
     title: 'Outline and word count',
     category: 'View',

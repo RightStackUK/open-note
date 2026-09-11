@@ -6,6 +6,8 @@ interface TextEditorProps {
   path: string;
   doc: string;
   onChange: (doc: string) => void;
+  /** Whether this editor may take the caret on mount; false in an unfocused pane. */
+  autoFocus: boolean;
 }
 
 /**
@@ -18,10 +20,12 @@ interface TextEditorProps {
  * Remounted per file rather than swapped in place, because the language is fixed
  * when the view is built — a `.ts` and a `.toml` are not the same editor.
  */
-export function TextEditor({ path, doc, onChange }: TextEditorProps) {
+export function TextEditor({ path, doc, onChange, autoFocus }: TextEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const autoFocusRef = useRef(autoFocus);
+  autoFocusRef.current = autoFocus;
 
   useEffect(() => {
     if (!host.current) return;
@@ -31,7 +35,7 @@ export function TextEditor({ path, doc, onChange }: TextEditorProps) {
       filename: path,
       onChange: (next) => onChangeRef.current(next),
     });
-    view.focus();
+    if (autoFocusRef.current) view.focus();
     return () => {
       view?.destroy();
       view = null;

@@ -621,16 +621,16 @@ than only in this file.
 
 ### D1 — Multiple windows, and opening a link in a new window — [#6](https://github.com/RightStackUK/open-note/issues/6)
 
-The editor pane assumes a single open note: `App` holds one `note` object, and
-autosave flush, the history panel, the backlinks panel and wikilink navigation
-all key off it. A second window also raises a question the sync engine has no
-answer for — it is one engine per vault, and two windows on one vault would
-either contend for the index lock or need an elected owner.
+The single-open-note assumption this was waiting on is **gone**: split view
+([#5](https://github.com/RightStackUK/open-note/issues/5)) landed the pane model,
+so `App` holds a layout of panes with a focused one, and autosave, the history
+panel, the backlinks panel and wikilink navigation address that rather than a
+lone `note`. Tabs ([#16](https://github.com/RightStackUK/open-note/issues/16))
+inherit it as-is.
 
-Related to but larger than [#5](https://github.com/RightStackUK/open-note/issues/5),
-which is split view within one window. **Do #5 first**: it forces the
-single-open-note refactor while keeping state in one process, and multiple
-windows becomes tractable afterwards.
+What remains here is the question the sync engine has no answer for — it is one
+engine per vault, and two windows on one vault would either contend for the
+index lock or need an elected owner. That is now the whole of this item.
 
 ### D2 — Workspaces — [#7](https://github.com/RightStackUK/open-note/issues/7)
 
@@ -747,4 +747,4 @@ Audited, and deliberately not planned. Recorded so they do not return.
 | Does switching theme rebuild the editor? | **Only when the appearance flips between light and dark**, because rendered diagram SVGs bake their colours in and must be redrawn. Same-appearance theme changes and every typography change are pure CSS. The remount reads the freshest document — including edits still inside the autosave window — so it can never lose typing. |
 | Is anything destructive reachable by URL? | **No.** No delete, no overwrite. `append` is additive, `new` refuses to clobber. |
 | Automation surface: native frameworks or a CLI? | **A CLI plus a URL scheme.** Works on all three platforms, needs no native target, and survives the move to mobile. |
-| Multiple windows, or split view first? | **Split view first** ([#5](https://github.com/RightStackUK/open-note/issues/5)). It forces the same refactor while keeping state in one process. |
+| Multiple windows, or split view first? | **Split view first** ([#5](https://github.com/RightStackUK/open-note/issues/5)), and it did: the pane model landed there, in one process. |

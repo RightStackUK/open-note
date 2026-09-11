@@ -111,6 +111,40 @@ than a bug. Menu accelerators are pushed from the webview (`set_open_accelerator
 reason: one declared in Rust would both show a stale chord after a rebind and swallow it before the
 webview saw it.
 
+### Two editor panes, one focused
+
+The window holds one or two editor panes (`editorPanes.ts`), and everything that
+used to mean "the open note" now means **the focused pane's** note: autosave,
+the history panel, backlinks, wikilink navigation and the note-scoped commands
+all read `note`, which `App` derives from the focused pane. That is deliberate —
+the alternative was teaching every one of those consumers which pane it is
+talking about, and there are dozens. The setters (`setNote`, `setPreview`,
+`setDrawing`) address the focused pane, so opening from the tree, the switcher,
+a wikilink or a deep link lands where you are working without any of those
+callers knowing a second pane exists.
+
+Three rules hold it together, and all three have a failure they were written for:
+
+1. **A note lives in at most one pane.** Opening one the other pane already
+   shows moves focus there instead (`sideShowing`). Two editors over one file
+   each hold their own buffer and take turns overwriting the other's autosave,
+   which no care at the write end can fix.
+2. **The unsaved-text buffer is keyed by document**, not by "the open note":
+   two panes can be dirty at once, and typing in one then clicking into the
+   other must not strand the first pane's keystrokes. `flush` drains every
+   entry, each to the vault and path its own entry names.
+3. **Focus moves before the click is handled.** `focusPane` writes a ref as
+   well as state, because pressing History in the pane you were *not* in has
+   to mean that pane's history. Anything reading "the open note" from a handler
+   goes through `noteRef`/`editorRef`, which are getters over that ref.
+
+Two consequences worth knowing. Anything a pane resolves *relative to its own
+note* has to be built per pane — attachments are, because `assets/plan.png`
+means something different in `Projects/` than at the root. And the editor only
+takes the caret on mount or a document swap when its pane is focused
+(`autoFocus`), or a remount from a theme flip or an incoming pull would pull the
+caret out of the pane being typed in.
+
 ### Two editors, one package
 
 `createMarkdownEditor` is for notes; `createTextEditor` (`text.ts`) is for everything else a

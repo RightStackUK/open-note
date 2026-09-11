@@ -803,12 +803,40 @@ button {
   outline: none;
 }
 
+/* The two panes share the space the single pane used to have, so everything
+   to the left and right of them — tree, list, inspector — is unaffected. */
+.pane-split {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .pane {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
   overflow: hidden;
+}
+
+/* An even split, deliberately not draggable: the two panes are peers, and a
+   width worth remembering would be machine-local state for a posture that
+   lasts minutes. */
+.pane.is-split {
+  flex: 1 1 50%;
+  border-left: 1px solid var(--border);
+}
+
+.pane.is-split:first-child {
+  border-left: none;
+}
+
+/* Which pane the next note will open into has to be visible before you open
+   it, so the focused pane's note bar carries the accent rather than the pane
+   growing a border that would shift the text. */
+.pane.is-split.is-focused > .note-bar {
+  box-shadow: inset 0 2px 0 0 var(--accent);
 }
 
 /* Every pane body — editor, tasks, conflict, preview — fills what is left
@@ -2191,11 +2219,16 @@ button {
 
 /* ---------- Note bar ---------- */
 
+/* Wraps rather than clips. The actions refuse to shrink, so without this the
+   note's name — the more useful half of the bar — was the first thing squeezed
+   to nothing, and the last button then got cut off mid-word. A split pane is
+   half the width, which is what made it obvious. */
 .note-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
   flex-shrink: 0;
   padding: 0.35rem 0.75rem 0.35rem 1rem;
   border-bottom: 1px solid var(--border);
@@ -2205,7 +2238,11 @@ button {
   display: flex;
   align-items: baseline;
   gap: 0.15rem;
-  min-width: 0;
+  /* Shrinks to an ellipsis first, as it always did, and only pushes the actions
+     onto a second row once even that has run out — so the ordinary layout is
+     untouched and a very narrow pane stops cutting a button in half. */
+  flex: 0 1 auto;
+  min-width: 3rem;
   font-size: 0.82rem;
   white-space: nowrap;
   overflow: hidden;

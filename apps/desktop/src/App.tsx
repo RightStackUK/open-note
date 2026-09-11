@@ -79,6 +79,27 @@ import { SyncBadge } from './components/SyncBadge';
 import { TagPanel } from './components/TagPanel';
 import { TextEditor } from './components/TextEditor';
 import { TodoView } from './components/TodoView';
+import {
+  adoptDoc,
+  clearAll as clearPanes,
+  closePane,
+  docKey,
+  focusedPane,
+  focusOther,
+  focus as focusPaneIn,
+  initialLayout,
+  isSplit,
+  type OpenDrawing,
+  type OpenNote,
+  type OpenPreview,
+  type Pane,
+  type PaneSide,
+  paneAt,
+  sides as paneSides,
+  sideShowing,
+  split as splitPanes,
+  updatePane,
+} from './editorPanes';
 import { MENU_EVENT, MENU_ONLY, type MenuCommand } from './menu';
 import { PANE_DEFAULTS, PANE_LIMITS, type PaneWidths, readPaneWidths } from './panes';
 import { relativeFrom, resolveAgainst } from './paths';
@@ -119,38 +140,31 @@ const TEMPLATE_PREFIX = 'template:use:';
 
 type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 
-interface OpenNote {
-  /**
-   * The vault this document came from.
-   *
-   * Carried on the note rather than read from `activeRoot` at write time: a
-   * queued autosave outlives a vault switch, and without this it would land in
-   * whichever vault happened to be active when the timer fired.
-   */
-  root: string;
-  path: string;
-  doc: string;
-  /**
-   * Which editor to use. A vault holds ordinary files as well as notes, and a
-   * `.ts` wants line numbers and a monospace face, not a serif measure.
-   */
-  kind: 'markdown' | 'text';
-  /** Bumped to force the editor to reload, e.g. after an upstream change. */
-  revision: number;
+/** One step of a pane's navigation trail. */
+type Trail = { path: string; view: { scroll: number; anchor: number } };
+
+/** What a `useState` setter accepts: a value, or a function of the old one. */
+type Change<T> = T | ((prev: T) => T);
+
+function applyChange<T>(next: Change<T>, prev: T): T {
+  return typeof next === 'function' ? (next as (p: T) => T)(prev) : next;
 }
 
 export function App() {
-  const [note, setNote] = useState<OpenNote | null>(null);
-  const [preview, setPreview] = useState<{
-    path: string;
-    url: string;
-    kind: 'image' | 'pdf';
-  } | null>(null);
+  /**
+   * One or two editor panes, and which of them is focused.
+   *
+   * Everything below reads `note`, `preview` and `drawing` as it always did;
+   * those are now the *focused* pane's, through the setters just under here.
+   * That is the whole trick of the split: autosave, history, backlinks and
+   * wikilink navigation did not have to learn about panes, because "the open
+   * note" still means one thing.
+   */
+  const [panes, setPanes] = useState(initialLayout);
   /** Embeds collapsed in this window, by path. A reading posture, unpersisted. */
   const [collapsedEmbeds, setCollapsedEmbeds] = useState<Set<string>>(new Set());
   /** Notes whose `readOnly` frontmatter has been overridden this session. */
   const [readOnlyOverrides, setReadOnlyOverrides] = useState<Set<string>>(new Set());
-  const [drawing, setDrawing] = useState<{ path: string; source: string } | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [recents, setRecents] = useState<string[]>([]);
   const [booting, setBooting] = useState(true);
@@ -211,14 +225,52 @@ export function App() {
 
   const saveTimer = useRef<number | null>(null);
   /**
+   * Which pane is focused, readable synchronously.
+   *
+   * State drives the rendering, but a click that focuses a pane must be visible
+   * to the handler of the *same* click — pressing History in the pane you were
+   * not in has to mean that pane's history, not the other one's. So focus is
+   * written here the moment it moves, ahead of the re-render.
+   */
+  const focusedSideRef = useRef<PaneSide>(panes.focused);
+  const panesRef = useRef(panes);
+  panesRef.current = panes;
+  focusedSideRef.current = panes.focused;
+
+  /**
    * Navigation history: where you have been, with the reading position.
    *
    * Above the editor, not inside it — CodeMirror's history is document undo,
    * and conflating the two would make ⌘Z navigate. Per window, deliberately
    * not persisted.
+   *
+   * Per *pane*, because a trail is a trail through one pane: Back in the pane
+   * you are reading must not jump to a note you left behind in the other one.
    */
-  const backStack = useRef<Array<{ path: string; view: { scroll: number; anchor: number } }>>([]);
-  const forwardStack = useRef<Array<{ path: string; view: { scroll: number; anchor: number } }>>(
+  const stacks = useRef<Record<PaneSide, { back: Trail[]; forward: Trail[] }>>({
+    left: { back: [], forward: [] },
+    right: { back: [], forward: [] },
+  });
+  const backStack = useMemo(
+    () => ({
+      get current(): Trail[] {
+        return stacks.current[focusedSideRef.current].back;
+      },
+      set current(next: Trail[]) {
+        stacks.current[focusedSideRef.current].back = next;
+      },
+    }),
+    [],
+  );
+  const forwardStack = useMemo(
+    () => ({
+      get current(): Trail[] {
+        return stacks.current[focusedSideRef.current].forward;
+      },
+      set current(next: Trail[]) {
+        stacks.current[focusedSideRef.current].forward = next;
+      },
+    }),
     [],
   );
   /** Set while nav.back/forward drives the change, so it is not re-recorded. */
@@ -233,33 +285,120 @@ export function App() {
    * twice. This ref is the same fact without the render lag.
    */
   const currentNavPath = useRef<string | null>(null);
-  const pending = useRef<OpenNote | null>(null);
-  const noteRef = useRef<OpenNote | null>(null);
-  const editorRef = useRef<NoteEditorHandle>(null);
+  /**
+   * Unsaved text, by document.
+   *
+   * Keyed rather than one slot, because two panes can hold two dirty documents
+   * at once: typing in one pane and clicking into the other must not strand the
+   * first pane's keystrokes. `flush` drains every entry, and each write goes to
+   * the vault and path its own entry names.
+   */
+  const pendingDocs = useRef(new Map<string, OpenNote>());
+  /** The focused pane's note, without waiting for a render. */
+  const noteRef = useMemo(
+    () => ({
+      get current(): OpenNote | null {
+        return paneAt(panesRef.current, focusedSideRef.current).note;
+      },
+    }),
+    [],
+  );
+  const editorHandles = useRef<Record<PaneSide, NoteEditorHandle | null>>({
+    left: null,
+    right: null,
+  });
+  /** The focused pane's editor. Every `edit.*` command lands in one pane only. */
+  const editorRef = useMemo(
+    () => ({
+      get current(): NoteEditorHandle | null {
+        return editorHandles.current[focusedSideRef.current];
+      },
+    }),
+    [],
+  );
   /** Line to jump to once the editor has mounted the incoming note. */
   const pendingLine = useRef<number | null>(null);
   /** Which vault the editor is currently showing, to spot a tab switch. */
   const lastActiveRoot = useRef<string | null>(null);
   /** The note each vault was last on, so switching back resumes it. */
   const lastNoteByVault = useRef(new Map<string, string>());
-  noteRef.current = note;
 
-  // When a pull rewrites the open note underneath us, reload it rather than
-  // letting the user keep typing into a stale document.
+  const note = focusedPane(panes).note;
+  const preview = focusedPane(panes).preview;
+  const drawing = focusedPane(panes).drawing;
+
+  /** Change what the focused pane is showing. */
+  const setFocusedPane = useCallback((change: (pane: Pane) => Pane) => {
+    setPanes((prev) => updatePane(prev, focusedSideRef.current, change));
+  }, []);
+
+  /**
+   * `setNote`, `setPreview` and `setDrawing` address the focused pane.
+   *
+   * They keep the signature of the `useState` setters they replaced — value or
+   * updater — so opening a note from the tree, the quick switcher, a wikilink
+   * or a deep link lands in the pane you are working in without any of those
+   * callers knowing a second pane exists.
+   */
+  const setNote = useCallback(
+    (next: Change<OpenNote | null>) =>
+      setFocusedPane((pane) => ({ ...pane, note: applyChange(next, pane.note) })),
+    [setFocusedPane],
+  );
+  const setPreview = useCallback(
+    (next: Change<OpenPreview | null>) =>
+      setFocusedPane((pane) => ({ ...pane, preview: applyChange(next, pane.preview) })),
+    [setFocusedPane],
+  );
+  const setDrawing = useCallback(
+    (next: Change<OpenDrawing | null>) =>
+      setFocusedPane((pane) => ({ ...pane, drawing: applyChange(next, pane.drawing) })),
+    [setFocusedPane],
+  );
+
+  /** Move focus, eagerly enough for this click's own handlers to see it. */
+  const focusPane = useCallback((side: PaneSide) => {
+    if (focusedSideRef.current === side) return;
+    focusedSideRef.current = side;
+    setPanes((prev) => focusPaneIn(prev, side));
+  }, []);
+
+  /**
+   * A note lives in at most one pane.
+   *
+   * Opening one that the other pane already shows moves focus there instead of
+   * making a second copy: two editors over one file would each hold their own
+   * buffer and take turns overwriting the other's autosave.
+   */
+  const focusIfAlreadyOpen = useCallback(
+    (root: string, path: string): boolean => {
+      const side = sideShowing(panesRef.current, root, path);
+      if (!side || side === focusedSideRef.current) return false;
+      focusPane(side);
+      return true;
+    },
+    [focusPane],
+  );
+
+  // When a pull rewrites a note underneath us, reload it rather than letting
+  // the user keep typing into a stale document. Both panes, not just the
+  // focused one: the pane you are reading is exactly the one you would not
+  // notice going stale.
   const onExternalChange = useCallback((root: string) => {
-    const open = noteRef.current;
-    if (!open || open.root !== root) return;
-    void api
-      .readNote(root, open.path)
-      .then((fresh) => {
-        if (fresh !== noteRef.current?.doc) {
-          setNote((prev) => (prev ? { ...prev, doc: fresh, revision: prev.revision + 1 } : prev));
+    for (const side of paneSides(panesRef.current)) {
+      const open = paneAt(panesRef.current, side).note;
+      if (!open || open.root !== root) continue;
+      void api
+        .readNote(root, open.path)
+        .then((fresh) => {
+          if (fresh === paneAt(panesRef.current, side).note?.doc) return;
+          setPanes((prev) => adoptDoc(prev, root, open.path, fresh, true));
           setMessage(`${open.path} was updated from the remote.`);
-        }
-      })
-      .catch(() => {
-        // The note may have been deleted upstream; the tree refresh covers that.
-      });
+        })
+        .catch(() => {
+          // The note may have been deleted upstream; the tree refresh covers that.
+        });
+    }
   }, []);
 
   const ws = useWorkspace(onExternalChange);
@@ -422,70 +561,107 @@ export function App() {
     setRecents(await api.recentVaults());
   }, []);
 
+  /**
+   * Write out every dirty document, one at a time.
+   *
+   * Serial rather than concurrent: each write ends in `noteSaved`, and the sync
+   * engine decides from there whether to commit. Two in flight would have it
+   * making that decision against a working copy still being written.
+   */
   const flush = useCallback(
     async (throwOnError = false) => {
-      const outstanding = pending.current;
-      if (!outstanding) return;
-      // The write goes to the vault the document was opened from, never to
-      // whichever vault is active now — the two differ for a save queued just
-      // before a tab switch.
-      const root = outstanding.root;
-      pending.current = null;
+      if (pendingDocs.current.size === 0) return;
+      let failure: unknown = null;
       setSaveState('saving');
-      try {
-        await api.writeNote(root, outstanding.path, outstanding.doc);
-        setSaveState('saved');
-        // Adopt what was just written as the open document. Without this the
-        // counters, the outline and an export all read the text as it was when
-        // the note was opened. Doing it here rather than per keystroke means the
-        // app re-renders when typing pauses, not on every character; `revision`
-        // deliberately does not change, so the editor is not torn down.
-        setNote((prev) =>
-          prev &&
-          prev.root === root &&
-          prev.path === outstanding.path &&
-          prev.doc !== outstanding.doc
-            ? { ...prev, doc: outstanding.doc }
-            : prev,
-        );
-        // Search, backlinks and tasks must reflect what was just written — but
-        // the index belongs to the active vault, so only when they are the same.
-        if (root === ws.activeRoot) vaultIndex.updateNote(outstanding.path, outstanding.doc);
-        // Tell the sync engine a file landed; it owns the commit decision.
-        ws.noteSaved(root);
-      } catch (e) {
-        // Keep the newest unsaved buffer queued. In particular, an update must
-        // not restart the app after a failed final save.
-        if (!pending.current) pending.current = outstanding;
-        setSaveState('error');
-        ws.setError(errorText(e));
-        if (throwOnError) throw e;
+      for (const [key, outstanding] of [...pendingDocs.current]) {
+        // The write goes to the vault the document was opened from, never to
+        // whichever vault is active now — the two differ for a save queued just
+        // before a tab switch.
+        const root = outstanding.root;
+        pendingDocs.current.delete(key);
+        try {
+          await api.writeNote(root, outstanding.path, outstanding.doc);
+          // Adopt what was just written into whichever pane holds it. Without
+          // this the counters, the outline and an export all read the text as it
+          // was when the note was opened. Doing it here rather than per
+          // keystroke means the app re-renders when typing pauses, not on every
+          // character; the revision deliberately does not change, so the editor
+          // is not torn down.
+          setPanes((prev) => adoptDoc(prev, root, outstanding.path, outstanding.doc));
+          // Search, backlinks and tasks must reflect what was just written — but
+          // the index belongs to the active vault, so only when they are the same.
+          if (root === ws.activeRoot) vaultIndex.updateNote(outstanding.path, outstanding.doc);
+          // Tell the sync engine a file landed; it owns the commit decision.
+          ws.noteSaved(root);
+        } catch (e) {
+          // Keep the newest unsaved buffer queued. In particular, an update must
+          // not restart the app after a failed final save.
+          if (!pendingDocs.current.has(key)) pendingDocs.current.set(key, outstanding);
+          failure = e;
+          ws.setError(errorText(e));
+        }
       }
+      setSaveState(failure ? 'error' : 'saved');
+      if (failure && throwOnError) throw failure;
     },
     [ws, vaultIndex],
   );
 
+  /** Whether anything typed into `root` is still waiting to be written. */
+  const hasPendingIn = (root: string): boolean =>
+    [...pendingDocs.current.values()].some((out) => out.root === root);
+
   /**
-   * The freshest known text for the open note.
+   * The freshest known text for an open note.
    *
-   * Typing lands in `pending` (a ref) ahead of the autosave, so remounting the
-   * editor from `note.doc` alone — which a theme flip does, via the React key —
-   * would resurrect a version up to 500ms stale and let the next keystroke
-   * overwrite what was really written.
+   * Typing lands in `pendingDocs` (a ref) ahead of the autosave, so remounting
+   * the editor from `note.doc` alone — which a theme flip does, via the React
+   * key — would resurrect a version up to 500ms stale and let the next
+   * keystroke overwrite what was really written.
    */
   const freshestDoc = (open: OpenNote): string =>
-    pending.current && pending.current.root === open.root && pending.current.path === open.path
-      ? pending.current.doc
-      : open.doc;
+    pendingDocs.current.get(docKey(open.root, open.path))?.doc ?? open.doc;
 
+  /**
+   * Typing in a pane.
+   *
+   * The pane is named by the editor that changed rather than taken from focus:
+   * the two agree in practice, since typing follows the caret, but a buffer
+   * filed under the wrong pane's note would write one note's text over another.
+   */
   const onDocChange = useCallback(
-    (doc: string) => {
-      const open = noteRef.current;
+    (side: PaneSide, doc: string) => {
+      const open = paneAt(panesRef.current, side).note;
       if (!open) return;
-      pending.current = { ...open, doc };
+      pendingDocs.current.set(docKey(open.root, open.path), { ...open, doc });
       setSaveState('dirty');
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(flush, AUTOSAVE_IDLE_MS);
+    },
+    [flush],
+  );
+
+  /** Open the second pane, empty and focused, ready for the next note. */
+  const splitEditor = useCallback(() => {
+    focusedSideRef.current = 'right';
+    setPanes(splitPanes);
+    setShowTodos(false);
+  }, []);
+
+  /**
+   * Close a pane, landing what it holds first.
+   *
+   * The pane going away may have a debounced write still queued, and dropping
+   * the pane is not a reason to drop what was typed into it.
+   */
+  const closeEditorPane = useCallback(
+    async (side: PaneSide) => {
+      if (!isSplit(panesRef.current)) return;
+      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+      await flush();
+      stacks.current[side] = { back: [], forward: [] };
+      focusedSideRef.current = 'left';
+      setPanes((prev) => closePane(prev, side));
     },
     [flush],
   );
@@ -500,13 +676,13 @@ export function App() {
    */
   const closeVaultAt = useCallback(
     async (root: string) => {
-      if (pending.current?.root === root) {
+      if (hasPendingIn(root)) {
         await flush();
         // flush() re-queues the buffer on failure and has already surfaced the
         // error. Closing anyway would strand that buffer against a root with
         // no open session, ready to resurrect over newer content if the same
         // vault and note are reopened later.
-        if (pending.current?.root === root) return;
+        if (hasPendingIn(root)) return;
       }
       ws.closeVault(root);
     },
@@ -545,6 +721,8 @@ export function App() {
     async (file: VaultFile) => {
       const root = ws.activeRoot;
       if (!root) return;
+      // Already beside us? Go there rather than opening it twice.
+      if (focusIfAlreadyOpen(root, file.path)) return;
       // A queued write must never land under a different note.
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
       await flush();
@@ -628,6 +806,12 @@ export function App() {
       const root = explicitRoot ?? ws.activeRoot;
       if (!root) return;
       if (explicitRoot && ws.activeRoot !== explicitRoot) ws.setActiveRoot(explicitRoot);
+      // Walking the trail stays in its own pane: Back must not hop panes just
+      // because the note it is returning to happens to be open in the other.
+      if (!navigating.current && focusIfAlreadyOpen(root, path)) {
+        if (line) editorRef.current?.goToLine(line);
+        return;
+      }
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
       await flush();
       try {
@@ -697,14 +881,11 @@ export function App() {
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     void flush();
 
-    setNote(null);
-    setPreview(null);
-    setDrawing(null);
+    setPanes(clearPanes);
     setShowTodos(false);
     setPanel(null);
     setSaveState('saved');
-    backStack.current = [];
-    forwardStack.current = [];
+    stacks.current = { left: { back: [], forward: [] }, right: { back: [], forward: [] } };
     currentNavPath.current = null;
     setCollection({ kind: 'all' });
 
@@ -797,15 +978,18 @@ export function App() {
     // Branch switches and restores run git outside the engine, so the status
     // it publishes — the branch name in particular — is stale until asked.
     await Promise.all([ws.refreshFiles(root), ws.refreshStatus(root)]);
-    const open = noteRef.current;
-    if (!open) return;
-    try {
-      const fresh = await api.readNote(root, open.path);
-      setNote((prev) => (prev ? { ...prev, doc: fresh, revision: prev.revision + 1 } : prev));
-      vaultIndex.updateNote(open.path, fresh);
-    } catch {
-      // The note may not exist on the branch we just moved to.
-      setNote(null);
+    // Every pane: a branch switch changes the file under both of them.
+    for (const side of paneSides(panesRef.current)) {
+      const open = paneAt(panesRef.current, side).note;
+      if (!open) continue;
+      try {
+        const fresh = await api.readNote(root, open.path);
+        setPanes((prev) => adoptDoc(prev, root, open.path, fresh, true));
+        vaultIndex.updateNote(open.path, fresh);
+      } catch {
+        // The note may not exist on the branch we just moved to.
+        setPanes((prev) => updatePane(prev, side, (pane) => ({ ...pane, note: null })));
+      }
     }
   }, [ws, vaultIndex]);
 
@@ -973,11 +1157,19 @@ export function App() {
     [ws],
   );
 
-  const attachments = useMemo(
-    () => ({
+  /**
+   * Attachment handling, per pane.
+   *
+   * Every one of these resolves a relative path against the note that asked —
+   * `assets/plan.png` means something different in `Projects/` than it does at
+   * the root. Reading the *focused* note here would have the pane you are not
+   * looking at resolving its images against the pane you are.
+   */
+  const makeAttachments = useCallback(
+    (side: PaneSide) => ({
       async store(file: File) {
         const root = ws.activeRoot;
-        const open = noteRef.current;
+        const open = paneAt(panesRef.current, side).note;
         if (!root || !open) throw new Error('no note is open');
         // The bytes are materialised four times on the way to disk; a ceiling
         // keeps a dropped ISO from taking the window with it.
@@ -1013,7 +1205,7 @@ export function App() {
         return relativeFrom(open.path, path);
       },
       fileMeta(path: string) {
-        const open = noteRef.current;
+        const open = paneAt(panesRef.current, side).note;
         const root = ws.activeRoot;
         if (!root || !open) return null;
         const absolute = resolveAgainst(open.path, path);
@@ -1021,7 +1213,7 @@ export function App() {
         return file ? { size: file.size, kind: file.kind } : null;
       },
       openFile(path: string) {
-        const open = noteRef.current;
+        const open = paneAt(panesRef.current, side).note;
         const root = ws.activeRoot;
         if (!root || !open) return;
         const absolute = resolveAgainst(open.path, path);
@@ -1035,7 +1227,7 @@ export function App() {
         void select(file);
       },
       async renderDrawing(path: string) {
-        const open = noteRef.current;
+        const open = paneAt(panesRef.current, side).note;
         const root = ws.activeRoot;
         if (!root || !open) return null;
         try {
@@ -1073,7 +1265,7 @@ export function App() {
       },
       async resolveImage(path: string) {
         const root = ws.activeRoot;
-        const open = noteRef.current;
+        const open = paneAt(panesRef.current, side).note;
         if (!root || !open) return null;
         try {
           return await api.readImage(root, resolveAgainst(open.path, path));
@@ -1083,6 +1275,18 @@ export function App() {
       },
     }),
     [ws, session?.attachmentFolder, select],
+  );
+
+  /**
+   * One stable options object per pane.
+   *
+   * Stable because `NoteEditor` holds it in a ref and does not rebuild the
+   * editor when it changes: a fresh object every render would be silently
+   * ignored by the live editor while costing a new closure each time.
+   */
+  const attachmentsBySide = useMemo(
+    () => ({ left: makeAttachments('left'), right: makeAttachments('right') }),
+    [makeAttachments],
   );
 
   // Changes only when the chips' inputs change, so the repaint nudge fires
@@ -1533,14 +1737,10 @@ export function App() {
             vaultIndex.updateNote(path, result.text);
             notes += 1;
             occurrences += result.count;
-            if (noteRef.current?.path === path) {
-              pending.current = null;
-              setNote((prev) =>
-                prev && prev.path === path
-                  ? { ...prev, doc: result.text, revision: prev.revision + 1 }
-                  : prev,
-              );
-            }
+            // Whichever pane holds it, if either: the rewrite went to disk, so
+            // the buffer that was queued against the old text is now wrong.
+            pendingDocs.current.delete(docKey(root, path));
+            setPanes((prev) => adoptDoc(prev, root, path, result.text, true));
           }
           return notes > 0 ? commitMessage(notes) : null;
         });
@@ -1650,14 +1850,8 @@ export function App() {
 
         await api.writeNote(root, mentioningPath, text);
         vaultIndex.updateNote(mentioningPath, text);
-        if (isOpen) {
-          pending.current = null;
-          setNote((prev) =>
-            prev && prev.path === mentioningPath
-              ? { ...prev, doc: text, revision: prev.revision + 1 }
-              : prev,
-          );
-        }
+        pendingDocs.current.delete(docKey(root, mentioningPath));
+        setPanes((prev) => adoptDoc(prev, root, mentioningPath, text, true));
         ws.noteSaved(root);
         setMessage(`Linked the mention in ${mentioningPath}.`);
       } catch (e) {
@@ -2075,14 +2269,8 @@ export function App() {
         await api.writeNote(root, target, next);
         vaultIndex.updateNote(target, next);
         ws.noteSaved(root);
-        if (isOpen) {
-          pending.current = null;
-          setNote((prev) =>
-            prev && prev.path === target
-              ? { ...prev, doc: next, revision: prev.revision + 1 }
-              : prev,
-          );
-        }
+        pendingDocs.current.delete(docKey(root, target));
+        setPanes((prev) => adoptDoc(prev, root, target, next, true));
         setMessage(`Appended to ${target}.`);
         return;
       }
@@ -2291,6 +2479,17 @@ export function App() {
       'sync.settings': () => togglePanel('settings'),
       'view.toggleSidebar': () => setShowSidebar((v) => !v),
       'view.toggleList': () => setShowList((v) => !v),
+      'view.splitRight': () => splitEditor(),
+      'view.focusOtherPane': () => {
+        // Through the ref as well as state, so an `edit.*` command chorded
+        // straight after this one already addresses the pane you moved to.
+        const next = focusOther(panesRef.current);
+        focusPane(next.focused);
+        // And the caret with it: moving the pane focus without the caret would
+        // leave the next keystroke going to the pane you just left.
+        editorRef.current?.focus();
+      },
+      'view.closePane': () => void closeEditorPane(focusedSideRef.current),
       'view.toggleBacklinks': () =>
         setInfo((prev) =>
           prev.open && prev.tab === 'backlinks'
@@ -2495,7 +2694,7 @@ export function App() {
 
   useEffect(() => {
     const onBeforeUnload = () => {
-      if (pending.current) void flush();
+      if (pendingDocs.current.size > 0) void flush();
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
@@ -2631,17 +2830,6 @@ export function App() {
     panel === 'branches' ||
     panel === 'keymap' ||
     panel === 'settings';
-
-  // `revision` is the dependency that matters: the index object is stable and
-  // mutated in place, so React cannot see changes without it.
-  // `readOnly: true` in frontmatter locks the editor; the frontmatter travels
-  // with the file, which app-local state would not. The unlock is per window,
-  // per session — the file keeps saying what it says.
-  const noteReadOnly = Boolean(
-    note &&
-      vaultIndex.index.get(note.path)?.frontmatter.readOnly === true &&
-      !readOnlyOverrides.has(`${note.root}:${note.path}`),
-  );
 
   const backlinks = note ? vaultIndex.index.backlinks(note.path) : [];
   const noteTags = note ? (vaultIndex.index.get(note.path)?.tags ?? []) : [];
@@ -2793,10 +2981,6 @@ export function App() {
 
   const stats = note?.kind === 'markdown' ? readingStats(note.doc) : null;
   const lineCount = note?.kind === 'text' ? note.doc.split('\n').length : null;
-  const noteTitle = note ? (vaultIndex.index.get(note.path)?.title ?? baseName(note.path)) : null;
-  const noteFolder =
-    note && note.path.includes('/') ? note.path.slice(0, note.path.lastIndexOf('/')) : '';
-  const pinnedHere = note ? session.pinned.includes(note.path) : false;
 
   /** Most recently touched notes, for the empty state. */
   const recentNotes = [...session.files]
@@ -2804,6 +2988,253 @@ export function App() {
     .sort((a, b) => b.modified - a.modified)
     .slice(0, 6);
 
+  /**
+   * One editor pane: the note bar, and whatever the pane is showing.
+   *
+   * Called once, or twice with the split open. `note`, `preview` and `drawing`
+   * are deliberately shadowed from this pane's own state, so the surface reads
+   * the same whichever pane it is drawing — and so the version of it that is
+   * not focused cannot accidentally render the focused pane's note.
+   */
+  const editorPane = (side: PaneSide) => {
+    const pane = paneAt(panes, side);
+    const { note, preview, drawing } = pane;
+    const focused = panes.focused === side;
+    const split = isSplit(panes);
+    const noteTitle = note ? (vaultIndex.index.get(note.path)?.title ?? baseName(note.path)) : null;
+    const noteFolder =
+      note && note.path.includes('/') ? note.path.slice(0, note.path.lastIndexOf('/')) : '';
+    // `readOnly: true` in frontmatter locks the editor; the frontmatter travels
+    // with the file, which app-local state would not. The unlock is per window,
+    // per session — the file keeps saying what it says.
+    const noteReadOnly = Boolean(
+      note &&
+        vaultIndex.index.get(note.path)?.frontmatter.readOnly === true &&
+        !readOnlyOverrides.has(`${note.root}:${note.path}`),
+    );
+    const pinnedHere = note ? session.pinned.includes(note.path) : false;
+    const backlinks = note ? vaultIndex.index.backlinks(note.path) : [];
+    const noteTags = note ? (vaultIndex.index.get(note.path)?.tags ?? []) : [];
+
+    return (
+      <section
+        key={side}
+        className={`pane ${split ? 'is-split' : ''} ${focused ? 'is-focused' : ''}`}
+        // Focus follows the pointer into a pane, in the capture phase and on
+        // mousedown, so the click that lands on a button in this pane is
+        // already addressing this pane by the time the button's handler runs.
+        onMouseDownCapture={() => focusPane(side)}
+        onFocusCapture={() => focusPane(side)}
+      >
+        {/* Note-scoped actions sit with the note, not in the window chrome,
+                so it is never ambiguous what "History" is the history of. */}
+        {note && !conflicted && !showTodos && (
+          <div className="note-bar">
+            <div className="note-id" title={note.path}>
+              {noteFolder && <span className="note-folder">{noteFolder}/</span>}
+              <span className="note-title">{noteTitle}</span>
+            </div>
+            <div className="note-actions">
+              {noteReadOnly && (
+                <button
+                  type="button"
+                  className="is-on"
+                  title="readOnly: true in this note's frontmatter. Click to edit anyway, for this window."
+                  onClick={() => setReadOnlyOverrides((prev) => new Set(prev).add(note.path))}
+                >
+                  🔒 Read-only
+                </button>
+              )}
+              <button
+                type="button"
+                className={pinnedHere ? 'is-on' : ''}
+                onClick={() => void togglePin()}
+                title={pinnedHere ? 'Unpin from the sidebar' : 'Pin to the top of the sidebar'}
+              >
+                {pinnedHere ? '★' : '☆'}
+              </button>
+              {note.kind === 'markdown' && (
+                <button
+                  type="button"
+                  className={
+                    focused && info.open && info.tab === 'outline' && panel === null ? 'is-on' : ''
+                  }
+                  onClick={() => handlers['view.outline']()}
+                  title={`Outline (${shortcut('view.outline')})`}
+                >
+                  Outline
+                </button>
+              )}
+              <button
+                type="button"
+                className={focused && panel === 'history' ? 'is-on' : ''}
+                onClick={() => togglePanel('history')}
+                title={`History of this note (${shortcut('view.history')})`}
+              >
+                History
+              </button>
+              {note.kind === 'markdown' && (
+                <button
+                  type="button"
+                  className={focused && info.open && panel === null ? 'is-on' : ''}
+                  onClick={() => {
+                    setPanel(null);
+                    setInfo((prev) => ({ ...prev, open: !prev.open }));
+                  }}
+                  title={
+                    backlinks.length === 0 && noteTags.length === 0
+                      ? 'No tags, and no note links here yet'
+                      : `Links and tags (${shortcut('view.toggleBacklinks')})`
+                  }
+                >
+                  Links{backlinks.length > 0 ? ` ${backlinks.length}` : ''}
+                </button>
+              )}
+              {split && (
+                <button
+                  type="button"
+                  onClick={() => void closeEditorPane(side)}
+                  title={`Close this pane (${shortcut('view.closePane')})`}
+                  aria-label="Close this pane"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {showTodos && focused ? (
+          <TodoView
+            todos={todos}
+            onOpen={(path, line) => void openNoteAt(path, line)}
+            onToggle={(todo) => void toggleTodo(todo)}
+          />
+        ) : conflicted ? (
+          <ConflictPanel
+            root={session.info.root}
+            conflicts={session.state.conflicts}
+            onOpenFile={openConflicted}
+            onResolved={() => {
+              void ws.conflictResolved(session.info.root);
+              void ws.refreshFiles(session.info.root);
+            }}
+          />
+        ) : note?.kind === 'text' ? (
+          <TextEditor
+            key={`${session.info.root}:${note.path}:${note.revision}`}
+            path={note.path}
+            doc={freshestDoc(note)}
+            autoFocus={focused}
+            onChange={(text) => onDocChange(side, text)}
+          />
+        ) : note ? (
+          <NoteEditor
+            // `dark` is in the key because diagram SVGs bake in their colours
+            // and must be redrawn when the appearance flips. That remount is
+            // why the doc comes from `freshestDoc`: state can be an autosave
+            // interval behind the editor. Typography changes stay pure CSS
+            // and never come through here.
+            key={`${session.info.root}:${note.path}:${note.revision}:${dark}:${noteReadOnly}:${session.spellcheck}`}
+            path={note.path}
+            autoFocus={focused}
+            readOnly={noteReadOnly}
+            spellcheck={session.spellcheck}
+            doc={freshestDoc(note)}
+            onChange={(text) => onDocChange(side, text)}
+            resolveLink={(target) => vaultIndex.index.resolveLink(target)}
+            onFollowLink={followLink}
+            dark={dark}
+            attachments={attachmentsBySide[side]}
+            sortTodosOnCompletion={session.sortTodosOnCompletion}
+            completion={completion}
+            concealEverywhere={session.concealEverywhere}
+            collapsedEmbeds={collapsedEmbeds}
+            attachmentsStamp={attachmentsStamp}
+            paste={{
+              asMarkdown: session.pasteAsMarkdown,
+              fetchTitles: session.fetchLinkTitles,
+              fetchTitle: (url) => api.fetchPageTitle(url),
+            }}
+            ref={(handle) => {
+              editorHandles.current[side] = handle;
+            }}
+          />
+        ) : drawing ? (
+          <DrawingEditor
+            path={drawing.path}
+            source={drawing.source}
+            dark={dark}
+            onSave={(json) => void saveDrawing(drawing.path, json)}
+          />
+        ) : preview ? (
+          <div className="preview">
+            {preview.kind === 'pdf' ? (
+              <embed
+                className="preview-pdf"
+                src={preview.url}
+                type="application/pdf"
+                title={preview.path}
+              />
+            ) : (
+              <img src={preview.url} alt={preview.path} />
+            )}
+            <p className="preview-caption">{preview.path} — preview only</p>
+          </div>
+        ) : (
+          /* An empty pane is the first thing a new vault shows, so it does
+                 the job a blank canvas cannot: name the next three moves. */
+          <div className="pane-empty">
+            <h2>{session.info.name}</h2>
+            <p className="muted-note">
+              {session.files.filter((f) => f.kind === 'markdown').length} notes in this vault.
+            </p>
+
+            <div className="empty-actions">
+              <button
+                type="button"
+                className="primary"
+                onClick={() => setPrompt({ kind: 'newNote', parent: '' })}
+              >
+                New note <kbd>{shortcut('note.new')}</kbd>
+              </button>
+              <button type="button" className="ghost" onClick={() => openPalette('notes')}>
+                Go to note <kbd>{shortcut('switcher.open')}</kbd>
+              </button>
+              <button type="button" className="ghost" onClick={() => handlers['note.daily']()}>
+                Today's note <kbd>{shortcut('note.daily')}</kbd>
+              </button>
+              {/* A pane you have just split off is empty, so this is where
+                      closing it again has to be offered. */}
+              {split && (
+                <button type="button" className="ghost" onClick={() => void closeEditorPane(side)}>
+                  Close this pane
+                </button>
+              )}
+            </div>
+
+            {recentNotes.length > 0 && (
+              <section className="empty-recents">
+                <h3>Recent</h3>
+                <ul>
+                  {recentNotes.map((file) => (
+                    <li key={file.path}>
+                      <button type="button" onClick={() => void openNoteAt(file.path)}>
+                        <span className="recent-note-title">
+                          {vaultIndex.index.get(file.path)?.title ?? baseName(file.path)}
+                        </span>
+                        <span className="recent-note-path">{file.path}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
+        )}
+      </section>
+    );
+  };
   return (
     <div className="app">
       {/* WKWebView ignores `-webkit-app-region`, so the drag region is
@@ -2983,191 +3414,15 @@ export function App() {
           />
         )}
 
-        <section className="pane">
-          {/* Note-scoped actions sit with the note, not in the window chrome,
-              so it is never ambiguous what "History" is the history of. */}
-          {note && !conflicted && !showTodos && (
-            <div className="note-bar">
-              <div className="note-id" title={note.path}>
-                {noteFolder && <span className="note-folder">{noteFolder}/</span>}
-                <span className="note-title">{noteTitle}</span>
-              </div>
-              <div className="note-actions">
-                {noteReadOnly && (
-                  <button
-                    type="button"
-                    className="is-on"
-                    title="readOnly: true in this note's frontmatter. Click to edit anyway, for this window."
-                    onClick={() => setReadOnlyOverrides((prev) => new Set(prev).add(note.path))}
-                  >
-                    🔒 Read-only
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className={pinnedHere ? 'is-on' : ''}
-                  onClick={() => void togglePin()}
-                  title={pinnedHere ? 'Unpin from the sidebar' : 'Pin to the top of the sidebar'}
-                >
-                  {pinnedHere ? '★' : '☆'}
-                </button>
-                {note.kind === 'markdown' && (
-                  <button
-                    type="button"
-                    className={info.open && info.tab === 'outline' && panel === null ? 'is-on' : ''}
-                    onClick={() => handlers['view.outline']()}
-                    title={`Outline (${shortcut('view.outline')})`}
-                  >
-                    Outline
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className={panel === 'history' ? 'is-on' : ''}
-                  onClick={() => togglePanel('history')}
-                  title={`History of this note (${shortcut('view.history')})`}
-                >
-                  History
-                </button>
-                {note.kind === 'markdown' && (
-                  <button
-                    type="button"
-                    className={info.open && panel === null ? 'is-on' : ''}
-                    onClick={() => {
-                      setPanel(null);
-                      setInfo((prev) => ({ ...prev, open: !prev.open }));
-                    }}
-                    title={
-                      backlinks.length === 0 && noteTags.length === 0
-                        ? 'No tags, and no note links here yet'
-                        : `Links and tags (${shortcut('view.toggleBacklinks')})`
-                    }
-                  >
-                    Links{backlinks.length > 0 ? ` ${backlinks.length}` : ''}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {showTodos ? (
-            <TodoView
-              todos={todos}
-              onOpen={(path, line) => void openNoteAt(path, line)}
-              onToggle={(todo) => void toggleTodo(todo)}
-            />
-          ) : conflicted ? (
-            <ConflictPanel
-              root={session.info.root}
-              conflicts={session.state.conflicts}
-              onOpenFile={openConflicted}
-              onResolved={() => {
-                void ws.conflictResolved(session.info.root);
-                void ws.refreshFiles(session.info.root);
-              }}
-            />
-          ) : note?.kind === 'text' ? (
-            <TextEditor
-              key={`${session.info.root}:${note.path}:${note.revision}`}
-              path={note.path}
-              doc={freshestDoc(note)}
-              onChange={onDocChange}
-            />
-          ) : note ? (
-            <NoteEditor
-              // `dark` is in the key because diagram SVGs bake in their colours
-              // and must be redrawn when the appearance flips. That remount is
-              // why the doc comes from `freshestDoc`: state can be an autosave
-              // interval behind the editor. Typography changes stay pure CSS
-              // and never come through here.
-              key={`${session.info.root}:${note.path}:${note.revision}:${dark}:${noteReadOnly}:${session.spellcheck}`}
-              path={note.path}
-              readOnly={noteReadOnly}
-              spellcheck={session.spellcheck}
-              doc={freshestDoc(note)}
-              onChange={onDocChange}
-              resolveLink={(target) => vaultIndex.index.resolveLink(target)}
-              onFollowLink={followLink}
-              dark={dark}
-              attachments={attachments}
-              sortTodosOnCompletion={session.sortTodosOnCompletion}
-              completion={completion}
-              concealEverywhere={session.concealEverywhere}
-              collapsedEmbeds={collapsedEmbeds}
-              attachmentsStamp={attachmentsStamp}
-              paste={{
-                asMarkdown: session.pasteAsMarkdown,
-                fetchTitles: session.fetchLinkTitles,
-                fetchTitle: (url) => api.fetchPageTitle(url),
-              }}
-              ref={editorRef}
-            />
-          ) : drawing ? (
-            <DrawingEditor
-              path={drawing.path}
-              source={drawing.source}
-              dark={dark}
-              onSave={(json) => void saveDrawing(drawing.path, json)}
-            />
-          ) : preview ? (
-            <div className="preview">
-              {preview.kind === 'pdf' ? (
-                <embed
-                  className="preview-pdf"
-                  src={preview.url}
-                  type="application/pdf"
-                  title={preview.path}
-                />
-              ) : (
-                <img src={preview.url} alt={preview.path} />
-              )}
-              <p className="preview-caption">{preview.path} — preview only</p>
-            </div>
-          ) : (
-            /* An empty pane is the first thing a new vault shows, so it does
-               the job a blank canvas cannot: name the next three moves. */
-            <div className="pane-empty">
-              <h2>{session.info.name}</h2>
-              <p className="muted-note">
-                {session.files.filter((f) => f.kind === 'markdown').length} notes in this vault.
-              </p>
-
-              <div className="empty-actions">
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() => setPrompt({ kind: 'newNote', parent: '' })}
-                >
-                  New note <kbd>{shortcut('note.new')}</kbd>
-                </button>
-                <button type="button" className="ghost" onClick={() => openPalette('notes')}>
-                  Go to note <kbd>{shortcut('switcher.open')}</kbd>
-                </button>
-                <button type="button" className="ghost" onClick={() => handlers['note.daily']()}>
-                  Today's note <kbd>{shortcut('note.daily')}</kbd>
-                </button>
-              </div>
-
-              {recentNotes.length > 0 && (
-                <section className="empty-recents">
-                  <h3>Recent</h3>
-                  <ul>
-                    {recentNotes.map((file) => (
-                      <li key={file.path}>
-                        <button type="button" onClick={() => void openNoteAt(file.path)}>
-                          <span className="recent-note-title">
-                            {vaultIndex.index.get(file.path)?.title ?? baseName(file.path)}
-                          </span>
-                          <span className="recent-note-path">{file.path}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-            </div>
-          )}
-        </section>
+        {/* One pane, or two side by side. The split is a window posture: it
+            is not written to the vault, and a vault switch keeps it while
+            emptying what is in it. */}
+        <div className={`pane-split ${isSplit(panes) ? 'is-split' : ''}`}>
+          {/* A conflict takes the whole editor area, split or not: resolving it
+              is the only thing there is to do, and offering the same panel
+              twice would not make that clearer. */}
+          {(conflicted ? [panes.focused] : paneSides(panes)).map((side) => editorPane(side))}
+        </div>
 
         {rightPanelOpen && (
           <PaneResizer

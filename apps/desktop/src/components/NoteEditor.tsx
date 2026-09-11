@@ -27,6 +27,14 @@ interface NoteEditorProps {
   collapsedEmbeds: Set<string>;
   /** Bumped when the file listing or image display changes, to repaint chips. */
   attachmentsStamp: unknown;
+  /**
+   * Whether this editor may take the caret when it mounts or swaps documents.
+   *
+   * False for a pane that is not focused: a remount — a theme flip, a pull that
+   * bumps the revision — would otherwise pull the caret out of the pane the
+   * user is typing in.
+   */
+  autoFocus: boolean;
   /** `readOnly: true` frontmatter, honoured. Changing it remounts via the key. */
   readOnly: boolean;
   /** OS spell checker. Changing it remounts via the key too. */
@@ -46,6 +54,8 @@ interface NoteEditorProps {
 }
 
 export interface NoteEditorHandle {
+  /** Put the caret in this editor. For moving between panes from the keyboard. */
+  focus: () => void;
   /** Run an `edit.*` command. Returns false when the id is unknown. */
   runCommand: (id: string) => boolean;
   /** Put the caret on a 1-based line and scroll it into view. */
@@ -84,6 +94,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
     concealEverywhere,
     collapsedEmbeds,
     attachmentsStamp,
+    autoFocus,
     readOnly,
     spellcheck,
     paste,
@@ -108,6 +119,8 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
   concealRef.current = concealEverywhere;
   const pasteRef = useRef(paste);
   pasteRef.current = paste;
+  const autoFocusRef = useRef(autoFocus);
+  autoFocusRef.current = autoFocus;
 
   // The conceal, image and chip plugins only recompute on an update, so an
   // idle editor would otherwise keep showing the old state until the next
@@ -170,7 +183,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
       },
     });
     editorView.current = editor;
-    editor.focus();
+    if (autoFocusRef.current) editor.focus();
     return () => {
       editor.destroy();
       editorView.current = null;
@@ -182,7 +195,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
   useEffect(() => {
     if (editorView.current) {
       setEditorDoc(editorView.current, doc);
-      editorView.current.focus();
+      if (autoFocusRef.current) editorView.current.focus();
     }
     // `doc` is deliberately not a dependency: reacting to it would fight the
     // user's own typing, since every keystroke produces a new doc value.
@@ -191,6 +204,9 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
   useImperativeHandle(
     ref,
     () => ({
+      focus() {
+        editorView.current?.focus();
+      },
       runCommand(id: string) {
         const view = editorView.current;
         const command = editorCommands[id];
