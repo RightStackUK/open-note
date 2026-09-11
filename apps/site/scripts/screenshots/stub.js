@@ -370,6 +370,22 @@ export async function build(target: string): Promise<number> {
 
   const requested = new URLSearchParams(location.search).get('shot');
 
+  // Folders in the tree start collapsed and remember their state per vault in
+  // `localStorage`, so the sample vault is seeded open: the shots below click
+  // rows that live inside folders, and the tree is the app's shop window.
+  try {
+    localStorage.setItem(
+      `opennote:tree:expanded:${ROOT}`,
+      JSON.stringify(
+        list()
+          .filter((entry) => entry.kind === 'folder')
+          .map((entry) => entry.path),
+      ),
+    );
+  } catch {
+    // Without storage the shots still capture, just with a closed tree.
+  }
+
   // Seeded before the app boots: the sync engine enters the conflict phase when
   // it reads a status with unmerged paths, and the first read happens on open.
   if (requested === 'conflict') {

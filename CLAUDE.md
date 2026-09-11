@@ -158,6 +158,15 @@ the vault between machines. Both are hand-editable, so parsing **degrades field 
 defaults rather than failing. Machine-local state (recent vaults) goes in the OS config dir and is
 never committed.
 
+Posture is not settings, and the line is drawn at whether the sync engine would commit it. Pane
+widths and visibility (`panes.ts`) and which folders the tree has expanded (`treeExpansion.ts`)
+live in `localStorage`, keyed by vault root where they are per-vault: a caret click writing a
+tracked file would have the sync engine commit and push on every toggle, then have two machines
+argue about the result. Folders default to **collapsed**, so what is stored is the *expanded* set —
+storing the collapsed set instead would mean writing down every folder in the vault to express the
+default. `apps/site/scripts/screenshots/stub.js` seeds that key, because the shots click rows that
+live inside folders.
+
 ### Rendered SVG is sanitised
 
 A vault can be cloned from anywhere, so `packages/diagrams` strips scripts, event handlers,

@@ -1,10 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { VaultFile } from '../api';
 import { fileIconName } from '../fileIcons';
 import { buildTree, type TreeNode } from '../tree';
+import { readExpanded, writeExpanded } from '../treeExpansion';
 import { FileIcon } from './FileIcon';
 
 interface SidebarProps {
+  /** The vault this tree belongs to; its expanded folders are remembered per root. */
+  root: string;
   files: VaultFile[];
   activePath: string | null;
   changedPaths: Set<string>;
@@ -37,7 +40,8 @@ function Node({
   depth,
   activePath,
   changedPaths,
-  collapsed,
+  expanded,
+  expandAll,
   onToggleFolder,
   onSelect,
   onContext,
@@ -49,7 +53,8 @@ function Node({
   depth: number;
   activePath: string | null;
   changedPaths: Set<string>;
-  collapsed: Set<string>;
+  expanded: Set<string>;
+  expandAll: boolean;
   onToggleFolder: (path: string) => void;
   onSelect: (file: VaultFile) => void;
   onContext: SidebarProps['onContext'];
@@ -60,7 +65,7 @@ function Node({
   const indent = { paddingLeft: `${0.5 + depth * 0.75}rem` };
 
   if (node.type === 'folder') {
-    const open = !collapsed.has(node.path);
+    const open = expandAll || expanded.has(node.path);
     return (
       <li>
         <button
@@ -101,7 +106,8 @@ function Node({
                 depth={depth + 1}
                 activePath={activePath}
                 changedPaths={changedPaths}
-                collapsed={collapsed}
+                expanded={expanded}
+                expandAll={expandAll}
                 onToggleFolder={onToggleFolder}
                 onSelect={onSelect}
                 onContext={onContext}
@@ -157,6 +163,7 @@ function Node({
 }
 
 export function Sidebar({
+  root,
   files,
   activePath,
   changedPaths,
@@ -168,7 +175,13 @@ export function Sidebar({
   pinned = [],
 }: SidebarProps) {
   const [filter, setFilter] = useState('');
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  /**
+   * Expanded folders, restored from this vault's stored set.
+   *
+   * A folder not in the set is closed, so a vault opened for the first time
+   * shows only its top level instead of every subfolder at once.
+   */
+  const [expanded, setExpanded] = useState<Set<string>>(() => readExpanded(root));
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   const needle = filter.trim().toLowerCase();
@@ -178,12 +191,19 @@ export function Sidebar({
   );
   const tree = useMemo(() => buildTree(visible), [visible]);
 
-  const toggleFolder = (path: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(path)) next.add(path);
-      return next;
-    });
+  // Switching vaults swaps in that vault's tree, so it must swap in its posture
+  // too rather than carrying the previous vault's open folders across.
+  useEffect(() => setExpanded(readExpanded(root)), [root]);
+
+  // Written here rather than in an effect on `expanded`: the toggle is the only
+  // thing that changes it, and an effect would also fire on the vault switch
+  // above and write one vault's set under the other's key.
+  const toggleFolder = (path: string) => {
+    const next = new Set(expanded);
+    if (!next.delete(path)) next.add(path);
+    setExpanded(next);
+    writeExpanded(root, next);
+  };
 
   // Only pins that still exist; a deleted note should not linger in the list.
   const pinnedFiles = pinned
@@ -285,8 +305,9 @@ export function Sidebar({
                   depth={0}
                   activePath={activePath}
                   changedPaths={changedPaths}
+                  expanded={expanded}
                   // A filtered tree is a set of answers, so it is always open.
-                  collapsed={needle ? EMPTY : collapsed}
+                  expandAll={Boolean(needle)}
                   onToggleFolder={toggleFolder}
                   onSelect={onSelect}
                   onContext={onContext}
@@ -302,5 +323,3 @@ export function Sidebar({
     </div>
   );
 }
-
-const EMPTY: Set<string> = new Set();

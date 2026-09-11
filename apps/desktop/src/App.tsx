@@ -2920,6 +2920,7 @@ export function App() {
         {showSidebar && (
           <aside className="sidebar">
             <Sidebar
+              root={session.info.root}
               files={session.files}
               activePath={note?.path ?? preview?.path ?? drawing?.path ?? null}
               changedPaths={new Set(session.state.conflicts)}
