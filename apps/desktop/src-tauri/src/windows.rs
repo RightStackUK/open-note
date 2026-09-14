@@ -121,13 +121,18 @@ pub fn open_window<R: Runtime>(
         .map_err(|e| e.to_string())?
         .insert(label.clone(), WindowIntent { root, path });
 
-    let built = WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
+    let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
         .title("Open Note")
-        .inner_size(1100.0, 760.0)
-        // The same chrome as the first window: the header strip is ours to
-        // draw, and a native title bar here would look like a different app.
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .build();
+        .inner_size(1100.0, 760.0);
+    // The same chrome as the first window: the header strip is ours to draw,
+    // and a native title bar here would look like a different app. Shadowed
+    // under a `cfg` rather than chained, because `title_bar_style` only exists
+    // on macOS — chaining it compiles here and breaks the Linux and Windows
+    // builds, which is what `tauri.conf.json` avoids for the first window by
+    // being configuration rather than code.
+    #[cfg(target_os = "macos")]
+    let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay);
+    let built = builder.build();
 
     match built {
         Ok(_) => Ok(label),

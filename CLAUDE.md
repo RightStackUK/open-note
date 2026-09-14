@@ -198,6 +198,11 @@ worth knowing:
 - **Claim failures fail open.** A window with no engine *and* no owner is worse
   than the contention the claim prevents, so an unavailable claim is treated
   as ownership — which is also what happens outside the desktop shell.
+- **Some Tauri builder methods are platform-gated.** `title_bar_style` is
+  `#[cfg(target_os = "macos")]`, so chaining it compiles on a Mac and fails the
+  Linux and Windows jobs — development happens on one platform and CI builds
+  three. Apply such a call through a `cfg`-shadowed `let`, and prefer
+  `tauri.conf.json`, which is configuration and simply ignored elsewhere.
 
 ### Two editors, one package
 
