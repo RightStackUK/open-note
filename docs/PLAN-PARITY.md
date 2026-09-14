@@ -638,28 +638,24 @@ follower that does file IO and forwards saves to the owner. Claims are atomic
 in Rust, closing a window hands its vaults over, and a follower may not run
 git. See `src-tauri/src/windows.rs` and CLAUDE.md.
 
-### D2 — Workspaces — [#7](https://github.com/RightStackUK/open-note/issues/7)
+### D2 — Workspaces — [#7](https://github.com/RightStackUK/open-note/issues/7) ✅
 
-Scoping the entire app to one tag — every view, search, and new note staying
-inside it — means threading a global scope through the vault index, search, the
-sidebar, the note list and note creation. That is a cross-cutting concern touching
-most of the frontend, and it is easy to leave one path unscoped, which is worse
-than not having it.
+**Landed.** The cross-cutting risk is answered by having exactly one definition
+of "inside" (`inWorkspace`) and one seam where a new note's bytes are decided
+(`createNoteFile`), with a test per scoped surface. Two exceptions are
+deliberate: `resolveLink` and `[[` completion cross the boundary, because a link
+is not a view. See CLAUDE.md.
 
 Revisit after Block 4, when the note list has settled and there is one obvious
 place for the filter to live.
 
-### D3 — Stable note identifiers — [#8](https://github.com/RightStackUK/open-note/issues/8)
+### D3 — Stable note identifiers — [#8](https://github.com/RightStackUK/open-note/issues/8) ✅
 
-Links resolve by path. A copyable permanent link that survives retitling and
-moving needs an identity that is not the path — realistically an `id:` in
-frontmatter plus an index.
-
-This is a **storage format decision** and belongs in ROADMAP §3, not in a feature
-block: it puts a field in every note that only this app understands, which is in
-tension with principle 1. Our current answer — rewriting links on rename — covers
-most of the need at no such cost. Deferred pending a decision, not pending
-effort.
+**Landed**, with the storage-format decision recorded in
+[ROADMAP §3.6](ROADMAP.md) as this item asked. An id is minted only when
+someone copies a permanent link (`note.copyLink`), so the tension with
+principle 1 is paid for by the few notes that were linked to from outside
+rather than by every note in the vault.
 
 ### D4 — A web clipper — [#9](https://github.com/RightStackUK/open-note/issues/9)
 

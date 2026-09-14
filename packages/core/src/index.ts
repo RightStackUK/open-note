@@ -47,6 +47,15 @@ export {
   renderNoteBody,
 } from './notes/export';
 export { htmlToMarkdown, isBareUrl } from './notes/htmlToMarkdown';
+export {
+  isNoteId,
+  NOTE_ID_KEY,
+  newNoteId,
+  noteIdOf,
+  noteLink,
+  withNoteId,
+  withoutNoteId,
+} from './notes/ids';
 export type { NoteStats } from './notes/lifecycle';
 export {
   archivePathFor,
@@ -71,7 +80,6 @@ export {
   collectionTitle,
   DEFAULT_NOTE_LIST_PREFS,
   excerptFor,
-  noteHasTag,
   parseNoteListPrefs,
 } from './notes/noteList';
 export type {
@@ -101,7 +109,12 @@ export { replacementTarget, rewriteLinks } from './notes/rename';
 export type { ContentFilter, ParsedQuery } from './notes/searchQuery';
 export { CONTENT_FILTERS, isEmptyQuery, parseSearchQuery } from './notes/searchQuery';
 export type { TagRewrite } from './notes/tags';
-export { removeTagFromNote, renameTagInNote, tagFamily } from './notes/tags';
+export {
+  noteHasTag,
+  removeTagFromNote,
+  renameTagInNote,
+  tagFamily,
+} from './notes/tags';
 export type { TextbundleAsset } from './notes/textbundle';
 export {
   buildTextpack,
@@ -119,6 +132,13 @@ export type {
   TodoItem,
 } from './notes/vaultIndex';
 export { fuzzyScore, mentionPattern, snippetFor, VaultIndex } from './notes/vaultIndex';
+export {
+  inWorkspace,
+  normaliseWorkspace,
+  type Workspace,
+  withWorkspaceTag,
+  workspaceLabel,
+} from './notes/workspace';
 export type { VaultSyncOptions } from './sync/engine';
 export { defaultCommitMessage, VaultSync } from './sync/engine';
 export type { SyncSettings, VaultSettings } from './sync/settings';

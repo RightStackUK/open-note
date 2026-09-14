@@ -1,9 +1,11 @@
 import MiniSearch from 'minisearch';
 
+import { noteIdOf } from './ids';
 import { DEFAULT_TEMPLATES_FOLDER, isArchivedPath, isTemplatePath } from './lifecycle';
-import { noteHasTag } from './noteList';
 import { type ParsedNote, parseNote, type Todo } from './parse';
 import { isEmptyQuery, type ParsedQuery, parseSearchQuery } from './searchQuery';
+import { noteHasTag } from './tags';
+import { inWorkspace, type Workspace } from './workspace';
 
 export interface IndexedNote extends ParsedNote {
   path: string;
@@ -44,6 +46,20 @@ export type SearchScope =
   | { kind: 'archive' }
   | { kind: 'today' };
 
+/**
+ * What every index accessor needs to know about the active workspace.
+ *
+ * Shared rather than repeated so that adding a surface means adding one
+ * parameter of a known shape, not inventing a convention.
+ */
+export interface ScopedOptions {
+  workspace?: Workspace;
+}
+
+export interface TodoOptions extends ScopedOptions {
+  templatesFolder?: string;
+}
+
 export interface QueryOptions {
   scope?: SearchScope;
   /** Path to mtime seconds, for `is:today` and no-term recency ordering. */
@@ -58,6 +74,8 @@ export interface QueryOptions {
    * `is:template` — they are shapes to fill in, not notes to find.
    */
   templatesFolder?: string;
+  /** The active workspace; results never leave it. */
+  workspace?: Workspace;
   /** Injected so `is:today` is testable. */
   now?: Date;
 }
@@ -183,10 +201,12 @@ export class VaultIndex {
   }
 
   /** Notes that link to `path`. */
-  backlinks(path: string): Backlink[] {
+  backlinks(path: string, options: ScopedOptions = {}): Backlink[] {
     const links: Backlink[] = [];
     for (const note of this.notes.values()) {
       if (note.path === path) continue;
+      // A link from outside the workspace is not a link the workspace has.
+      if (!inWorkspace(note.tags, options.workspace ?? null)) continue;
       for (const link of note.links) {
         if (this.resolveLink(link.target) === path) {
           links.push({ from: note.path, fromTitle: note.title, alias: link.alias });
@@ -214,9 +234,10 @@ export class VaultIndex {
   }
 
   /** Every tag in the vault, most used first. */
-  tags(): TagCount[] {
+  tags(options: ScopedOptions = {}): TagCount[] {
     const counts = new Map<string, number>();
     for (const note of this.notes.values()) {
+      if (!inWorkspace(note.tags, options.workspace ?? null)) continue;
       for (const tag of note.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
     }
     return [...counts.entries()]
@@ -239,6 +260,28 @@ export class VaultIndex {
    * then by due date with undated last, then by priority.
    */
   /**
+   * The note carrying `id`, if one does.
+   *
+   * A scan rather than a second map to keep in step with `put` and `remove`:
+   * this runs when someone follows an external link, not in a render, and a
+   * map that can go stale is a worse trade than a walk over some thousands of
+   * notes.
+   *
+   * Two notes can claim one id — a vault copied a file by hand, or two machines
+   * minted against the same note before syncing. The lowest path wins, so both
+   * windows resolve the link the same way instead of it depending on the order
+   * the index happened to load.
+   */
+  pathForId(id: string): string | null {
+    let found: string | null = null;
+    for (const note of this.notes.values()) {
+      if (noteIdOf(note.frontmatter) !== id) continue;
+      if (found === null || note.path < found) found = note.path;
+    }
+    return found;
+  }
+
+  /**
    * Every task in the vault, ordered as the task view shows them.
    *
    * Templates are skipped: an unticked box in a template is the *shape* of a
@@ -246,10 +289,12 @@ export class VaultIndex {
    * template. Left in, a meeting template would put a permanent fake task at
    * the top of the list.
    */
-  todos(templatesFolder: string = DEFAULT_TEMPLATES_FOLDER): TodoItem[] {
+  todos(options: TodoOptions = {}): TodoItem[] {
+    const templatesFolder = options.templatesFolder ?? DEFAULT_TEMPLATES_FOLDER;
     const items: TodoItem[] = [];
     for (const note of this.notes.values()) {
       if (isTemplatePath(note.path, templatesFolder)) continue;
+      if (!inWorkspace(note.tags, options.workspace ?? null)) continue;
       for (const todo of note.todos) {
         items.push({ ...todo, path: note.path, noteTitle: note.title });
       }
@@ -383,6 +428,9 @@ export class VaultIndex {
       }
     }
 
+    // Outside the workspace is outside the app, while one is active.
+    if (!inWorkspace(note.tags, options.workspace ?? null)) return false;
+
     // Only templates when asked for them, and never otherwise. The same shape
     // as the archive below: indexed, and out of the way.
     const wantsTemplates = parsed.filters.includes('is:template');
@@ -418,7 +466,11 @@ export class VaultIndex {
    * Runs over the index's cached plain text and is capped; the caller decides
    * when it is worth asking (the backlinks panel, debounced).
    */
-  unlinkedMentions(path: string, limit = 20): Array<{ path: string; title: string }> {
+  unlinkedMentions(
+    path: string,
+    limit = 20,
+    options: ScopedOptions = {},
+  ): Array<{ path: string; title: string }> {
     const note = this.notes.get(path);
     if (!note) return [];
     // A two-letter title would mention itself everywhere; that is noise.
@@ -427,11 +479,12 @@ export class VaultIndex {
     // "Researcher".
     const needle = mentionPattern(note.title);
 
-    const linked = new Set(this.backlinks(path).map((b) => b.from));
+    const linked = new Set(this.backlinks(path, options).map((b) => b.from));
     const mentions: Array<{ path: string; title: string }> = [];
     for (const other of this.notes.values()) {
       if (mentions.length >= limit) break;
       if (other.path === path || linked.has(other.path)) continue;
+      if (!inWorkspace(other.tags, options.workspace ?? null)) continue;
       if (!needle.test(other.plain)) continue;
       mentions.push({ path: other.path, title: other.title });
     }

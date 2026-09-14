@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { VaultFile } from './api';
-import { buildTree, type TreeFolder } from './tree';
+import { buildTree, filterToWorkspace, type TreeFolder } from './tree';
 
 const file = (path: string, kind: VaultFile['kind'] = 'markdown'): VaultFile => ({
   path,
@@ -82,5 +82,53 @@ describe('buildTree with folder entries', () => {
     const tree = buildTree([file('Projects/p.md'), file('Projects/2026', 'folder')]);
     const projects = tree[0] as TreeFolder;
     expect(projects.children.map((c) => c.name)).toEqual(['2026', 'p.md']);
+  });
+});
+
+describe('filterToWorkspace', () => {
+  const dir = (path: string): VaultFile => file(path, 'folder');
+  const files: VaultFile[] = [
+    file('work/Plan.md'),
+    file('work/Report.md'),
+    file('Personal/Recipes.md'),
+    file('Personal/shot.png', 'image'),
+    file('build.ts', 'text'),
+    dir('work'),
+    dir('Personal'),
+  ];
+  const tags: Record<string, string[]> = {
+    'work/Plan.md': ['work'],
+    'work/Report.md': ['work/clients'],
+    'Personal/Recipes.md': ['personal'],
+  };
+  const tagsOf = (path: string) => tags[path];
+
+  it('returns everything when there is no workspace', () => {
+    expect(filterToWorkspace(files, tagsOf, null)).toEqual(files);
+  });
+
+  it('keeps the notes inside it, nested tags included', () => {
+    const kept = filterToWorkspace(files, tagsOf, 'work').map((f) => f.path);
+    expect(kept).toContain('work/Plan.md');
+    expect(kept).toContain('work/Report.md');
+    expect(kept).not.toContain('Personal/Recipes.md');
+  });
+
+  it('drops what cannot be in a workspace at all', () => {
+    // Only notes carry tags. A stray screenshot must not drag its folder in.
+    const kept = filterToWorkspace(files, tagsOf, 'work').map((f) => f.path);
+    expect(kept).not.toContain('Personal/shot.png');
+    expect(kept).not.toContain('build.ts');
+    expect(kept).not.toContain('Personal');
+  });
+
+  it('keeps the folders on the way to a kept note', () => {
+    const kept = filterToWorkspace(files, tagsOf, 'work').map((f) => f.path);
+    expect(kept).toContain('work');
+  });
+
+  it('builds a tree with nothing orphaned', () => {
+    const tree = buildTree(filterToWorkspace(files, tagsOf, 'work'));
+    expect(tree.map((node) => node.name)).toEqual(['work']);
   });
 });

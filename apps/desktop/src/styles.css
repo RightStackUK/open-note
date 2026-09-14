@@ -805,6 +805,36 @@ button {
 
 /* The two panes share the space the single pane used to have, so everything
    to the left and right of them — tree, list, inspector — is unaffected. */
+/* The workspace indicator. Accent-coloured because it is a *mode*: every view
+   in the window is filtered while it is here, and nothing else in the chrome
+   changes to say so. */
+.workspace-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.workspace-chip:hover {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.workspace-leave {
+  opacity: 0.7;
+  font-weight: 400;
+}
+
+.workspace-leave:hover {
+  opacity: 1;
+}
+
 .pane-split {
   display: flex;
   flex: 1;

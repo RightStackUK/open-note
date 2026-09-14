@@ -1,7 +1,7 @@
 import { type CommandDefinition, formatBinding, type SearchHit } from '@open-note/core';
 import { useEffect, useRef, useState } from 'react';
 
-export type PaletteMode = 'commands' | 'notes' | 'search' | 'tags' | 'templates';
+export type PaletteMode = 'commands' | 'notes' | 'search' | 'tags' | 'templates' | 'workspace';
 
 export interface PaletteItem {
   id: string;
@@ -32,6 +32,7 @@ const PLACEHOLDERS: Record<PaletteMode, string> = {
   search: 'Search every note…',
   tags: 'Go to tag…',
   templates: 'Choose a template…',
+  workspace: 'Scope the app to a tag…',
 };
 
 /**

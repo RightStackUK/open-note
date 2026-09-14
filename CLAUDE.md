@@ -145,6 +145,49 @@ takes the caret on mount or a document swap when its pane is focused
 (`autoFocus`), or a remount from a theme flip or an incoming pull would pull the
 caret out of the pane being typed in.
 
+### A workspace is one predicate, applied everywhere
+
+A workspace scopes the whole app to one tag (`workspace.enter`, `⌘⇧W`). The
+risk is not that the filter is hard but that it is easy to apply in seven
+places and forget the eighth — and a view that leaks notes from outside a scope
+it promised to respect is worse than not having the feature, because the
+promise was the only thing being sold. So `inWorkspace` in
+`packages/core/src/notes/workspace.ts` is the **only** definition of "inside",
+and every surface takes it: the note list, search, the task list, backlinks,
+unlinked mentions, the tag browser, the tree (`filterToWorkspace`), the quick
+switcher, pinned notes, the empty pane's Recent and its note count.
+
+Two deliberate exceptions, both because a *link* is not a *view*:
+`resolveLink` and `[[` completion cross the boundary. Following an explicit
+link out of the workspace is the user asking to go there, and a link that
+silently failed to resolve would look like a broken link rather than a
+boundary.
+
+**Creation has one seam.** `createNoteFile` in `App.tsx` is the only place a new
+note's bytes are decided, because there are six ways to make one — the prompt, a
+wikilink to nothing, a daily note, a template, a merge, a deep link — and
+"every new note stays inside the workspace" is only as true as the least-used
+of them. A new note without the tag is created straight into a view that hides
+it, which reads as the note not having been created at all. That bug shipped
+once during development precisely because `newNote` wrote through its own call
+to `api.createNote`.
+
+The active workspace is machine-local, per vault (`workspaces.ts`), and it
+persists: the app stays inside it "until you leave", and dropping you back into
+the whole vault overnight would be a different promise.
+
+### Note ids are minted, not assigned
+
+See ROADMAP §3.6 for the storage-format decision. In short: inside the vault a
+note's identity is its path, and a rename rewrites the `[[wikilinks]]`. A note
+gains `id:` in its frontmatter only when someone copies a permanent link to it
+(`note.copyLink`), so a vault accumulates that bookkeeping for the handful of
+notes linked from outside and no others. `withNoteId` edits the frontmatter as
+*text* rather than re-serialising YAML — a round-trip would reorder keys and
+drop comments, and "we copied a link" must not diff as a rewrite of the
+reader's file. Anything that copies a note's text strips the id
+(`withoutNoteId`): duplicating, and creating from a template.
+
 ### Templates are notes that are not notes
 
 Templates are ordinary Markdown files in a folder (`templatesFolder` in

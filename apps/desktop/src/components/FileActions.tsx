@@ -20,6 +20,8 @@ interface ContextMenuProps {
   onOpenWith: (path: string) => void;
   /** Move a note into a window of its own. */
   onOpenInNewWindow: (path: string) => void;
+  /** A link that survives renaming, minting the note's id on first use. */
+  onCopyLink: (path: string) => void;
   /** Put the path on the clipboard: vault-relative, or absolute on this disk. */
   onCopyPath: (path: string, form: 'relative' | 'absolute') => void;
   /** Move into (or back out of) the archive folder. */
@@ -48,6 +50,7 @@ export function ContextMenu({
   onReveal,
   onOpenWith,
   onOpenInNewWindow,
+  onCopyLink,
   onCopyPath,
   onArchive,
   isArchived,
@@ -132,6 +135,11 @@ export function ContextMenu({
           <button type="button" onClick={() => onCopyPath(target.path, 'absolute')}>
             Copy absolute path
           </button>
+          {target.kind === 'file' && /\.(md|markdown|mdown|mkd)$/i.test(target.path) && (
+            <button type="button" onClick={() => onCopyLink(target.path)}>
+              Copy link to this note
+            </button>
+          )}
           <hr />
           <button type="button" onClick={() => onRename(target.path)}>
             Rename…

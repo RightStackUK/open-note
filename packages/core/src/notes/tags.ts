@@ -11,6 +11,15 @@ import { splitFrontmatter } from './parse';
 
 const TAG_TOKEN = /(^|[\s(\[{])#([\p{L}\p{N}][\p{L}\p{N}_/-]*)/gu;
 
+/** Whether a note carries `tag`, optionally counting nested children. */
+export function noteHasTag(tags: string[], tag: string, includeNested: boolean): boolean {
+  const wanted = tag.toLowerCase();
+  return tags.some((t) => {
+    const lower = t.toLowerCase();
+    return lower === wanted || (includeNested && lower.startsWith(`${wanted}/`));
+  });
+}
+
 /** Regions we must not rewrite: code must stay literal. Mirrors `maskCode`. */
 function codeRanges(text: string): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];

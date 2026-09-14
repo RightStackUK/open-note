@@ -8,7 +8,9 @@
  */
 
 import { DEFAULT_TEMPLATES_FOLDER, isArchivedPath, isTemplatePath } from './lifecycle';
+import { noteHasTag } from './tags';
 import type { IndexedNote } from './vaultIndex';
+import { inWorkspace, type Workspace } from './workspace';
 
 export type NoteListSort = 'modified' | 'created' | 'title';
 export type NoteListDensity = 'small' | 'medium' | 'large';
@@ -91,15 +93,6 @@ export interface NoteListEntry {
   hasAttachments: boolean;
 }
 
-/** Whether a note carries `tag`, optionally counting nested children. */
-export function noteHasTag(tags: string[], tag: string, includeNested: boolean): boolean {
-  const wanted = tag.toLowerCase();
-  return tags.some((t) => {
-    const lower = t.toLowerCase();
-    return lower === wanted || (includeNested && lower.startsWith(`${wanted}/`));
-  });
-}
-
 /**
  * The excerpt shown under a title.
  *
@@ -140,6 +133,8 @@ export interface BuildNoteListInput {
   archiveFolder?: string;
   /** Templates are shapes to fill in, so the list leaves them out. */
   templatesFolder?: string;
+  /** The active workspace; the list never leaves it. */
+  workspace?: Workspace;
   /** Injected so "Today" is testable. */
   now?: Date;
 }
@@ -156,6 +151,7 @@ export function buildNoteList(input: BuildNoteListInput): NoteListEntry[] {
     const modified = input.modified.get(note.path) ?? 0;
 
     if (isTemplatePath(note.path, templatesFolder)) continue;
+    if (!inWorkspace(note.tags, input.workspace ?? null)) continue;
     const archived = isArchivedPath(note.path, archiveFolder);
     if (collection.kind === 'archive' ? !archived : archived) continue;
 

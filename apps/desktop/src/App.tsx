@@ -19,13 +19,18 @@ import {
   exportNoteToDocx,
   exportNoteToHtml,
   formatBinding,
+  inWorkspace,
   isArchivedPath,
   isTemplatePath,
   localAssetReferences,
   maskCode,
   mentionPattern,
   mergeNotes,
+  newNoteId,
+  normaliseWorkspace,
   noteHasTag,
+  noteIdOf,
+  noteLink,
   noteStats,
   parseTheme,
   removeTagFromNote,
@@ -43,6 +48,11 @@ import {
   themeCssVariables,
   toPlainText,
   typographyCssVariables,
+  type Workspace,
+  withNoteId,
+  withoutNoteId,
+  withWorkspaceTag,
+  workspaceLabel,
   ZOOM_STEP,
 } from '@open-note/core';
 import { sanitiseSvg } from '@open-note/diagrams';
@@ -113,11 +123,13 @@ import { MENU_EVENT, MENU_ONLY, type MenuCommand } from './menu';
 import { readOpenTabs, storedFrom, writeOpenTabs } from './openTabs';
 import { PANE_DEFAULTS, PANE_LIMITS, type PaneWidths, readPaneWidths } from './panes';
 import { relativeFrom, resolveAgainst } from './paths';
+import { filterToWorkspace } from './tree';
 import { checkForAppUpdate } from './updates';
 import { PLATFORM, useCommandKeys } from './useCommands';
 import { useDarkMode } from './useDarkMode';
 import { useVaultIndex } from './useVaultIndex';
 import { errorText, useWorkspace } from './useWorkspace';
+import { readWorkspace, writeWorkspace } from './workspaces';
 
 /** Bring the window forward, for global hotkeys and `opennote://` URLs. */
 async function focusWindow(): Promise<void> {
@@ -147,6 +159,8 @@ const CREATE_PREFIX = 'create:';
 const TAG_PREFIX = 'tag:';
 /** Marks a template row when creating a note from one. */
 const TEMPLATE_PREFIX = 'template:use:';
+/** Marks a workspace row; the empty tail means "leave". */
+const WORKSPACE_PREFIX_ID = 'workspace:set:';
 
 type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 
@@ -181,6 +195,14 @@ export function App() {
    * means one thing.
    */
   const [layouts, setLayouts] = useState<Record<string, PaneLayout>>({});
+  /**
+   * Which workspace each vault is in: a tag the whole app is scoped to.
+   *
+   * Per vault, and machine-local — `workspaces.ts` says why. `workspace` below
+   * is the active vault's, and every surface that answers "what have I got?"
+   * takes it, which is the only way the promise holds.
+   */
+  const [workspaces, setWorkspaces] = useState<Record<string, Workspace>>({});
   /** Embeds collapsed in this window, by path. A reading posture, unpersisted. */
   const [collapsedEmbeds, setCollapsedEmbeds] = useState<Set<string>>(new Set());
   /** Notes whose `readOnly` frontmatter has been overridden this session. */
@@ -478,6 +500,10 @@ export function App() {
   activeRootRef.current = ws.activeRoot;
   panesRef.current = panes;
   focusedSideRef.current = panes.focused;
+
+  const workspace = ws.activeRoot ? (workspaces[ws.activeRoot] ?? null) : null;
+  const workspaceRef = useRef<Workspace>(null);
+  workspaceRef.current = workspace;
 
   const note = focusedTab(panes).note;
   const preview = focusedTab(panes).preview;
@@ -991,6 +1017,21 @@ export function App() {
    * asynchronous, and a second pass would start before the first had anything
    * to show.
    */
+  /**
+   * The workspace a vault was left in, restored with its session.
+   *
+   * Before the tabs, deliberately: the tab list is filtered by nothing, but
+   * every view that reads the workspace should read the restored one rather
+   * than flashing the whole vault first.
+   */
+  useEffect(() => {
+    const root = ws.activeRoot;
+    if (!root || !ws.sessions[root] || root in workspaces) return;
+    const stored = readWorkspace(root);
+    workspaceRef.current = stored;
+    setWorkspaces((prev) => (root in prev ? prev : { ...prev, [root]: stored }));
+  }, [ws.activeRoot, ws.sessions, workspaces]);
+
   const restoredTabs = useRef(new Set<string>());
   useEffect(() => {
     const root = ws.activeRoot;
@@ -1221,10 +1262,57 @@ export function App() {
     }
   }, [note]);
 
+  /**
+   * Enter or leave a workspace.
+   *
+   * Everything the app shows narrows to the tag, so this also closes the panels
+   * whose contents were about the vault at large — a tag browser still listing
+   * the tags you just scoped away from is the leak this feature is about.
+   */
+  const setWorkspace = useCallback(
+    (next: Workspace) => {
+      const root = ws.activeRoot;
+      if (!root) return;
+      const workspace = normaliseWorkspace(next);
+      workspaceRef.current = workspace;
+      setWorkspaces((prev) => ({ ...prev, [root]: workspace }));
+      writeWorkspace(root, workspace);
+      setCollection({ kind: 'all' });
+      setShowTodos(false);
+      setMessage(
+        workspace ? `Scoped to ${workspaceLabel(workspace)}.` : 'Showing the whole vault.',
+      );
+    },
+    [ws.activeRoot],
+  );
+
   /** What a fresh note contains, per the vault's `newNoteHeading` preference. */
   const newNoteBody = useCallback(
     (title: string) => (session?.newNoteHeading === 'none' ? '' : `# ${title}\n\n`),
     [session?.newNoteHeading],
+  );
+
+  /**
+   * Write a new note, in the workspace it was created in.
+   *
+   * **The only place a new note's bytes are decided.** There are five ways to
+   * make one — the prompt, a wikilink to nothing, a daily note, a template, a
+   * merge, a deep link — and "every new note stays inside the workspace" is
+   * only as true as the least-used of them. Inside a workspace a note without
+   * its tag would be created straight into a view that hides it, which reads as
+   * the note not having been created at all.
+   *
+   * Rust's `create_note` refuses to overwrite, so the clobber guard stays where
+   * the write happens rather than in a racy `exists()` check up here.
+   */
+  const createNoteFile = useCallback(
+    async (root: string, path: string, body: string): Promise<string> => {
+      const tagged = withWorkspaceTag(body, workspaceRef.current);
+      await api.createNote(root, path, tagged);
+      vaultIndex.updateNote(path, tagged);
+      return tagged;
+    },
+    [vaultIndex],
   );
 
   const createNote = useCallback(
@@ -1232,18 +1320,18 @@ export function App() {
       const root = ws.activeRoot;
       if (!root) return;
       try {
-        const existing = await api.readNote(root, path).catch(() => null);
-        if (existing === null) {
-          await api.writeNote(root, path, body);
-          vaultIndex.updateNote(path, body);
-          ws.noteSaved(root);
-        }
+        await createNoteFile(root, path, body);
+        ws.noteSaved(root);
+      } catch {
+        // Already there: open it rather than failing or clobbering.
+      }
+      try {
         await openNoteAt(path);
       } catch (e) {
         ws.setError(errorText(e));
       }
     },
-    [ws, vaultIndex, openNoteAt],
+    [ws, createNoteFile, openNoteAt],
   );
 
   /**
@@ -1323,18 +1411,9 @@ export function App() {
       if (!root) return;
       const fileName = name.endsWith('.md') ? name : `${name}.md`;
       const path = joinPath(parent, fileName);
-      try {
-        const body = newNoteBody(fileName.replace(/\.md$/, ''));
-        await api.createNote(root, path, body);
-        vaultIndex.updateNote(path, body);
-        ws.noteSaved(root);
-        await ws.refreshFiles(root);
-        await openNoteAt(path);
-      } catch (e) {
-        ws.setError(errorText(e));
-      }
+      await createNote(path, newNoteBody(fileName.replace(/\.md$/, '')));
     },
-    [ws, vaultIndex, openNoteAt, newNoteBody],
+    [ws, createNote, newNoteBody],
   );
 
   const newFolder = useCallback(
@@ -1629,7 +1708,7 @@ export function App() {
           path,
           title: vaultIndex.index.get(path)?.title ?? baseName(path),
         })),
-      tags: () => vaultIndex.index.tags().map((t) => t.tag),
+      tags: () => vaultIndex.index.tags({ workspace: workspaceRef.current }).map((t) => t.tag),
       // Recency comes from the file listing rather than the index: the index
       // parses note content and has no reason to know about mtimes.
       recency: () =>
@@ -1695,7 +1774,13 @@ export function App() {
     try {
       await flush();
       const copy = await api.duplicateNote(root, open.path);
-      vaultIndex.updateNote(copy, open.doc);
+      // The duplicate is a byte copy, so it arrives carrying this note's id.
+      // Two notes with one identity resolve to whichever the index reached
+      // first, which reads as the app losing a note.
+      const source = freshestDoc(open);
+      const stripped = withoutNoteId(source);
+      if (stripped !== source) await api.writeNote(root, copy, stripped);
+      vaultIndex.updateNote(copy, stripped);
       ws.noteSaved(root);
       await openNoteAt(copy);
       setMessage(`Duplicated to ${copy}`);
@@ -1749,8 +1834,7 @@ export function App() {
 
     try {
       const body = heading ? `${selected.trim()}\n` : `# ${title}\n\n${selected.trim()}\n`;
-      await api.createNote(root, path, body);
-      vaultIndex.updateNote(path, body);
+      await createNoteFile(root, path, body);
       // The note may have been switched, or the text edited, while the write
       // was in flight. Replacing "the selection" blindly would then cut from a
       // different note, or from text the user has since typed — so the exact
@@ -1851,6 +1935,47 @@ export function App() {
         .catch((e) => ws.setError(errorText(e)));
     },
     [ws],
+  );
+
+  /**
+   * Copy a link to this note that survives renaming and moving.
+   *
+   * The id is minted **here**, on the first copy, and not before: a vault
+   * should not accumulate a field only this app understands in every note, and
+   * until a link has left the vault nothing needs one. `[[wikilinks]]` are
+   * rewritten on rename, so inside the vault the path is identity enough.
+   */
+  const copyNoteLink = useCallback(
+    async (path?: string) => {
+      const root = ws.activeRoot;
+      const open = noteRef.current;
+      const target = path ?? open?.path;
+      if (!root || !target) return;
+      try {
+        // The buffer when this is the open note, the disk otherwise: a note
+        // typed into a second ago has its id written against the text the user
+        // can see, and one picked in the tree is read as it is on disk.
+        const buffered = open && open.path === target ? freshestDoc(open) : null;
+        const source = buffered ?? (await api.readNote(root, target));
+        const existing = noteIdOf(splitFrontmatter(source).data);
+        const id = existing ?? newNoteId();
+        if (!existing) {
+          const stamped = withNoteId(source, id);
+          // Through the same path as any other write, so the sync engine
+          // commits it and every pane and window catches up.
+          pendingDocs.current.delete(docKey(root, target));
+          await api.writeNote(root, target, stamped);
+          vaultIndex.updateNote(target, stamped);
+          setPanesIn(root, (prev) => adoptDoc(prev, root, target, stamped, true));
+          ws.noteSaved(root);
+        }
+        await navigator.clipboard.writeText(noteLink(root, id));
+        setMessage(existing ? 'Link copied.' : 'Link copied — this note now carries an id.');
+      } catch (e) {
+        ws.setError(errorText(e));
+      }
+    },
+    [ws, vaultIndex, setPanesIn],
   );
 
   const pasteAs = useCallback(
@@ -2377,7 +2502,7 @@ export function App() {
         }
         const fileName = name.endsWith('.md') ? name : `${name}.md`;
         const target = folder ? `${folder}/${fileName}` : fileName;
-        await api.createNote(root, target, mergeNotes(sources));
+        await createNoteFile(root, target, mergeNotes(sources));
 
         // Links to any source now point at the merged note.
         const sourceSet = new Set(paths);
@@ -2421,7 +2546,9 @@ export function App() {
       if (!root) return;
       try {
         const template = await api.readNote(root, templatePath);
-        const body = renderTemplate(template, { title });
+        // A template that was linked to externally carries an id; every note
+        // made from it would otherwise claim the same one.
+        const body = withoutNoteId(renderTemplate(template, { title }));
         await createNote(`${title}.md`, body);
       } catch (e) {
         ws.setError(errorText(e));
@@ -2518,6 +2645,19 @@ export function App() {
       if (!root) return;
 
       if (verb === 'open') {
+        // An id outlives the path it was copied at, so it wins when both are
+        // given: a link held in a ticket for a year is exactly the case this
+        // is for.
+        const id = params.get('id');
+        if (id) {
+          const found = vaultIndex.index.pathForId(id);
+          if (!found) {
+            setMessage('That link points at a note this vault no longer has.');
+            return;
+          }
+          await openNoteAt(found, undefined, root);
+          return;
+        }
         const path = params.get('path');
         if (path) await openNoteAt(path.endsWith('.md') ? path : `${path}.md`, undefined, root);
         return;
@@ -2534,11 +2674,8 @@ export function App() {
         const body = params.get('body') ?? '';
         const path = `${folder ? `${folder}/` : ''}${title.replace(/[/\\]/g, ' ')}.md`;
         const content = `# ${title}\n\n${body}${body ? '\n' : ''}${tags ? `\n${tags}\n` : ''}`;
-        // Rust `create_note` refuses to overwrite — the clobber guard lives
-        // where the write happens, not in a racy exists() check up here.
         try {
-          await api.createNote(root, path, content);
-          vaultIndex.updateNote(path, content);
+          await createNoteFile(root, path, content);
           ws.noteSaved(root);
           await openNoteAt(path, undefined, root);
         } catch {
@@ -2788,6 +2925,8 @@ export function App() {
         if (ws.activeRoot) ws.setPaused(ws.activeRoot, !paused);
       },
       'sync.settings': () => togglePanel('settings'),
+      'workspace.enter': () => openPalette('workspace'),
+      'workspace.leave': () => setWorkspace(null),
       'view.toggleSidebar': () => setShowSidebar((v) => !v),
       'view.toggleList': () => setShowList((v) => !v),
       'window.new': () => void openInNewWindow(),
@@ -2838,6 +2977,7 @@ export function App() {
       },
       'note.export': () => void exportNote(),
       'note.togglePin': () => void togglePin(),
+      'note.copyLink': () => void copyNoteLink(),
       'note.duplicate': () => void duplicateNote(),
       'note.archive': () => {
         if (noteRef.current) void archiveNote(noteRef.current.path);
@@ -3059,18 +3199,37 @@ export function App() {
       includeNestedTags: noteListPrefs.includeNestedTags,
       archiveFolder,
       templatesFolder,
+      workspace,
     });
   }, [
     sessionFiles,
     noteListPrefs,
     archiveFolder,
     templatesFolder,
+    workspace,
     showList,
     collection,
     createdDates,
     vaultIndex.revision,
     dayStamp,
   ]);
+
+  /**
+   * What the tree shows.
+   *
+   * Narrowed to the workspace while one is active — the tree is a view like any
+   * other, and this is the one whose leak would be most visible. Up here with
+   * the other memos rather than beside the tree it feeds: everything below the
+   * welcome screen's early return runs conditionally, and a hook that does is a
+   * hook-order violation that empties the window.
+   */
+  const visibleFiles = useMemo(
+    () =>
+      filterToWorkspace(sessionFiles ?? [], (path) => vaultIndex.index.get(path)?.tags, workspace),
+    // `vaultIndex.revision` stands in for the index contents, which are mutated
+    // in place; without it a tag added to a note would not move it into view.
+    [sessionFiles, workspace, vaultIndex.revision, vaultIndex.index],
+  );
 
   // Hoisted above the `booting` / `!session` early returns: it is a hook, and
   // a hook that renders only on some passes makes React count a different
@@ -3081,7 +3240,8 @@ export function App() {
   const notePath = note?.path ?? null;
   const infoOpen = info.open && info.tab === 'backlinks';
   const mentions = useMemo(
-    () => (notePath && infoOpen ? vaultIndex.index.unlinkedMentions(notePath, 12) : []),
+    () =>
+      notePath && infoOpen ? vaultIndex.index.unlinkedMentions(notePath, 12, { workspace }) : [],
     [notePath, infoOpen, vaultIndex],
   );
 
@@ -3164,9 +3324,11 @@ export function App() {
     panel === 'keymap' ||
     panel === 'settings';
 
-  const backlinks = note ? vaultIndex.index.backlinks(note.path) : [];
+  const backlinks = note ? vaultIndex.index.backlinks(note.path, { workspace }) : [];
   const noteTags = note ? (vaultIndex.index.get(note.path)?.tags ?? []) : [];
-  const todos = showTodos ? vaultIndex.index.todos(session.templatesFolder) : [];
+  const todos = showTodos
+    ? vaultIndex.index.todos({ templatesFolder: session.templatesFolder, workspace })
+    : [];
 
   const paletteItems = (() => {
     if (palette === 'commands') {
@@ -3177,7 +3339,12 @@ export function App() {
       );
     }
     if (palette === 'notes') {
-      const matches = vaultIndex.index.quickSwitch(paletteQuery);
+      // Scoped like every other view: inside a workspace the switcher offers
+      // what the workspace has. Leaving is how you reach the rest, which is
+      // the promise the whole feature is judged on.
+      const matches = vaultIndex.index
+        .quickSwitch(paletteQuery)
+        .filter((match) => inWorkspace(vaultIndex.index.get(match.path)?.tags ?? [], workspace));
       const typed = paletteQuery.trim();
       if (!typed) {
         // With nothing typed, the most useful order is what you touched last —
@@ -3222,6 +3389,7 @@ export function App() {
           modified: new Map(session.files.map((file) => [file.path, file.modified])),
           archiveFolder: session.archiveFolder,
           templatesFolder: session.templatesFolder,
+          workspace,
         }),
       );
     }
@@ -3249,6 +3417,35 @@ export function App() {
           detail: prefix
             ? `Create notes under ${prefix} — {{title}}, {{date}} and {{time}} are filled in.`
             : 'Name one in Settings → Templates folder, then put notes in it.',
+        },
+      ];
+    }
+    if (palette === 'workspace') {
+      const needle = paletteQuery.trim().replace(/^#/, '').toLowerCase();
+      // Every tag in the *vault*, not in the current workspace: this is the
+      // list you change rooms with, and a scoped one could only ever offer the
+      // room you are already in.
+      const rows = vaultIndex.index
+        .tags()
+        .filter(({ tag }) => !needle || tag.toLowerCase().includes(needle))
+        .map(({ tag, count }) => ({
+          id: `${WORKSPACE_PREFIX_ID}${tag}`,
+          title: `#${tag}`,
+          detail: `${count} ${count === 1 ? 'note' : 'notes'}`,
+        }));
+      if (workspace) {
+        rows.unshift({
+          id: `${WORKSPACE_PREFIX_ID}`,
+          title: 'Leave the workspace',
+          detail: `Back to the whole vault, from ${workspaceLabel(workspace)}`,
+        });
+      }
+      if (rows.length > 0) return rows;
+      return [
+        {
+          id: 'workspace:none',
+          title: 'No tags to scope to yet',
+          detail: 'A workspace is a tag; tag some notes first.',
         },
       ];
     }
@@ -3285,7 +3482,11 @@ export function App() {
       setPrompt({ kind: 'fromTemplate', template: id.slice(TEMPLATE_PREFIX.length) });
       return;
     }
-    if (id === 'template:none') return;
+    if (id === 'template:none' || id === 'workspace:none') return;
+    if (id.startsWith(WORKSPACE_PREFIX_ID)) {
+      setWorkspace(id.slice(WORKSPACE_PREFIX_ID.length) || null);
+      return;
+    }
     if (id.startsWith(TAG_PREFIX)) {
       // A tag is a place to go: the list becomes that tag's notes.
       setCollection({ kind: 'tag', tag: id.slice(TAG_PREFIX.length) });
@@ -3332,7 +3533,7 @@ export function App() {
    * Templates are not among them: editing one puts it at the top of "Recent",
    * which then offers `{{title}}` as something to read.
    */
-  const recentNotes = [...session.files]
+  const recentNotes = [...visibleFiles]
     .filter((file) => file.kind === 'markdown')
     .filter((file) => !isTemplatePath(file.path, session.templatesFolder))
     .sort((a, b) => b.modified - a.modified)
@@ -3360,7 +3561,7 @@ export function App() {
         !readOnlyOverrides.has(`${note.root}:${note.path}`),
     );
     const pinnedHere = note ? session.pinned.includes(note.path) : false;
-    const backlinks = note ? vaultIndex.index.backlinks(note.path) : [];
+    const backlinks = note ? vaultIndex.index.backlinks(note.path, { workspace }) : [];
     const noteTags = note ? (vaultIndex.index.get(note.path)?.tags ?? []) : [];
 
     return (
@@ -3563,7 +3764,8 @@ export function App() {
           <div className="pane-empty">
             <h2>{session.info.name}</h2>
             <p className="muted-note">
-              {session.files.filter((f) => f.kind === 'markdown').length} notes in this vault.
+              {visibleFiles.filter((f) => f.kind === 'markdown').length}{' '}
+              {workspace ? `notes in ${workspaceLabel(workspace)}` : 'notes in this vault'}.
             </p>
 
             <div className="empty-actions">
@@ -3653,6 +3855,30 @@ export function App() {
           </button>
         </nav>
 
+        {/* An app scoped to a tag must never look unscoped: every view below is
+            filtered, so the chip that says so sits in the window chrome where
+            it is visible from all of them. */}
+        {workspace && (
+          <button
+            type="button"
+            className="workspace-chip"
+            onClick={() => openPalette('workspace')}
+            title={`Every view is scoped to ${workspaceLabel(workspace)}. Click to change or leave.`}
+          >
+            {workspaceLabel(workspace)}
+            <span
+              className="workspace-leave"
+              aria-hidden="true"
+              onClick={(e) => {
+                e.stopPropagation();
+                setWorkspace(null);
+              }}
+            >
+              ×
+            </span>
+          </button>
+        )}
+
         {/* Vault-scoped actions only. Anything about the open note lives on the
             note bar below, and anything ambient lives in the status bar. */}
         <div className="actions">
@@ -3725,7 +3951,7 @@ export function App() {
           <aside className="sidebar">
             <Sidebar
               root={session.info.root}
-              files={session.files}
+              files={visibleFiles}
               activePath={note?.path ?? preview?.path ?? drawing?.path ?? null}
               changedPaths={new Set(session.state.conflicts)}
               onSelect={select}
@@ -3733,7 +3959,10 @@ export function App() {
               onNewNote={() => setPrompt({ kind: 'newNote', parent: '' })}
               onNewFolder={() => setPrompt({ kind: 'newFolder', parent: '' })}
               onMove={(from, toFolder) => void move(from, toFolder)}
-              pinned={session.pinned}
+              // A pin from outside the workspace is not this workspace's pin.
+              pinned={session.pinned.filter((path) =>
+                inWorkspace(vaultIndex.index.get(path)?.tags ?? [], workspace),
+              )}
             />
           </aside>
         )}
@@ -3848,7 +4077,7 @@ export function App() {
 
         {panel === 'tags' && (
           <TagPanel
-            tags={vaultIndex.index.tags()}
+            tags={vaultIndex.index.tags({ workspace })}
             initialTag={selectedTag}
             notesForTag={(tag) =>
               vaultIndex.index
@@ -4069,6 +4298,10 @@ export function App() {
             }
           }}
           onCopyPath={(path, form) => copyPath(path, form)}
+          onCopyLink={(path) => {
+            setContextTarget(null);
+            void copyNoteLink(path);
+          }}
           onClose={() => setContextTarget(null)}
           onNewNote={(parent) => {
             setContextTarget(null);

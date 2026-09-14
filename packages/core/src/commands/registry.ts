@@ -77,6 +77,13 @@ export const COMMANDS: CommandDefinition[] = [
     keywords: ['favourite', 'favorite', 'star'],
   },
   {
+    id: 'note.copyLink',
+    title: 'Copy link to this note',
+    category: 'Note',
+    binding: null,
+    keywords: ['permalink', 'permanent', 'url', 'share', 'id'],
+  },
+  {
     id: 'note.duplicate',
     title: 'Duplicate this note',
     category: 'Note',
@@ -491,6 +498,20 @@ export const COMMANDS: CommandDefinition[] = [
     // `Mod-Shift-T` is the conventional chord and belongs to the task list here.
     binding: 'Mod-Alt-T',
     keywords: ['tab', 'reopen', 'undo close', 'restore'],
+  },
+  {
+    id: 'workspace.enter',
+    title: 'Scope the app to a tag…',
+    category: 'Navigate',
+    binding: 'Mod-Shift-W',
+    keywords: ['workspace', 'scope', 'focus', 'filter', 'work', 'personal'],
+  },
+  {
+    id: 'workspace.leave',
+    title: 'Leave the workspace',
+    category: 'Navigate',
+    binding: null,
+    keywords: ['workspace', 'unscope', 'whole vault', 'everything'],
   },
   {
     id: 'view.splitRight',

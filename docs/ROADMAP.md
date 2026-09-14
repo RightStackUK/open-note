@@ -179,7 +179,41 @@ The parser is tolerant — unknown tokens are left as text. Rendered as subtle i
 editor. There is deliberately no proprietary block syntax: a todo written in Open Note must still
 render as a checkbox on github.com.
 
-### 3.6 Encryption
+### 3.6 Note identity — paths, and one id when a link leaves
+
+**Inside the vault, a note's identity is its path.** `[[wikilinks]]` resolve by
+path, a rename rewrites every link pointing at the note, and the rename and the
+rewrites land in one reviewable, revertable commit. Nothing needs a hidden
+identifier for that, and giving every note one would put a field only this app
+understands into every file — against principle 1, where the files are the
+product.
+
+**Outside the vault, a path is not enough.** A link pasted into a ticket, a
+calendar entry or another app cannot be rewritten when the note moves. That is
+the only case an id exists for, so:
+
+- A note gains `id:` in its frontmatter **the first time someone copies a
+  permanent link to it** (`note.copyLink`), and never otherwise. A vault
+  accumulates this for the handful of notes that were linked to from outside and
+  for no others.
+- The id is **24 lowercase hex characters** (96 bits from the platform CSPRNG).
+  Hex rather than base64url because a value beginning with `-` is ambiguous in
+  YAML, and a quoted id invites someone to edit the quotes off.
+- The link is `opennote://open?vault=…&id=…`. The id wins over a `path=` in the
+  same link, because the id is the half that survived. A vault the receiving
+  window has never opened is refused, as it already is for `path=` links.
+- Resolution is a **scan of the index**, not a second map to keep in step with
+  it: this runs when someone follows a link, not in a render, and a stale map
+  would be the worse trade. Two notes claiming one id — a hand-copied file, or
+  two machines minting before they synced — resolve to the **lowest path**, so
+  every window agrees.
+- Anything that copies a note's text **strips the id**: duplicating a note, and
+  creating one from a template. Otherwise one id would name two notes.
+- A malformed value (`id: 42`, half an id) is treated as absent. The field is
+  hand-editable like the rest of the frontmatter, and resolving a link to the
+  wrong note is worse than not resolving it.
+
+### 3.7 Encryption
 
 Out of scope. The stance is "your repo, your call" — users who need encryption at rest should use
 an encrypted volume or a private repo. Documented explicitly rather than left ambiguous.

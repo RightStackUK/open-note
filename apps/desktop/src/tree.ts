@@ -1,3 +1,5 @@
+import { inWorkspace } from '@open-note/core';
+
 import type { VaultFile } from './api';
 
 export interface TreeFile {
@@ -73,4 +75,37 @@ function sort(folder: TreeFolder) {
   for (const child of folder.children) {
     if (child.type === 'folder') sort(child);
   }
+}
+
+/**
+ * Narrow a file listing to one workspace.
+ *
+ * A workspace is a tag, and only notes carry tags — so while one is active the
+ * tree shows the notes inside it and the folders that hold them, and nothing
+ * else. Keeping images and scripts visible would mean a `Personal/` folder
+ * showing up inside `#work` because a stray screenshot lives there, which is
+ * the leak the whole feature is judged on.
+ *
+ * `tagsOf` is passed in rather than the index itself: this is a list-shaped
+ * problem, and the test for it should not have to build an index.
+ */
+export function filterToWorkspace(
+  files: VaultFile[],
+  tagsOf: (path: string) => string[] | undefined,
+  workspace: string | null,
+): VaultFile[] {
+  if (!workspace) return files;
+
+  const kept = files.filter(
+    (file) => file.kind !== 'folder' && inWorkspace(tagsOf(file.path) ?? [], workspace),
+  );
+
+  // Every folder on the way to a kept note stays, so the notes are reachable
+  // rather than orphaned at the root.
+  const needed = new Set<string>();
+  for (const file of kept) {
+    const parts = file.path.split('/');
+    for (let i = 1; i < parts.length; i++) needed.add(parts.slice(0, i).join('/'));
+  }
+  return [...files.filter((file) => file.kind === 'folder' && needed.has(file.path)), ...kept];
 }

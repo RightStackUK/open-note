@@ -221,6 +221,38 @@ describe('templates in search', () => {
   });
 });
 
+describe('resolving a note by id', () => {
+  it('finds the note carrying it', () => {
+    const id = 'a'.repeat(24);
+    index.put('Projects/Plan.md', `---\nid: ${id}\n---\n\n# Plan\n`);
+    index.put('Other.md', '# Other\n');
+    expect(index.pathForId(id)).toBe('Projects/Plan.md');
+    expect(index.pathForId('b'.repeat(24))).toBeNull();
+  });
+
+  it('survives the note being renamed, which is the whole point', () => {
+    const id = 'c'.repeat(24);
+    index.put('Plan.md', `---\nid: ${id}\n---\n\n# Plan\n`);
+    index.remove('Plan.md');
+    index.put('Archive/Old plan.md', `---\nid: ${id}\n---\n\n# Old plan\n`);
+    expect(index.pathForId(id)).toBe('Archive/Old plan.md');
+  });
+
+  it('resolves a duplicated id the same way every time', () => {
+    // A hand-copied file, or two machines minting before they synced. Whichever
+    // order the index loaded them in, both windows must agree.
+    const id = 'd'.repeat(24);
+    index.put('z.md', `---\nid: ${id}\n---\n\n# Z\n`);
+    index.put('a.md', `---\nid: ${id}\n---\n\n# A\n`);
+    expect(index.pathForId(id)).toBe('a.md');
+  });
+
+  it('ignores a malformed id rather than resolving to it', () => {
+    index.put('Plan.md', '---\nid: 42\n---\n\n# Plan\n');
+    expect(index.pathForId('42')).toBeNull();
+  });
+});
+
 describe('templates and the task list', () => {
   it("leaves a template's boxes out of the task list", () => {
     index.put('templates/meeting.md', '# Meeting\n\n- [ ] Agenda\n');
@@ -230,8 +262,8 @@ describe('templates and the task list', () => {
 
   it('follows the configured folder here too', () => {
     index.put('Forms/meeting.md', '# Meeting\n\n- [ ] Agenda\n');
-    expect(index.todos('Forms')).toEqual([]);
-    expect(index.todos('templates').map((t) => t.text)).toEqual(['Agenda']);
+    expect(index.todos({ templatesFolder: 'Forms' })).toEqual([]);
+    expect(index.todos({ templatesFolder: 'templates' }).map((t) => t.text)).toEqual(['Agenda']);
   });
 });
 

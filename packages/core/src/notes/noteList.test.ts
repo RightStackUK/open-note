@@ -6,10 +6,10 @@ import {
   collectionTitle,
   DEFAULT_NOTE_LIST_PREFS,
   excerptFor,
-  noteHasTag,
   parseNoteListPrefs,
 } from './noteList';
 import { parseNote } from './parse';
+import { noteHasTag } from './tags';
 import type { IndexedNote } from './vaultIndex';
 
 function note(path: string, source: string): IndexedNote {
