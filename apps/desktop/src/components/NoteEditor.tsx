@@ -18,7 +18,7 @@ interface NoteEditorProps {
   /** Resolve a `[[wikilink]]` target to a note path. */
   resolveLink: (target: string) => string | null;
   /** Follow a link; `path` is null when the target has no note yet. */
-  onFollowLink: (target: string, path: string | null) => void;
+  onFollowLink: (target: string, path: string | null, gesture: { alt: boolean }) => void;
   /** Colour scheme, so rendered diagrams match the app. */
   dark: boolean;
   /** Storing pasted/dropped files and resolving local ones for display. */
@@ -146,7 +146,8 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
       // Read through refs so the editor is never rebuilt when the index changes.
       wikiLinks: {
         resolve: (target) => linkRef.current.resolveLink(target),
-        onOpen: (target, resolved) => linkRef.current.onFollowLink(target, resolved),
+        onOpen: (target, resolved, gesture) =>
+          linkRef.current.onFollowLink(target, resolved, gesture),
       },
       // Read through a ref so the editor is not rebuilt when settings change.
       attachments: {

@@ -2234,27 +2234,123 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
-.note-id {
+/* The pane's open notes. Takes the place the note's name used to have, so a
+   pane header is still one row: the active tab is the name. */
+.tab-strip {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.15rem;
-  /* Shrinks to an ellipsis first, as it always did, and only pushes the actions
-     onto a second row once even that has run out — so the ordinary layout is
-     untouched and a very narrow pane stops cutting a button in half. */
-  flex: 0 1 auto;
-  min-width: 3rem;
+  /* Basis 0, so the strip never widens the header past the pane: it takes what
+     is left and scrolls inside it. With `auto` the tabs' own width decided the
+     line, and the actions were pushed onto a second row by the third tab. */
+  flex: 1 1 0;
+  min-width: 4rem;
+  /* Scrolls rather than wraps: a wrapped strip changes the editor's height as
+     you open notes, which moves the text you are reading. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 13rem;
+  padding: 0.2rem 0.3rem 0.2rem 0.45rem;
+  border-radius: 6px;
   font-size: 0.82rem;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tab:hover {
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+}
+
+.tab.is-active {
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.tab-title {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.note-folder {
-  color: var(--muted);
+/* The dot and the close sit in the same 1rem slot, so a tab does not change
+   width when you point at it — that would shuffle every tab to its right. */
+.tab-dot,
+.tab-close {
+  width: 1rem;
+  flex: 0 0 1rem;
+  text-align: center;
 }
 
-.note-title {
-  font-weight: 600;
+.tab-dot {
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--accent);
+  /* Only an unsaved tab shows it, and only while the close is not offered. */
+  opacity: 0;
+  width: 0.4rem;
+  flex-basis: 0.4rem;
+  margin-right: 0.6rem;
+}
+
+.tab.is-dirty .tab-dot {
+  opacity: 1;
+}
+
+.tab.is-dirty:hover .tab-dot {
+  opacity: 0;
+}
+
+.tab-close {
+  padding: 0;
+  border-radius: 4px;
+  line-height: 1;
+  color: var(--muted);
+  visibility: hidden;
+}
+
+.tab:hover .tab-close,
+.tab.is-active .tab-close {
+  visibility: visible;
+}
+
+.tab.is-dirty:not(:hover) .tab-close {
+  visibility: hidden;
+}
+
+.tab-close:hover {
+  background: color-mix(in srgb, var(--muted) 25%, transparent);
+  color: var(--fg);
+}
+
+.tab-new {
+  flex: 0 0 auto;
+  padding: 0.1rem 0.35rem;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.tab-new:hover {
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+  color: var(--fg);
 }
 
 .note-actions {

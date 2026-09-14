@@ -21,6 +21,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 pub const MENU_EVENT: &str = "menu://command";
 
 const OPEN: &str = "file.open";
+const NEW_WINDOW: &str = "window.new";
 const CLOSE: &str = "file.close";
 const CHECK_UPDATES: &str = "app.checkUpdates";
 const CLEAR_RECENTS: &str = "file.clearRecents";
@@ -82,12 +83,17 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let close = MenuItem::with_id(app, CLOSE, "Close Vault", false, None::<&str>)?;
     let check_updates =
         MenuItem::with_id(app, CHECK_UPDATES, "Check for Updates…", true, None::<&str>)?;
+    // No accelerator, for the reason Open… has none: one declared here would
+    // swallow the chord before the webview's keymap saw it.
+    let new_window = MenuItem::with_id(app, NEW_WINDOW, "New Window", true, None::<&str>)?;
 
     let file = Submenu::with_items(
         app,
         "File",
         true,
         &[
+            &new_window,
+            &PredefinedMenuItem::separator(app)?,
             &open,
             &recents,
             &PredefinedMenuItem::separator(app)?,
@@ -279,6 +285,11 @@ pub fn on_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
     } else if id == CHECK_UPDATES {
         MenuCommand {
             command: "app.checkUpdates".into(),
+            arg: None,
+        }
+    } else if id == NEW_WINDOW {
+        MenuCommand {
+            command: "window.new".into(),
             arg: None,
         }
     } else {

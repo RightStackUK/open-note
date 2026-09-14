@@ -18,6 +18,8 @@ interface ContextMenuProps {
   onExportFolder: (folder: string, mode: 'files' | 'merged') => void;
   onReveal: (path: string) => void;
   onOpenWith: (path: string) => void;
+  /** Move a note into a window of its own. */
+  onOpenInNewWindow: (path: string) => void;
   /** Put the path on the clipboard: vault-relative, or absolute on this disk. */
   onCopyPath: (path: string, form: 'relative' | 'absolute') => void;
   /** Move into (or back out of) the archive folder. */
@@ -45,6 +47,7 @@ export function ContextMenu({
   onExportFolder,
   onReveal,
   onOpenWith,
+  onOpenInNewWindow,
   onCopyPath,
   onArchive,
   isArchived,
@@ -103,9 +106,14 @@ export function ContextMenu({
         </>
       )}
       {target.kind === 'file' && /\.(md|markdown|mdown|mkd)$/i.test(target.path) && (
-        <button type="button" onClick={() => onArchive(target.path)}>
-          {isArchived(target.path) ? 'Unarchive' : 'Archive'}
-        </button>
+        <>
+          <button type="button" onClick={() => onOpenInNewWindow(target.path)}>
+            Open in new window
+          </button>
+          <button type="button" onClick={() => onArchive(target.path)}>
+            {isArchived(target.path) ? 'Unarchive' : 'Archive'}
+          </button>
+        </>
       )}
       {!isRoot && (
         <>

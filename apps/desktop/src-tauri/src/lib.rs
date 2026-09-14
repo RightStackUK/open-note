@@ -2,6 +2,7 @@ pub mod menu;
 pub mod prefs;
 // Public so the integration tests can drive the same code the commands wrap.
 pub mod vault;
+pub mod windows;
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +10,7 @@ use git_port::{
     Branch, CommitInfo, ConflictSide, GitPort, MergeOutcome, MergeResult, RepoStatus, SystemGit,
 };
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 use vault::{VaultError, VaultFile, VaultInfo};
@@ -899,6 +900,9 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(windows::Owners::default())
+        .manage(windows::Documents::default())
+        .manage(windows::Intents::default())
         .setup(|app| {
             menu::install(app.handle())?;
             // The list is read at startup anyway; doing it here fills the
@@ -907,6 +911,26 @@ pub fn run() {
             Ok(())
         })
         .on_menu_event(menu::on_event)
+        // A closing window gives up the vaults it was the engine for, and the
+        // survivors are told which those were: a follower whose owner has gone
+        // is a window with an open vault that nothing is committing.
+        .on_window_event(|window, event| {
+            if !matches!(event, tauri::WindowEvent::Destroyed) {
+                return;
+            }
+            let app = window.app_handle();
+            // Its documents go back into circulation whatever happens next.
+            if let Ok(mut docs) = app.state::<windows::Documents>().0.lock() {
+                windows::release_all(&mut docs, window.label());
+            }
+            let freed = match app.state::<windows::Owners>().0.lock() {
+                Ok(mut owners) => windows::release_all(&mut owners, window.label()),
+                Err(_) => return,
+            };
+            for root in freed {
+                let _ = app.emit("vault://ownerless", root);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             git_probe,
             pick_vault,
@@ -971,6 +995,15 @@ pub fn run() {
             read_vault_themes,
             created_dates,
             sync_vault,
+            windows::open_window,
+            windows::window_intent,
+            windows::claim_vault,
+            windows::release_vault,
+            windows::vault_owner,
+            windows::window_labels,
+            windows::claim_document,
+            windows::release_document,
+            windows::focus_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Open Note");

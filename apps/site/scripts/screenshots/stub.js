@@ -258,7 +258,25 @@ export async function build(target: string): Promise<number> {
     restore_note: () => null,
     remote_url: () => 'git@github.com:you/notes.git',
     pick_folder: () => '/Users/you',
+    // One window, which owns everything: the app asks who owns a vault before
+    // it starts an engine, and a stub that said "someone else" would leave the
+    // shots with no sync state at all.
+    open_window: () => 'main',
+    window_intent: () => ({ root: null, path: null }),
+    claim_vault: () => true,
+    release_vault: () => null,
+    vault_owner: () => 'main',
+    window_labels: () => ['main'],
+    claim_document: () => null,
+    release_document: () => null,
+    focus_window: () => null,
     clone_vault: () => ({ root: ROOT, name: 'notes', branch: 'main', upstream: 'origin/main' }),
+  };
+
+  // The event API reaches for this one directly when unsubscribing, so a stub
+  // without it throws from inside `listen`'s own teardown.
+  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener: () => {},
   };
 
   window.__TAURI_INTERNALS__ = {

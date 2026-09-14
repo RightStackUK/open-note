@@ -9,9 +9,18 @@ import {
   type VaultSettings,
   VaultSync,
 } from '@open-note/core';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { api, createSyncPort, type VaultFile, type VaultInfo } from './api';
+import {
+  api,
+  createSyncPort,
+  emitVault,
+  listenVault,
+  VaultEvents,
+  type VaultFile,
+  type VaultInfo,
+  windowLabel,
+} from './api';
 
 /**
  * Which vault to show once `closing` is gone.
@@ -92,7 +101,26 @@ export interface VaultSession {
  * timers, and putting them in state would risk React recreating them and
  * orphaning the timers of the old instance.
  */
+/**
+ * What a follower shows until the owner publishes its state.
+ *
+ * Not an error and not "synced": the vault's state is simply another window's
+ * to report, and a moment of "idle" reads better than a wrong badge.
+ */
+const FOLLOWER_STATE: SyncState = {
+  phase: 'idle',
+  branch: '',
+  upstream: null,
+  ahead: 0,
+  behind: 0,
+  conflicts: [],
+  lastError: null,
+  lastSyncedAt: null,
+};
+
 export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutcome) => void) {
+  /** This window, for claiming vaults. Fixed for the life of the window. */
+  const label = useMemo(() => windowLabel(), []);
   const [sessions, setSessions] = useState<Record<string, VaultSession>>({});
   const [activeRoot, setActiveRoot] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -126,7 +154,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
       setError(null);
       try {
         const info = await api.openVault(root);
-        if (engines.current.has(info.root)) {
+        if (sessionsRef.current[info.root]) {
           setActiveRoot(info.root);
           return info;
         }
@@ -135,24 +163,45 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
         const settings = vaultSettings.sync;
         const [files] = await Promise.all([api.listFiles(info.root)]);
 
-        const engine = new VaultSync({
-          root: info.root,
-          port: createSyncPort(),
-          settings,
-          onState: (state) => patch(info.root, { state }),
-          onExternalChange: (outcome) => {
-            void refreshFiles(info.root);
-            externalRef.current(info.root, outcome);
-          },
-        });
-        engines.current.set(info.root, engine);
+        /**
+         * One engine per vault, in the window that claimed it.
+         *
+         * A second window on the same vault opens as a **follower**: it reads
+         * and writes files, which is plain IO, and leaves every git call to the
+         * owner. Two engines would run two commit, push and fetch loops against
+         * one working copy and contend for the index lock — the failure the
+         * engine serialises its own calls to avoid.
+         */
+        // Fail *open*: a window with no engine and no owner is worse than the
+        // contention the claim exists to prevent, and the claim is unavailable
+        // only where there is no window layer at all.
+        const owns = (await api.claimVault(info.root, label).catch(() => true)) !== false;
+        const engine = owns
+          ? new VaultSync({
+              root: info.root,
+              port: createSyncPort(),
+              settings,
+              onState: (state) => {
+                patch(info.root, { state });
+                // Followers have no engine to ask, so the owner publishes.
+                emitVault(VaultEvents.state, { root: info.root, state });
+              },
+              onExternalChange: (outcome) => {
+                void refreshFiles(info.root);
+                externalRef.current(info.root, outcome);
+                // A pull rewrote files under every window, not just this one.
+                emitVault(VaultEvents.changed, { root: info.root });
+              },
+            })
+          : null;
+        if (engine) engines.current.set(info.root, engine);
 
         setSessions((prev) => ({
           ...prev,
           [info.root]: {
             info,
             files,
-            state: engine.getState(),
+            state: engine?.getState() ?? FOLLOWER_STATE,
             settings,
             attachmentFolder: vaultSettings.attachmentFolder,
             pinned: vaultSettings.pinned,
@@ -176,7 +225,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
           },
         }));
         setActiveRoot(info.root);
-        await engine.start();
+        await engine?.start();
         return info;
       } catch (e) {
         setError(errorText(e));
@@ -189,6 +238,8 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
   const closeVault = useCallback((root: string) => {
     engines.current.get(root)?.stop();
     engines.current.delete(root);
+    // Another window may be waiting to run this vault's engine.
+    void api.releaseVault(root, label);
     setSessions((prev) => {
       const { [root]: _removed, ...rest } = prev;
       return rest;
@@ -201,15 +252,32 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
+  /**
+   * A file landed on disk.
+   *
+   * In the owning window that is a nudge to its engine, which decides whether
+   * to commit. In a follower there is no engine, so the fact is forwarded and
+   * the owner's commit loop picks it up — a note written in the second window
+   * is committed by the first, which is the only one holding the index lock.
+   */
   const noteSaved = useCallback((root: string) => {
-    engines.current.get(root)?.noteChanged();
+    const engine = engines.current.get(root);
+    if (engine) engine.noteChanged();
+    else emitVault(VaultEvents.saved, { root });
     void api.listFiles(root).then((files) => {
       setSessions((prev) => (prev[root] ? { ...prev, [root]: { ...prev[root], files } } : prev));
     });
   }, []);
 
   const syncNow = useCallback(async (root: string) => {
-    await engines.current.get(root)?.syncNow();
+    const engine = engines.current.get(root);
+    // Asking the owner rather than refusing: "Sync now" in a follower means
+    // the same thing to the user, and the owner is the one that can do it.
+    if (!engine) {
+      emitVault(VaultEvents.syncNow, { root });
+      return;
+    }
+    await engine.syncNow();
     await api
       .listFiles(root)
       .then((files) =>
@@ -343,6 +411,98 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
     await engines.current.get(root)?.refresh();
   }, []);
 
+  const ownsVault = useCallback((root: string) => engines.current.has(root), []);
+
+  /**
+   * Take over a vault this window was following.
+   *
+   * Only the window that wins the claim builds an engine, so a third window
+   * that loses the race goes on following — under whoever won.
+   */
+  const adoptVault = useCallback(
+    async (root: string) => {
+      const session = sessionsRef.current[root];
+      if (!session || engines.current.has(root)) return;
+      if (!(await api.claimVault(root, label))) return;
+      const engine = new VaultSync({
+        root,
+        port: createSyncPort(),
+        settings: session.settings,
+        onState: (state) => {
+          patch(root, { state });
+          emitVault(VaultEvents.state, { root, state });
+        },
+        onExternalChange: (outcome) => {
+          void refreshFiles(root);
+          externalRef.current(root, outcome);
+          emitVault(VaultEvents.changed, { root });
+        },
+      });
+      engines.current.set(root, engine);
+      patch(root, { state: engine.getState() });
+      await engine.start();
+    },
+    [label, patch, refreshFiles],
+  );
+
+  /**
+   * Cross-window traffic.
+   *
+   * Every window listens to all of it and ignores what is not its business:
+   * a broadcast with a vault root in it is cheaper to reason about than a
+   * directed channel that has to know who is listening.
+   */
+  useEffect(() => {
+    const offState = listenVault<{ root: string; state: SyncState }>(
+      VaultEvents.state,
+      ({ root, state }) => {
+        // Only a follower takes state from outside: the owner's engine is the
+        // authority on its own vault, and adopting an echo would fight it.
+        if (engines.current.has(root)) return;
+        setSessions((prev) => (prev[root] ? { ...prev, [root]: { ...prev[root], state } } : prev));
+      },
+    );
+
+    const offSaved = listenVault<{ root: string }>(VaultEvents.saved, ({ root }) => {
+      const engine = engines.current.get(root);
+      if (!engine) return;
+      engine.noteChanged();
+      void refreshFiles(root);
+    });
+
+    const offSync = listenVault<{ root: string }>(VaultEvents.syncNow, ({ root }) => {
+      const engine = engines.current.get(root);
+      if (!engine) return;
+      void engine.syncNow().then(() => refreshFiles(root));
+    });
+
+    const offChanged = listenVault<{ root: string }>(VaultEvents.changed, ({ root }) => {
+      if (engines.current.has(root)) return;
+      void refreshFiles(root);
+      externalRef.current(root, { kind: 'alreadyUpToDate' });
+    });
+
+    /**
+     * The owner closed. Whoever still has the vault open takes it over.
+     *
+     * Every remaining window races to claim, and the registry settles it — the
+     * one that wins builds an engine for a vault it was following, so the
+     * repository does not silently stop being committed.
+     */
+    const offOwnerless = listenVault<string>(VaultEvents.ownerless, (root) => {
+      if (!sessionsRef.current[root] || engines.current.has(root)) return;
+      void adoptVault(root);
+    });
+
+    return () => {
+      offState();
+      offSaved();
+      offSync();
+      offChanged();
+      offOwnerless();
+    };
+  }, [refreshFiles, adoptVault]);
+
   // Stop every engine when the window goes away, so no timer fires into a
   // torn-down app.
   useEffect(() => {
@@ -373,6 +533,14 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
     runNamedCommit,
     refreshFiles,
     isPaused: (root: string) => engines.current.get(root)?.isPaused() ?? false,
+    /**
+     * Whether this window runs the sync engine for a vault.
+     *
+     * One engine per vault, and it lives in the window that opened it first —
+     * so this is also the answer to "whose tabs does that vault remember?" and
+     * "who may write to the repository's own state?".
+     */
+    ownsVault,
   };
 }
 

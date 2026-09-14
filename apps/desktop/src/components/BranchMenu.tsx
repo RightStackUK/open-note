@@ -1,7 +1,7 @@
 import { forgeLabel, newPullRequestUrl, parseRemote } from '@open-note/core';
 import { useCallback, useEffect, useState } from 'react';
 
-import { api, type Branch } from '../api';
+import { api, type Branch, MANAGED_ELSEWHERE } from '../api';
 import { errorText } from '../useWorkspace';
 
 interface BranchMenuProps {
@@ -10,6 +10,14 @@ interface BranchMenuProps {
   onClose: () => void;
   /** Called after anything that changes the working tree. */
   onChanged: () => void;
+  /**
+   * Whether this window may run git here.
+   *
+   * False in a window that does not own the vault: the owner's engine holds
+   * the index lock, and a branch switch from underneath it is the contention
+   * the ownership rule exists to prevent.
+   */
+  canWrite: boolean;
 }
 
 /**
@@ -20,7 +28,7 @@ interface BranchMenuProps {
  * self-hosted ones, and leaves the user reviewing the change on the site that
  * will host it.
  */
-export function BranchMenu({ root, current, onClose, onChanged }: BranchMenuProps) {
+export function BranchMenu({ root, current, onClose, onChanged, canWrite }: BranchMenuProps) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [remote, setRemote] = useState<ReturnType<typeof parseRemote>>(null);
   const [newName, setNewName] = useState('');
@@ -40,6 +48,12 @@ export function BranchMenu({ root, current, onClose, onChanged }: BranchMenuProp
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // A window that does not own the vault may look but not touch: switching or
+  // merging a branch takes git's index lock, and the owner's commit loop is
+  // holding it. See `src-tauri/src/windows.rs`.
+  const frozen = !canWrite;
+  const why = canWrite ? undefined : MANAGED_ELSEWHERE;
 
   const act = useCallback(
     async (work: () => Promise<unknown>) => {
@@ -92,7 +106,12 @@ export function BranchMenu({ root, current, onClose, onChanged }: BranchMenuProp
             if (e.key === 'Enter') create();
           }}
         />
-        <button type="button" onClick={create} disabled={busy || !newName.trim()}>
+        <button
+          type="button"
+          onClick={create}
+          disabled={busy || frozen || !newName.trim()}
+          title={why}
+        >
           Create
         </button>
       </div>
@@ -103,9 +122,9 @@ export function BranchMenu({ root, current, onClose, onChanged }: BranchMenuProp
             <button
               type="button"
               className="branch-name"
-              disabled={busy || branch.isCurrent}
+              disabled={busy || frozen || branch.isCurrent}
               onClick={() => void act(() => api.switchBranch(root, branch.name))}
-              title={branch.isCurrent ? 'Current branch' : `Switch to ${branch.name}`}
+              title={why ?? (branch.isCurrent ? 'Current branch' : `Switch to ${branch.name}`)}
             >
               <span className="branch-dot">{branch.isCurrent ? '●' : '○'}</span>
               {branch.name}
@@ -116,18 +135,18 @@ export function BranchMenu({ root, current, onClose, onChanged }: BranchMenuProp
                 <button
                   type="button"
                   className="linky"
-                  disabled={busy}
+                  disabled={busy || frozen}
                   onClick={() => void act(() => api.mergeBranch(root, branch.name))}
-                  title={`Merge ${branch.name} into ${current}`}
+                  title={why ?? `Merge ${branch.name} into ${current}`}
                 >
                   Merge
                 </button>
                 <button
                   type="button"
                   className="linky danger"
-                  disabled={busy}
+                  disabled={busy || frozen}
                   onClick={() => void act(() => api.deleteBranch(root, branch.name, false))}
-                  title="Delete; refuses if it has unmerged work"
+                  title={why ?? 'Delete; refuses if it has unmerged work'}
                 >
                   Delete
                 </button>

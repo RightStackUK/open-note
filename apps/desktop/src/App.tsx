@@ -48,7 +48,7 @@ import { sanitiseSvg } from '@open-note/diagrams';
 import { editorCommands } from '@open-note/editor';
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { api, type VaultFile } from './api';
+import { api, emitVault, listenVault, VaultEvents, type VaultFile, windowLabel } from './api';
 import { BranchMenu } from './components/BranchMenu';
 import { CloneDialog } from './components/CloneDialog';
 import { ConflictPanel } from './components/ConflictPanel';
@@ -76,31 +76,40 @@ import { PaneResizer } from './components/PaneResizer';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Sidebar } from './components/Sidebar';
 import { SyncBadge } from './components/SyncBadge';
+import { TabStrip } from './components/TabStrip';
 import { TagPanel } from './components/TagPanel';
 import { TextEditor } from './components/TextEditor';
 import { TodoView } from './components/TodoView';
 import {
+  activateTab,
+  activeTab,
   adoptDoc,
-  clearAll as clearPanes,
   closePane,
+  closeTab,
+  closeTabFor,
+  cycleTab,
   docKey,
-  focusedPane,
+  focusedTab,
   focusOther,
   focus as focusPaneIn,
   initialLayout,
   isSplit,
-  type OpenDrawing,
+  locate,
   type OpenNote,
-  type OpenPreview,
-  type Pane,
+  openTab,
+  type PaneLayout,
   type PaneSide,
   paneAt,
   sides as paneSides,
-  sideShowing,
   split as splitPanes,
+  type Tab,
+  tabAt,
+  tabPath,
   updatePane,
 } from './editorPanes';
+import { fileIconName } from './fileIcons';
 import { MENU_EVENT, MENU_ONLY, type MenuCommand } from './menu';
+import { readOpenTabs, storedFrom, writeOpenTabs } from './openTabs';
 import { PANE_DEFAULTS, PANE_LIMITS, type PaneWidths, readPaneWidths } from './panes';
 import { relativeFrom, resolveAgainst } from './paths';
 import { checkForAppUpdate } from './updates';
@@ -143,29 +152,48 @@ type SaveState = 'saved' | 'dirty' | 'saving' | 'error';
 /** One step of a pane's navigation trail. */
 type Trail = { path: string; view: { scroll: number; anchor: number } };
 
-/** What a `useState` setter accepts: a value, or a function of the old one. */
-type Change<T> = T | ((prev: T) => T);
-
-function applyChange<T>(next: Change<T>, prev: T): T {
-  return typeof next === 'function' ? (next as (p: T) => T)(prev) : next;
+/** Which file-type icon a tab shows. */
+function tabKind(tab: Tab): VaultFile['kind'] {
+  if (tab.note) return tab.note.kind;
+  if (tab.preview) return tab.preview.kind;
+  return 'drawing';
 }
+
+/** A vault with nothing open. Stable, so an inactive window renders once. */
+const NO_PANES = initialLayout();
+
+/** How many closed tabs can be reopened, newest first. */
+const REOPEN_DEPTH = 12;
 
 export function App() {
   /**
-   * One or two editor panes, and which of them is focused.
+   * Every open vault's panes and tabs, by vault root.
    *
-   * Everything below reads `note`, `preview` and `drawing` as it always did;
-   * those are now the *focused* pane's, through the setters just under here.
-   * That is the whole trick of the split: autosave, history, backlinks and
-   * wikilink navigation did not have to learn about panes, because "the open
-   * note" still means one thing.
+   * Per vault because tabs are scoped to one: the vault strip in the title bar
+   * switches between whole workspaces, and coming back to a vault should find
+   * it as you left it rather than empty. `panes` below is the active vault's.
+   *
+   * Everything else reads `note`, `preview` and `drawing` as it always did;
+   * those are the focused pane's active tab. That is the whole trick of both
+   * the split and the tabs: autosave, history, backlinks and wikilink
+   * navigation never had to learn about either, because "the open note" still
+   * means one thing.
    */
-  const [panes, setPanes] = useState(initialLayout);
+  const [layouts, setLayouts] = useState<Record<string, PaneLayout>>({});
   /** Embeds collapsed in this window, by path. A reading posture, unpersisted. */
   const [collapsedEmbeds, setCollapsedEmbeds] = useState<Set<string>>(new Set());
   /** Notes whose `readOnly` frontmatter has been overridden this session. */
   const [readOnlyOverrides, setReadOnlyOverrides] = useState<Set<string>>(new Set());
   const [saveState, setSaveState] = useState<SaveState>('saved');
+  /**
+   * Documents with text not yet on disk, by key.
+   *
+   * `pendingDocs` is the buffer and a ref, because it must be readable and
+   * writable without a render; this is the same fact as state, so a tab can
+   * show a dot. Updated only when the set actually changes, so typing still
+   * does not re-render the window per keystroke.
+   */
+  const [dirtyKeys, setDirtyKeys] = useState<Set<string>>(new Set());
   const [recents, setRecents] = useState<string[]>([]);
   const [booting, setBooting] = useState(true);
   /**
@@ -232,10 +260,30 @@ export function App() {
    * not in has to mean that pane's history, not the other one's. So focus is
    * written here the moment it moves, ahead of the re-render.
    */
-  const focusedSideRef = useRef<PaneSide>(panes.focused);
-  const panesRef = useRef(panes);
-  panesRef.current = panes;
-  focusedSideRef.current = panes.focused;
+  const focusedSideRef = useRef<PaneSide>('left');
+  const panesRef = useRef<PaneLayout>(NO_PANES);
+  const layoutsRef = useRef(layouts);
+  layoutsRef.current = layouts;
+  /** The active vault, readable from a callback that outlived the render. */
+  const activeRootRef = useRef<string | null>(null);
+
+  /**
+   * Change the active vault's layout.
+   *
+   * Keyed by root rather than held as one value because a queued write, a pull
+   * or a rename can land against a vault you have since switched away from, and
+   * it has to reach that vault's tab rather than whatever is in front of you.
+   */
+  const setPanes = useCallback((change: (prev: PaneLayout) => PaneLayout) => {
+    const root = activeRootRef.current;
+    if (!root) return;
+    setLayouts((prev) => ({ ...prev, [root]: change(prev[root] ?? initialLayout()) }));
+  }, []);
+
+  /** The same, for a named vault: a write that outlived its tab being in front. */
+  const setPanesIn = useCallback((root: string, change: (prev: PaneLayout) => PaneLayout) => {
+    setLayouts((prev) => ({ ...prev, [root]: change(prev[root] ?? initialLayout()) }));
+  }, []);
 
   /**
    * Navigation history: where you have been, with the reading position.
@@ -298,7 +346,7 @@ export function App() {
   const noteRef = useMemo(
     () => ({
       get current(): OpenNote | null {
-        return paneAt(panesRef.current, focusedSideRef.current).note;
+        return tabAt(panesRef.current, focusedSideRef.current).note;
       },
     }),
     [],
@@ -318,66 +366,81 @@ export function App() {
   );
   /** Line to jump to once the editor has mounted the incoming note. */
   const pendingLine = useRef<number | null>(null);
-  /** Which vault the editor is currently showing, to spot a tab switch. */
+  /** Which vault the editor is currently showing, to spot a vault switch. */
   const lastActiveRoot = useRef<string | null>(null);
-  /** The note each vault was last on, so switching back resumes it. */
-  const lastNoteByVault = useRef(new Map<string, string>());
-
-  const note = focusedPane(panes).note;
-  const preview = focusedPane(panes).preview;
-  const drawing = focusedPane(panes).drawing;
-
-  /** Change what the focused pane is showing. */
-  const setFocusedPane = useCallback((change: (pane: Pane) => Pane) => {
-    setPanes((prev) => updatePane(prev, focusedSideRef.current, change));
-  }, []);
-
   /**
-   * `setNote`, `setPreview` and `setDrawing` address the focused pane.
+   * Tabs closed recently, newest first, so closing one is not final.
    *
-   * They keep the signature of the `useState` setters they replaced — value or
-   * updater — so opening a note from the tree, the quick switcher, a wikilink
-   * or a deep link lands in the pane you are working in without any of those
-   * callers knowing a second pane exists.
+   * Paths rather than content: the file is re-read on the way back, because the
+   * vault is a Git repository and anything may have changed it since.
    */
-  const setNote = useCallback(
-    (next: Change<OpenNote | null>) =>
-      setFocusedPane((pane) => ({ ...pane, note: applyChange(next, pane.note) })),
-    [setFocusedPane],
-  );
-  const setPreview = useCallback(
-    (next: Change<OpenPreview | null>) =>
-      setFocusedPane((pane) => ({ ...pane, preview: applyChange(next, pane.preview) })),
-    [setFocusedPane],
-  );
-  const setDrawing = useCallback(
-    (next: Change<OpenDrawing | null>) =>
-      setFocusedPane((pane) => ({ ...pane, drawing: applyChange(next, pane.drawing) })),
-    [setFocusedPane],
-  );
+  const closedTabs = useRef<Array<{ root: string; path: string; side: PaneSide }>>([]);
 
   /** Move focus, eagerly enough for this click's own handlers to see it. */
-  const focusPane = useCallback((side: PaneSide) => {
-    if (focusedSideRef.current === side) return;
-    focusedSideRef.current = side;
-    setPanes((prev) => focusPaneIn(prev, side));
-  }, []);
+  const focusPane = useCallback(
+    (side: PaneSide) => {
+      if (focusedSideRef.current === side) return;
+      focusedSideRef.current = side;
+      setPanes((prev) => focusPaneIn(prev, side));
+    },
+    [setPanes],
+  );
 
   /**
-   * A note lives in at most one pane.
+   * Put a document in a pane, or activate the tab that already holds it.
    *
-   * Opening one that the other pane already shows moves focus there instead of
-   * making a second copy: two editors over one file would each hold their own
-   * buffer and take turns overwriting the other's autosave.
+   * Everything that opens anything comes through here — the tree, the note
+   * list, the quick switcher, a wikilink, a deep link — which is what makes
+   * "a document lives in exactly one tab" true rather than aspirational. Two
+   * editors over one file would each hold their own buffer and take turns
+   * overwriting the other's autosave.
    */
-  const focusIfAlreadyOpen = useCallback(
-    (root: string, path: string): boolean => {
-      const side = sideShowing(panesRef.current, root, path);
-      if (!side || side === focusedSideRef.current) return false;
-      focusPane(side);
+  const openInPane = useCallback(
+    (tab: Tab, side?: PaneSide) => {
+      const where = side ?? focusedSideRef.current;
+      const path = tabPath(tab);
+      const root = tab.note?.root ?? activeRootRef.current;
+      const existing = root && path ? locate(panesRef.current, root, path) : null;
+      const target = existing?.side ?? where;
+      focusedSideRef.current = target;
+      setPanes((prev) => openTab(prev, target, tab));
+    },
+    [setPanes],
+  );
+
+  /**
+   * Reveal a note in the window that already has it, if another one does.
+   *
+   * The same rule as within a window — a document lives in one editor — with
+   * the same reason: two buffers over one file take turns overwriting each
+   * other's autosave. The claim is atomic in Rust, so two windows opening the
+   * same note in the same instant cannot both believe they won it.
+   */
+  const revealElsewhere = useCallback(async (root: string, path: string): Promise<boolean> => {
+    try {
+      const holder = await api.claimDocument(docKey(root, path), windowLabel());
+      if (!holder) return false;
+      await api.focusWindow(holder);
+      emitVault(VaultEvents.reveal, { root, path });
+      return true;
+    } catch {
+      // No window layer to ask — the harness, or a permission gap. Opening
+      // here is the old behaviour and better than refusing.
+      return false;
+    }
+  }, []);
+
+  /** Activate the tab holding a document, if one does. */
+  const activateIfOpen = useCallback(
+    (root: string, path: string, line?: number): boolean => {
+      const found = locate(panesRef.current, root, path);
+      if (!found) return false;
+      focusedSideRef.current = found.side;
+      setPanes((prev) => activateTab(prev, found.side, found.index));
+      if (line) pendingLine.current = line;
       return true;
     },
-    [focusPane],
+    [setPanes],
   );
 
   // When a pull rewrites a note underneath us, reload it rather than letting
@@ -386,12 +449,12 @@ export function App() {
   // notice going stale.
   const onExternalChange = useCallback((root: string) => {
     for (const side of paneSides(panesRef.current)) {
-      const open = paneAt(panesRef.current, side).note;
+      const open = tabAt(panesRef.current, side).note;
       if (!open || open.root !== root) continue;
       void api
         .readNote(root, open.path)
         .then((fresh) => {
-          if (fresh === paneAt(panesRef.current, side).note?.doc) return;
+          if (fresh === tabAt(panesRef.current, side).note?.doc) return;
           setPanes((prev) => adoptDoc(prev, root, open.path, fresh, true));
           setMessage(`${open.path} was updated from the remote.`);
         })
@@ -402,6 +465,22 @@ export function App() {
   }, []);
 
   const ws = useWorkspace(onExternalChange);
+
+  /**
+   * The active vault's panes, and its focused pane's active tab.
+   *
+   * Assigned into refs on the way past so that a handler running before the
+   * next render — a click that focuses a pane, a write that outlived its tab —
+   * reads the same truth the render did.
+   */
+  const panes = (ws.activeRoot ? layouts[ws.activeRoot] : null) ?? NO_PANES;
+  activeRootRef.current = ws.activeRoot;
+  panesRef.current = panes;
+  focusedSideRef.current = panes.focused;
+
+  const note = focusedTab(panes).note;
+  const preview = focusedTab(panes).preview;
+  const drawing = focusedTab(panes).drawing;
   const session = ws.activeRoot ? ws.sessions[ws.activeRoot] : undefined;
   const paused = ws.activeRoot ? ws.isPaused(ws.activeRoot) : false;
   const vaultIndex = useVaultIndex(ws.activeRoot);
@@ -520,25 +599,6 @@ export function App() {
     };
   }, [activeTheme, session?.typography, zoom]);
 
-  const openVault = ws.openVault;
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const list = await api.recentVaults();
-        if (cancelled) return;
-        setRecents(list);
-        const last = list[0];
-        if (last) await openVault(last);
-      } finally {
-        if (!cancelled) setBooting(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [openVault]);
-
   const choose = useCallback(async () => {
     const picked = await api.pickVault();
     if (!picked) return;
@@ -572,6 +632,7 @@ export function App() {
     async (throwOnError = false) => {
       if (pendingDocs.current.size === 0) return;
       let failure: unknown = null;
+      const written: string[] = [];
       setSaveState('saving');
       for (const [key, outstanding] of [...pendingDocs.current]) {
         // The write goes to the vault the document was opened from, never to
@@ -593,6 +654,7 @@ export function App() {
           if (root === ws.activeRoot) vaultIndex.updateNote(outstanding.path, outstanding.doc);
           // Tell the sync engine a file landed; it owns the commit decision.
           ws.noteSaved(root);
+          written.push(key);
         } catch (e) {
           // Keep the newest unsaved buffer queued. In particular, an update must
           // not restart the app after a failed final save.
@@ -600,6 +662,13 @@ export function App() {
           failure = e;
           ws.setError(errorText(e));
         }
+      }
+      if (written.length > 0) {
+        setDirtyKeys((prev) => {
+          const next = new Set(prev);
+          for (const key of written) next.delete(key);
+          return next.size === prev.size ? prev : next;
+        });
       }
       setSaveState(failure ? 'error' : 'saved');
       if (failure && throwOnError) throw failure;
@@ -631,9 +700,11 @@ export function App() {
    */
   const onDocChange = useCallback(
     (side: PaneSide, doc: string) => {
-      const open = paneAt(panesRef.current, side).note;
+      const open = tabAt(panesRef.current, side).note;
       if (!open) return;
-      pendingDocs.current.set(docKey(open.root, open.path), { ...open, doc });
+      const key = docKey(open.root, open.path);
+      pendingDocs.current.set(key, { ...open, doc });
+      setDirtyKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
       setSaveState('dirty');
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(flush, AUTOSAVE_IDLE_MS);
@@ -647,6 +718,35 @@ export function App() {
     setPanes(splitPanes);
     setShowTodos(false);
   }, []);
+
+  /**
+   * Close one tab, landing what was typed into it first.
+   *
+   * The pane going away is not a reason to drop what was typed into it, and the
+   * buffer is keyed by document — so the flush has to happen before the tab
+   * that named it is gone.
+   */
+  const closeTabAt = useCallback(
+    async (side: PaneSide, index: number) => {
+      const root = activeRootRef.current;
+      if (!root) return;
+      const tab = paneAt(panesRef.current, side).tabs[index];
+      if (!tab) return;
+      const open = tab.note;
+      if (open && pendingDocs.current.has(docKey(open.root, open.path))) {
+        if (saveTimer.current) window.clearTimeout(saveTimer.current);
+        await flush();
+      }
+      const path = tabPath(tab);
+      if (path) {
+        closedTabs.current = [{ root, path, side }, ...closedTabs.current].slice(0, REOPEN_DEPTH);
+        // Another window may open it now.
+        void api.releaseDocument(docKey(root, path), windowLabel()).catch(() => {});
+      }
+      setPanesIn(root, (prev) => closeTab(prev, side, index));
+    },
+    [flush, setPanesIn],
+  );
 
   /**
    * Close a pane, landing what it holds first.
@@ -721,52 +821,196 @@ export function App() {
     async (file: VaultFile) => {
       const root = ws.activeRoot;
       if (!root) return;
-      // Already beside us? Go there rather than opening it twice.
-      if (focusIfAlreadyOpen(root, file.path)) return;
-      // A queued write must never land under a different note.
-      if (saveTimer.current) window.clearTimeout(saveTimer.current);
-      await flush();
+      // Already open? Go to its tab rather than opening a second copy — here,
+      // or in another window, which reveals it there.
+      if (activateIfOpen(root, file.path)) return;
+      if (await revealElsewhere(root, file.path)) return;
       ws.setError(null);
 
       try {
         if (file.kind === 'image') {
-          setNote(null);
-          setDrawing(null);
-          setPreview({ path: file.path, url: await api.readImage(root, file.path), kind: 'image' });
+          openInPane({
+            note: null,
+            preview: { path: file.path, url: await api.readImage(root, file.path), kind: 'image' },
+            drawing: null,
+          });
           return;
         }
         if (file.kind === 'pdf') {
-          setNote(null);
-          setDrawing(null);
-          // The webview's own viewer does the rendering; nothing to bundle.
-          setPreview({ path: file.path, url: await api.readPdf(root, file.path), kind: 'pdf' });
+          openInPane({
+            note: null,
+            // The webview's own viewer does the rendering; nothing to bundle.
+            preview: { path: file.path, url: await api.readPdf(root, file.path), kind: 'pdf' },
+            drawing: null,
+          });
           return;
         }
         if (file.kind === 'drawing') {
-          setNote(null);
-          setPreview(null);
-          setDrawing({ path: file.path, source: await api.readDrawing(root, file.path) });
+          openInPane({
+            note: null,
+            preview: null,
+            drawing: { path: file.path, source: await api.readDrawing(root, file.path) },
+          });
           return;
         }
-        setPreview(null);
-        setDrawing(null);
         // The tree and the list are navigations like any other; skipping the
         // trail here would make Back unable to return to where you were.
         recordDeparture(root, file.path);
-        setNote({
-          root,
-          path: file.path,
-          doc: await api.readNote(root, file.path),
-          kind: file.kind === 'text' ? 'text' : 'markdown',
-          revision: 0,
+        openInPane({
+          note: {
+            root,
+            path: file.path,
+            doc: await api.readNote(root, file.path),
+            kind: file.kind === 'text' ? 'text' : 'markdown',
+            revision: 0,
+          },
+          preview: null,
+          drawing: null,
         });
         setSaveState('saved');
       } catch (e) {
         ws.setError(errorText(e));
       }
     },
-    [ws, flush, recordDeparture],
+    [ws, recordDeparture, activateIfOpen, openInPane, revealElsewhere],
   );
+
+  /**
+   * Open another window, optionally showing a note from this one.
+   *
+   * With a note, this is a *move*: its tab closes here first, so the document
+   * ends up in exactly one editor and the new window's claim on it succeeds.
+   * Anything typed into it is flushed on the way out by `closeTabAt`.
+   */
+  const openInNewWindow = useCallback(
+    async (root?: string, path?: string) => {
+      try {
+        if (root && path) {
+          const found = locate(panesRef.current, root, path);
+          if (found) await closeTabAt(found.side, found.index);
+        }
+        await api.openWindow(root, path);
+      } catch (e) {
+        ws.setError(errorText(e));
+      }
+    },
+    [ws, closeTabAt],
+  );
+
+  /**
+   * Reopen the most recently closed tab.
+   *
+   * Re-read rather than restored from a kept buffer: closing a tab is the point
+   * at which the app stops tracking a file, and the vault is a Git repository
+   * that a pull or another editor may have changed since.
+   */
+  const reopenClosedTab = useCallback(() => {
+    const entry = closedTabs.current[0];
+    if (!entry) return;
+    closedTabs.current = closedTabs.current.slice(1);
+    const file = ws.sessions[entry.root]?.files.find((f) => f.path === entry.path);
+    if (!file) {
+      setMessage(`${entry.path} is no longer in this vault.`);
+      return;
+    }
+    if (entry.root !== ws.activeRoot) ws.setActiveRoot(entry.root);
+    // A no-op if that pane has since closed, which leaves it landing in the
+    // focused one — the same place a fresh open would go.
+    focusPane(entry.side);
+    void select(file);
+  }, [ws, focusPane, select]);
+
+  /**
+   * Put back the tabs this vault had open, once its session exists.
+   *
+   * Paths are remembered; the text is read now, because the vault is a Git
+   * repository and a remembered buffer would be a stale copy presented as
+   * current. A path that has since gone is dropped rather than opened empty —
+   * a branch switch or a pull is enough to lose one.
+   */
+  const restoreTabs = useCallback(
+    async (root: string) => {
+      const files = ws.sessions[root]?.files ?? [];
+      const stored = readOpenTabs(root);
+
+      const load = async (paths: string[]): Promise<Tab[]> => {
+        const tabs = await Promise.all(
+          paths.map(async (path): Promise<Tab | null> => {
+            const file = files.find((f) => f.path === path);
+            if (!file || (file.kind !== 'markdown' && file.kind !== 'text')) return null;
+            // Claimed on the way in, so a second window on this vault does not
+            // restore the same list into a second set of editors. Whoever
+            // booted first has the notes; the other window starts empty.
+            const holder = await api
+              .claimDocument(docKey(root, path), windowLabel())
+              .catch(() => null);
+            if (holder) return null;
+            try {
+              return {
+                note: {
+                  root,
+                  path,
+                  doc: await api.readNote(root, path),
+                  kind: file.kind === 'text' ? 'text' : 'markdown',
+                  revision: 0,
+                },
+                preview: null,
+                drawing: null,
+              };
+            } catch {
+              // Unreadable — too large, or not UTF-8 after an upstream change.
+              return null;
+            }
+          }),
+        );
+        return tabs.filter((tab): tab is Tab => tab !== null);
+      };
+
+      const left = await load(stored.left);
+      const right = stored.right ? await load(stored.right) : [];
+      if (left.length === 0 && right.length === 0) return;
+
+      const clamp = (index: number, tabs: Tab[]) => Math.min(index, Math.max(0, tabs.length - 1));
+      const layout: PaneLayout = {
+        left: { tabs: left, active: clamp(stored.activeLeft, left) },
+        right: right.length > 0 ? { tabs: right, active: clamp(stored.activeRight, right) } : null,
+        focused: right.length > 0 ? stored.focused : 'left',
+      };
+      // Not if something has been opened in the meantime: the restore is a
+      // courtesy, and it must never overwrite a note the user chose.
+      setLayouts((prev) => (prev[root] ? prev : { ...prev, [root]: layout }));
+    },
+    [ws.sessions],
+  );
+
+  /**
+   * Restore each vault's tabs the first time its session appears.
+   *
+   * Once per root, tracked here rather than by checking the layout: the read is
+   * asynchronous, and a second pass would start before the first had anything
+   * to show.
+   */
+  const restoredTabs = useRef(new Set<string>());
+  useEffect(() => {
+    const root = ws.activeRoot;
+    if (!root || !ws.sessions[root] || restoredTabs.current.has(root)) return;
+    restoredTabs.current.add(root);
+    void restoreTabs(root);
+  }, [ws.activeRoot, ws.sessions, restoreTabs]);
+
+  /**
+   * Remember the open tabs, per vault, machine-locally.
+   *
+   * Only the window that owns the vault writes: two windows on one vault would
+   * otherwise take turns overwriting each other's list, and the answer to
+   * "which window's tabs?" is the one that has the vault.
+   */
+  const hasSession = Boolean(ws.activeRoot && ws.sessions[ws.activeRoot]);
+  useEffect(() => {
+    const root = ws.activeRoot;
+    if (!root || !hasSession || !ws.ownsVault(root)) return;
+    writeOpenTabs(root, storedFrom(panes));
+  }, [panes, ws.activeRoot, hasSession, ws.ownsVault]);
 
   const openConflicted = useCallback(
     async (path: string) => {
@@ -774,13 +1018,16 @@ export function App() {
       if (!root) return;
       try {
         // Raw, so git's markers are visible and can be merged by hand.
-        setPreview(null);
-        setNote({ root, path, doc: await api.readRaw(root, path), kind: 'markdown', revision: 0 });
+        openInPane({
+          note: { root, path, doc: await api.readRaw(root, path), kind: 'markdown', revision: 0 },
+          preview: null,
+          drawing: null,
+        });
       } catch (e) {
         ws.setError(errorText(e));
       }
     },
-    [ws],
+    [ws, openInPane],
   );
 
   const sync = useCallback(async () => {
@@ -806,27 +1053,101 @@ export function App() {
       const root = explicitRoot ?? ws.activeRoot;
       if (!root) return;
       if (explicitRoot && ws.activeRoot !== explicitRoot) ws.setActiveRoot(explicitRoot);
-      // Walking the trail stays in its own pane: Back must not hop panes just
-      // because the note it is returning to happens to be open in the other.
-      if (!navigating.current && focusIfAlreadyOpen(root, path)) {
+      // Already open, in either pane: activate that tab. Walking the trail is
+      // the exception — Back must not hop panes just because the note it is
+      // returning to happens to be open in the other one.
+      if (!navigating.current && activateIfOpen(root, path, line)) {
+        setShowTodos(false);
         if (line) editorRef.current?.goToLine(line);
         return;
       }
-      if (saveTimer.current) window.clearTimeout(saveTimer.current);
-      await flush();
+      if (await revealElsewhere(root, path)) return;
       try {
         recordDeparture(root, path);
         setShowTodos(false);
-        setPreview(null);
-        setDrawing(null);
         pendingLine.current = line ?? null;
-        setNote({ root, path, doc: await api.readNote(root, path), kind: 'markdown', revision: 0 });
+        openInPane({
+          note: { root, path, doc: await api.readNote(root, path), kind: 'markdown', revision: 0 },
+          preview: null,
+          drawing: null,
+        });
         setSaveState('saved');
       } catch (e) {
         ws.setError(errorText(e));
       }
     },
     [ws, flush, recordDeparture],
+  );
+
+  const openVault = ws.openVault;
+  /**
+   * What this window opens on boot.
+   *
+   * A window created by "open in a new window" was told what to show, and takes
+   * that over the recent list — otherwise every new window would start on the
+   * last vault and then be navigated, which flashes the wrong notes first. The
+   * intent is consumed in Rust, so a reload starts from the recents like any
+   * other window.
+   */
+  /**
+   * What this window opens, once.
+   *
+   * Two hazards met here, and both are why this reads the way it does. The
+   * effect depends on callbacks that are rebuilt every render and it *sets
+   * state*, so without the guard the first `setRecents` schedules the next run
+   * and the app boots forever. And StrictMode mounts twice, so a `cancelled`
+   * flag set by the first unmount would abandon the only run the guard allows
+   * — there is no cancellation here for exactly that reason.
+   */
+  const booted = useRef(false);
+  useEffect(() => {
+    if (booted.current) return;
+    booted.current = true;
+    void (async () => {
+      try {
+        const [list, asked] = await Promise.all([
+          api.recentVaults(),
+          api.windowIntent(windowLabel()).catch(() => null),
+        ]);
+        setRecents(list);
+        // Defended rather than trusted: boot has no second chance, and a
+        // window that throws here would show the welcome screen with vaults
+        // open behind it.
+        const intent = asked ?? { root: null, path: null };
+        const target = intent.root ?? list[0];
+        if (!target) return;
+        await openVault(target);
+        if (!intent.path) return;
+        // The window that asked for this one closed its own tab, so the claim
+        // is free; `openNoteAt` still checks, which is what makes a race safe.
+        await openNoteAt(intent.path, undefined, target);
+      } finally {
+        setBooting(false);
+      }
+    })();
+  }, [openVault, openNoteAt]);
+
+  /**
+   * Another window asked us to show a note it found we had open.
+   *
+   * It has already brought this window forward; all that is left is to put the
+   * right tab in front. Subscribed once — the handler reads through refs, so a
+   * fresh subscription per render would be a new IPC call for nothing.
+   */
+  const revealRef = useRef<(root: string, path: string) => void>(() => {});
+  revealRef.current = (root, path) => {
+    if (root !== activeRootRef.current) {
+      if (!ws.sessions[root]) return;
+      ws.setActiveRoot(root);
+    }
+    activateIfOpen(root, path);
+  };
+  useEffect(
+    () =>
+      listenVault<{ root: string; path: string }>(VaultEvents.reveal, ({ root, path }) =>
+        revealRef.current(root, path),
+      ),
+    [],
   );
 
   /** Walk the history one step; `direction` names the stack being popped. */
@@ -868,34 +1189,22 @@ export function App() {
   useEffect(() => {
     const root = ws.activeRoot;
     if (lastActiveRoot.current === root) return;
-    const leaving = lastActiveRoot.current;
     lastActiveRoot.current = root;
-
-    const open = noteRef.current;
-    if (leaving) {
-      if (open && open.root === leaving) lastNoteByVault.current.set(leaving, open.path);
-      else lastNoteByVault.current.delete(leaving);
-    }
 
     // A queued save still belongs to the vault being left; land it there.
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     void flush();
 
-    setPanes(clearPanes);
+    // The layout is not cleared: each vault keeps its own panes and tabs, so
+    // coming back finds it as you left it. What does reset is the window
+    // furniture, which is about the vault in front of you.
     setShowTodos(false);
     setPanel(null);
     setSaveState('saved');
     stacks.current = { left: { back: [], forward: [] }, right: { back: [], forward: [] } };
     currentNavPath.current = null;
     setCollection({ kind: 'all' });
-
-    if (!root) return;
-    const remembered = lastNoteByVault.current.get(root);
-    // Only if it is still there: the note may have been deleted, or the vault
-    // may have moved to a branch without it.
-    const stillThere = ws.sessions[root]?.files.some((file) => file.path === remembered);
-    if (remembered && stillThere) void openNoteAt(remembered);
-  }, [ws.activeRoot, ws.sessions, flush, openNoteAt]);
+  }, [ws.activeRoot, flush]);
 
   useEffect(() => {
     if (!note) return;
@@ -943,15 +1252,19 @@ export function App() {
    * link is how you say the note should exist.
    */
   const followLink = useCallback(
-    (target: string, resolved: string | null) => {
+    (target: string, resolved: string | null, gesture: { alt: boolean }) => {
       if (resolved) {
-        void openNoteAt(resolved);
+        // Alt-click opens the target in a new window instead of taking over
+        // the pane you were reading — the whole point of following a link to
+        // check something.
+        if (gesture.alt && ws.activeRoot) void openInNewWindow(ws.activeRoot, resolved);
+        else void openNoteAt(resolved);
         return;
       }
       const path = target.endsWith('.md') ? target : `${target}.md`;
       void createNote(path, newNoteBody(target));
     },
-    [openNoteAt, createNote, newNoteBody],
+    [ws.activeRoot, openNoteAt, createNote, newNoteBody, openInNewWindow],
   );
 
   const saveDrawing = useCallback(
@@ -980,7 +1293,7 @@ export function App() {
     await Promise.all([ws.refreshFiles(root), ws.refreshStatus(root)]);
     // Every pane: a branch switch changes the file under both of them.
     for (const side of paneSides(panesRef.current)) {
-      const open = paneAt(panesRef.current, side).note;
+      const open = tabAt(panesRef.current, side).note;
       if (!open) continue;
       try {
         const fresh = await api.readNote(root, open.path);
@@ -1131,10 +1444,8 @@ export function App() {
         vaultIndex.removeNote(path);
         ws.noteSaved(root);
         await ws.refreshFiles(root);
-        if (noteRef.current?.path === path) {
-          setNote(null);
-          setPreview(null);
-        }
+        // Wherever it was open, in either pane: a deleted note has no tab.
+        setPanesIn(root, (prev) => closeTabFor(prev, root, path));
       } catch (e) {
         ws.setError(errorText(e));
       }
@@ -1169,7 +1480,7 @@ export function App() {
     (side: PaneSide) => ({
       async store(file: File) {
         const root = ws.activeRoot;
-        const open = paneAt(panesRef.current, side).note;
+        const open = tabAt(panesRef.current, side).note;
         if (!root || !open) throw new Error('no note is open');
         // The bytes are materialised four times on the way to disk; a ceiling
         // keeps a dropped ISO from taking the window with it.
@@ -1205,7 +1516,7 @@ export function App() {
         return relativeFrom(open.path, path);
       },
       fileMeta(path: string) {
-        const open = paneAt(panesRef.current, side).note;
+        const open = tabAt(panesRef.current, side).note;
         const root = ws.activeRoot;
         if (!root || !open) return null;
         const absolute = resolveAgainst(open.path, path);
@@ -1213,7 +1524,7 @@ export function App() {
         return file ? { size: file.size, kind: file.kind } : null;
       },
       openFile(path: string) {
-        const open = paneAt(panesRef.current, side).note;
+        const open = tabAt(panesRef.current, side).note;
         const root = ws.activeRoot;
         if (!root || !open) return;
         const absolute = resolveAgainst(open.path, path);
@@ -1227,7 +1538,7 @@ export function App() {
         void select(file);
       },
       async renderDrawing(path: string) {
-        const open = paneAt(panesRef.current, side).note;
+        const open = tabAt(panesRef.current, side).note;
         const root = ws.activeRoot;
         if (!root || !open) return null;
         try {
@@ -1265,7 +1576,7 @@ export function App() {
       },
       async resolveImage(path: string) {
         const root = ws.activeRoot;
-        const open = paneAt(panesRef.current, side).note;
+        const open = tabAt(panesRef.current, side).note;
         if (!root || !open) return null;
         try {
           return await api.readImage(root, resolveAgainst(open.path, path));
@@ -2445,11 +2756,9 @@ export function App() {
       'palette.open': () => openPalette('commands'),
       'switcher.open': () => openPalette('notes'),
       'search.open': () => openPalette('search'),
-      'todos.open': () => {
-        setShowTodos(true);
-        setNote(null);
-        setPreview(null);
-      },
+      // The task list overlays the focused pane rather than replacing what is
+      // open in it, so closing it again puts you back where you were.
+      'todos.open': () => setShowTodos(true),
       'note.new': () => setPrompt({ kind: 'newNote', parent: '' }),
       'note.newFolder': () => setPrompt({ kind: 'newFolder', parent: '' }),
       'note.daily': () => {
@@ -2479,6 +2788,25 @@ export function App() {
       'sync.settings': () => togglePanel('settings'),
       'view.toggleSidebar': () => setShowSidebar((v) => !v),
       'view.toggleList': () => setShowList((v) => !v),
+      'window.new': () => void openInNewWindow(),
+      // Moved rather than copied: the tab closes here, so the note stays in
+      // one editor. The claim in `revealElsewhere` is what enforces that when
+      // it is reached by another route.
+      'note.openInNewWindow': () => {
+        const open = noteRef.current;
+        if (!open) {
+          void openInNewWindow();
+          return;
+        }
+        void openInNewWindow(open.root, open.path);
+      },
+      'tabs.next': () => setPanes((prev) => cycleTab(prev, focusedSideRef.current, 1)),
+      'tabs.previous': () => setPanes((prev) => cycleTab(prev, focusedSideRef.current, -1)),
+      'tabs.close': () => {
+        const side = focusedSideRef.current;
+        void closeTabAt(side, paneAt(panesRef.current, side).active);
+      },
+      'tabs.reopen': () => reopenClosedTab(),
       'view.splitRight': () => splitEditor(),
       'view.focusOtherPane': () => {
         // Through the ref as well as state, so an `edit.*` command chorded
@@ -2965,9 +3293,7 @@ export function App() {
       await api.writeNote(root, todo.path, updated);
       vaultIndex.updateNote(todo.path, updated);
       ws.noteSaved(root);
-      if (note?.path === todo.path) {
-        setNote((prev) => (prev ? { ...prev, doc: updated, revision: prev.revision + 1 } : prev));
-      }
+      setPanesIn(root, (prev) => adoptDoc(prev, root, todo.path, updated, true));
     } catch (e) {
       ws.setError(errorText(e));
     }
@@ -2998,12 +3324,9 @@ export function App() {
    */
   const editorPane = (side: PaneSide) => {
     const pane = paneAt(panes, side);
-    const { note, preview, drawing } = pane;
+    const { note, preview, drawing } = activeTab(pane);
     const focused = panes.focused === side;
     const split = isSplit(panes);
-    const noteTitle = note ? (vaultIndex.index.get(note.path)?.title ?? baseName(note.path)) : null;
-    const noteFolder =
-      note && note.path.includes('/') ? note.path.slice(0, note.path.lastIndexOf('/')) : '';
     // `readOnly: true` in frontmatter locks the editor; the frontmatter travels
     // with the file, which app-local state would not. The unlock is per window,
     // per session — the file keeps saying what it says.
@@ -3026,69 +3349,97 @@ export function App() {
         onMouseDownCapture={() => focusPane(side)}
         onFocusCapture={() => focusPane(side)}
       >
-        {/* Note-scoped actions sit with the note, not in the window chrome,
-                so it is never ambiguous what "History" is the history of. */}
-        {note && !conflicted && !showTodos && (
+        {/* The strip says what is open; the actions beside it are note-scoped
+                rather than window-scoped, so it is never ambiguous what
+                "History" is the history of. */}
+        {pane.tabs.length > 0 && !conflicted && !(showTodos && focused) && (
           <div className="note-bar">
-            <div className="note-id" title={note.path}>
-              {noteFolder && <span className="note-folder">{noteFolder}/</span>}
-              <span className="note-title">{noteTitle}</span>
-            </div>
+            <TabStrip
+              tabs={pane.tabs.map((tab) => {
+                const path = tabPath(tab) ?? '';
+                return {
+                  path,
+                  title: tab.note
+                    ? (vaultIndex.index.get(path)?.title ?? baseName(path))
+                    : baseName(path),
+                  icon: fileIconName(path, tabKind(tab)),
+                  dirty: tab.note ? dirtyKeys.has(docKey(tab.note.root, path)) : false,
+                };
+              })}
+              active={pane.active}
+              onSelect={(index) => {
+                focusPane(side);
+                setPanesIn(session.info.root, (prev) => activateTab(prev, side, index));
+              }}
+              onClose={(index) => void closeTabAt(side, index)}
+              onNew={() => {
+                focusPane(side);
+                openPalette('notes');
+              }}
+            />
             <div className="note-actions">
-              {noteReadOnly && (
-                <button
-                  type="button"
-                  className="is-on"
-                  title="readOnly: true in this note's frontmatter. Click to edit anyway, for this window."
-                  onClick={() => setReadOnlyOverrides((prev) => new Set(prev).add(note.path))}
-                >
-                  🔒 Read-only
-                </button>
-              )}
-              <button
-                type="button"
-                className={pinnedHere ? 'is-on' : ''}
-                onClick={() => void togglePin()}
-                title={pinnedHere ? 'Unpin from the sidebar' : 'Pin to the top of the sidebar'}
-              >
-                {pinnedHere ? '★' : '☆'}
-              </button>
-              {note.kind === 'markdown' && (
-                <button
-                  type="button"
-                  className={
-                    focused && info.open && info.tab === 'outline' && panel === null ? 'is-on' : ''
-                  }
-                  onClick={() => handlers['view.outline']()}
-                  title={`Outline (${shortcut('view.outline')})`}
-                >
-                  Outline
-                </button>
-              )}
-              <button
-                type="button"
-                className={focused && panel === 'history' ? 'is-on' : ''}
-                onClick={() => togglePanel('history')}
-                title={`History of this note (${shortcut('view.history')})`}
-              >
-                History
-              </button>
-              {note.kind === 'markdown' && (
-                <button
-                  type="button"
-                  className={focused && info.open && panel === null ? 'is-on' : ''}
-                  onClick={() => {
-                    setPanel(null);
-                    setInfo((prev) => ({ ...prev, open: !prev.open }));
-                  }}
-                  title={
-                    backlinks.length === 0 && noteTags.length === 0
-                      ? 'No tags, and no note links here yet'
-                      : `Links and tags (${shortcut('view.toggleBacklinks')})`
-                  }
-                >
-                  Links{backlinks.length > 0 ? ` ${backlinks.length}` : ''}
-                </button>
+              {/* Only a note has a history, a pin or an outline; a preview tab
+                  has none of those, and the pane close below it always applies. */}
+              {note && (
+                <>
+                  {noteReadOnly && (
+                    <button
+                      type="button"
+                      className="is-on"
+                      title="readOnly: true in this note's frontmatter. Click to edit anyway, for this window."
+                      onClick={() => setReadOnlyOverrides((prev) => new Set(prev).add(note.path))}
+                    >
+                      🔒 Read-only
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className={pinnedHere ? 'is-on' : ''}
+                    onClick={() => void togglePin()}
+                    title={pinnedHere ? 'Unpin from the sidebar' : 'Pin to the top of the sidebar'}
+                  >
+                    {pinnedHere ? '★' : '☆'}
+                  </button>
+                  {note.kind === 'markdown' && (
+                    <button
+                      type="button"
+                      className={
+                        focused && info.open && info.tab === 'outline' && panel === null
+                          ? 'is-on'
+                          : ''
+                      }
+                      onClick={() => handlers['view.outline']()}
+                      title={`Outline (${shortcut('view.outline')})`}
+                    >
+                      Outline
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className={focused && panel === 'history' ? 'is-on' : ''}
+                    onClick={() => togglePanel('history')}
+                    title={`History of this note (${shortcut('view.history')})`}
+                  >
+                    History
+                  </button>
+                  {note.kind === 'markdown' && (
+                    <button
+                      type="button"
+                      className={focused && info.open && panel === null ? 'is-on' : ''}
+                      onClick={() => {
+                        setPanel(null);
+                        setInfo((prev) => ({ ...prev, open: !prev.open }));
+                      }}
+                      title={
+                        backlinks.length === 0 && noteTags.length === 0
+                          ? 'No tags, and no note links here yet'
+                          : `Links and tags (${shortcut('view.toggleBacklinks')})`
+                      }
+                    >
+                      Links{backlinks.length > 0 ? ` ${backlinks.length}` : ''}
+                    </button>
+                  )}
+                </>
               )}
               {split && (
                 <button
@@ -3114,6 +3465,7 @@ export function App() {
           <ConflictPanel
             root={session.info.root}
             conflicts={session.state.conflicts}
+            canWrite={ws.ownsVault(session.info.root)}
             onOpenFile={openConflicted}
             onResolved={() => {
               void ws.conflictResolved(session.info.root);
@@ -3290,10 +3642,7 @@ export function App() {
           <button
             type="button"
             className={showTodos ? 'is-on' : ''}
-            onClick={() => {
-              setShowTodos((v) => !v);
-              setPreview(null);
-            }}
+            onClick={() => setShowTodos((v) => !v)}
             title={`All tasks (${shortcut('todos.open')})`}
           >
             <span className="glyph">☑</span> Tasks
@@ -3467,6 +3816,7 @@ export function App() {
             root={session.info.root}
             path={note.path}
             dirty={session.state.phase === 'dirty'}
+            canWrite={ws.ownsVault(session.info.root)}
             onClose={() => setPanel(null)}
             onRestored={() => void reloadFromDisk()}
           />
@@ -3535,6 +3885,7 @@ export function App() {
             current={session.state.branch || session.info.branch}
             onClose={() => setPanel(null)}
             onChanged={() => void reloadFromDisk()}
+            canWrite={ws.ownsVault(session.info.root)}
           />
         )}
 
@@ -3679,6 +4030,10 @@ export function App() {
                 .revealInFileManager(ws.activeRoot, path)
                 .catch((e) => ws.setError(errorText(e)));
             }
+          }}
+          onOpenInNewWindow={(path) => {
+            setContextTarget(null);
+            if (session) void openInNewWindow(session.info.root, path);
           }}
           onOpenWith={(path) => {
             setContextTarget(null);

@@ -8,6 +8,14 @@ interface ConflictPanelProps {
   conflicts: string[];
   onResolved: () => void;
   onOpenFile: (path: string) => void;
+  /**
+   * Whether this window may run git here.
+   *
+   * A conflict can only have come from the owner's pull, and resolving it
+   * stages files and continues a rebase — all of which take the index lock the
+   * owner's engine is holding.
+   */
+  canWrite: boolean;
 }
 
 /**
@@ -17,7 +25,15 @@ interface ConflictPanelProps {
  * option below is an explicit choice by the user, including "keep both" which
  * simply hands them the file with git's markers still in it.
  */
-export function ConflictPanel({ root, conflicts, onResolved, onOpenFile }: ConflictPanelProps) {
+export function ConflictPanel({
+  root,
+  conflicts,
+  onResolved,
+  onOpenFile,
+  canWrite,
+}: ConflictPanelProps) {
+  // Look, but do not stage: the owning window is the one that can finish this.
+  const frozen = !canWrite;
   const [pending, setPending] = useState<string[]>(conflicts);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,15 +123,15 @@ export function ConflictPanel({ root, conflicts, onResolved, onOpenFile }: Confl
               </button>
             </div>
             <div className="conflict-actions">
-              <button type="button" disabled={busy} onClick={() => take(path, 'mine')}>
+              <button type="button" disabled={busy || frozen} onClick={() => take(path, 'mine')}>
                 Keep mine
               </button>
-              <button type="button" disabled={busy} onClick={() => take(path, 'theirs')}>
+              <button type="button" disabled={busy || frozen} onClick={() => take(path, 'theirs')}>
                 Keep theirs
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || frozen}
                 onClick={() => onOpenFile(path)}
                 title="Open the file with git's conflict markers and merge it by hand"
               >
@@ -137,12 +153,12 @@ export function ConflictPanel({ root, conflicts, onResolved, onOpenFile }: Confl
         <button
           type="button"
           className="primary"
-          disabled={busy || pending.length > 0}
+          disabled={busy || frozen || pending.length > 0}
           onClick={finish}
         >
           Finish merge
         </button>
-        <button type="button" disabled={busy} onClick={abort}>
+        <button type="button" disabled={busy || frozen} onClick={abort}>
           Cancel the merge
         </button>
         <small>Cancelling puts the vault back exactly as it was before the update arrived.</small>

@@ -8,11 +8,17 @@ import {
   type ViewUpdate,
 } from '@codemirror/view';
 
+/** How the link was clicked, for openers that offer somewhere else to open. */
+export interface LinkGesture {
+  /** Alt/Option was held: "not here". */
+  alt: boolean;
+}
+
 export interface WikiLinkOptions {
   /** Map a link target to a note path, or `null` when nothing matches. */
   resolve: (target: string) => string | null;
   /** Follow a link. `path` is null for an unresolved target. */
-  onOpen: (target: string, path: string | null) => void;
+  onOpen: (target: string, path: string | null, gesture: LinkGesture) => void;
 }
 
 const LINK_RE = /\[\[([^\]|#\n]+)(?:#([^\]|\n]+))?(?:\|([^\]\n]+))?\]\]/g;
@@ -125,7 +131,9 @@ export function wikiLinks(options: WikiLinkOptions): Extension {
         if (!target) return false;
 
         event.preventDefault();
-        options.onOpen(target, options.resolve(target));
+        // Meta/Ctrl already means "follow even on the line being edited", so
+        // the modifier left for "open elsewhere" is Alt.
+        options.onOpen(target, options.resolve(target), { alt: event.altKey });
         // Returning true stops CodeMirror moving the caret into the link.
         return true;
       },

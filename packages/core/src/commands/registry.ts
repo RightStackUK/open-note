@@ -444,6 +444,55 @@ export const COMMANDS: CommandDefinition[] = [
     keywords: ['list', 'notes', 'pane', 'collections', 'today', 'untagged'],
   },
   {
+    id: 'window.new',
+    title: 'New window',
+    category: 'View',
+    // Not `Mod-N`, which makes a note. A window is a bigger thing than a note
+    // and gets the modifier that says so.
+    binding: 'Mod-Alt-N',
+    keywords: ['window', 'new', 'second', 'monitor'],
+  },
+  {
+    id: 'note.openInNewWindow',
+    title: 'Open this note in a new window',
+    category: 'Note',
+    binding: null,
+    keywords: ['window', 'move', 'monitor', 'detach'],
+  },
+  {
+    id: 'tabs.next',
+    title: 'Next tab',
+    category: 'View',
+    // The platform's own tab chord. `Mod-Tab` belongs to the app switcher.
+    binding: 'Ctrl-Tab',
+    keywords: ['tab', 'switch', 'cycle', 'forward'],
+  },
+  {
+    id: 'tabs.previous',
+    title: 'Previous tab',
+    category: 'View',
+    binding: 'Ctrl-Shift-Tab',
+    keywords: ['tab', 'switch', 'cycle', 'back'],
+  },
+  {
+    id: 'tabs.close',
+    title: 'Close tab',
+    category: 'View',
+    // Not `Mod-W`, for the reason `vault.close` is unbound: that chord belongs
+    // to Close Window, which the application menu declares, and a binding here
+    // would be swallowed by the accelerator before the webview saw it.
+    binding: 'Mod-Alt-W',
+    keywords: ['tab', 'close', 'shut'],
+  },
+  {
+    id: 'tabs.reopen',
+    title: 'Reopen closed tab',
+    category: 'View',
+    // `Mod-Shift-T` is the conventional chord and belongs to the task list here.
+    binding: 'Mod-Alt-T',
+    keywords: ['tab', 'reopen', 'undo close', 'restore'],
+  },
+  {
     id: 'view.splitRight',
     title: 'Split the editor',
     category: 'View',

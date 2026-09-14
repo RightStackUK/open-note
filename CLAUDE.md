@@ -145,6 +145,60 @@ takes the caret on mount or a document swap when its pane is focused
 (`autoFocus`), or a remount from a theme flip or an incoming pull would pull the
 caret out of the pane being typed in.
 
+### Tabs belong to the pane
+
+Each pane owns a list of open documents and an active one (`Tab`, `Pane` in
+`editorPanes.ts`), and a **vault owns a layout** — `App` holds
+`Record<root, PaneLayout>`, so switching vaults finds each as you left it
+rather than empty. Per pane rather than per window because a split pane is a
+second place to read, which also disposes of the question "which pane does a
+tab click land in?".
+
+The rule from the split extends rather than changes: a document lives in **at
+most one tab, in one pane** (`locate`), and every opener — tree, list,
+switcher, wikilink, deep link — goes through `openInPane`, which is what makes
+that true rather than aspirational. A new tab lands *after* the active one, so
+following a link puts the target next to where you came from.
+
+Open tabs are remembered per vault in `localStorage` (`openTabs.ts`), as paths
+only: the content is re-read on restore, because the vault is a Git repository
+that anything may have changed since. Previews and drawings are not
+remembered — an image is something you glanced at.
+
+### Several windows, and who owns a vault
+
+Tauri windows share one process, so a second window is a second webview and a
+second copy of the sync engine. Two engines on one vault would run two commit,
+push and fetch loops against one working copy and contend for git's index lock
+— the failure the engine serialises its own calls to avoid.
+
+So a vault is **owned** by one window (`src-tauri/src/windows.rs`): the owner
+runs the engine, and any other window with that vault open is a **follower**
+that reads and writes files — plain IO, no git — and forwards "a file landed"
+to the owner, whose commit loop then does what it always did. Consequences
+worth knowing:
+
+- **Claims are atomic, in Rust.** Two windows opening a vault in the same
+  instant must not both believe they won, which a broadcast election cannot
+  promise. The same registry, keyed by document, extends "one tab per
+  document" across windows: opening a note another window has open reveals it
+  there (`revealElsewhere`) instead of starting a second editor over one file.
+- **Closing a window hands over.** `on_window_event` releases its claims and
+  broadcasts `vault://ownerless`; the remaining windows race to claim, and the
+  winner builds an engine. Without this a vault would go on being edited with
+  nothing committing it.
+- **Followers may not run git.** Branch switches, history restores and
+  conflict resolution are disabled with one shared explanation
+  (`MANAGED_ELSEWHERE`), because each of them takes the lock the owner holds.
+  Reading history is fine from anywhere.
+- **Capabilities are per window label.** `capabilities/default.json` listed
+  only `main`; a created window matched nothing and every `invoke` in it
+  failed. It is `["main", "w*"]`, and `windows.rs` hands out exactly those
+  labels.
+- **Claim failures fail open.** A window with no engine *and* no owner is worse
+  than the contention the claim prevents, so an unavailable claim is treated
+  as ownership — which is also what happens outside the desktop shell.
+
 ### Two editors, one package
 
 `createMarkdownEditor` is for notes; `createTextEditor` (`text.ts`) is for everything else a

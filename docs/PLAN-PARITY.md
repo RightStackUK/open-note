@@ -619,18 +619,16 @@ Each of these is either a genuine architecture change or needs a build target we
 do not have. All ten are filed as issues so they are visible on the board rather
 than only in this file.
 
-### D1 — Multiple windows, and opening a link in a new window — [#6](https://github.com/RightStackUK/open-note/issues/6)
+### D1 — Multiple windows, and opening a link in a new window — [#6](https://github.com/RightStackUK/open-note/issues/6) ✅
 
-The single-open-note assumption this was waiting on is **gone**: split view
-([#5](https://github.com/RightStackUK/open-note/issues/5)) landed the pane model,
-so `App` holds a layout of panes with a focused one, and autosave, the history
-panel, the backlinks panel and wikilink navigation address that rather than a
-lone `note`. Tabs ([#16](https://github.com/RightStackUK/open-note/issues/16))
-inherit it as-is.
-
-What remains here is the question the sync engine has no answer for — it is one
-engine per vault, and two windows on one vault would either contend for the
-index lock or need an elected owner. That is now the whole of this item.
+**Landed.** The single-open-note assumption went with split view
+([#5](https://github.com/RightStackUK/open-note/issues/5)), tabs
+([#16](https://github.com/RightStackUK/open-note/issues/16)) inherited that
+model, and the engine question is answered by ownership: a vault is owned by
+one window, which runs its engine, and any other window with it open is a
+follower that does file IO and forwards saves to the owner. Claims are atomic
+in Rust, closing a window hands its vaults over, and a follower may not run
+git. See `src-tauri/src/windows.rs` and CLAUDE.md.
 
 ### D2 — Workspaces — [#7](https://github.com/RightStackUK/open-note/issues/7)
 

@@ -1,4 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
+import { emit, listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 export type FileKind = 'markdown' | 'image' | 'drawing' | 'pdf' | 'text' | 'other' | 'folder';
@@ -195,7 +197,50 @@ export const api = {
   readSettings: (root: string) => invoke<string | null>('read_vault_settings', { root }),
   writeSettings: (root: string, json: string) =>
     invoke<void>('write_vault_settings', { root, json }),
+
+  // Windows. A vault is owned by one window, which is the one that runs its
+  // sync engine; see `src-tauri/src/windows.rs`.
+  openWindow: (root?: string, path?: string) =>
+    invoke<string>('open_window', { root: root ?? null, path: path ?? null }),
+  /** What this window was asked to open, if it was opened for something. */
+  windowIntent: (label: string) =>
+    invoke<{ root: string | null; path: string | null }>('window_intent', { label }),
+  claimVault: (root: string, label: string) => invoke<boolean>('claim_vault', { root, label }),
+  releaseVault: (root: string, label: string) => invoke<void>('release_vault', { root, label }),
+  vaultOwner: (root: string) => invoke<string | null>('vault_owner', { root }),
+  windowLabels: () => invoke<string[]>('window_labels'),
+  /**
+   * Take a document for this window, or learn which window has it.
+   *
+   * `null` means it is ours now. A label means that window has it open, and the
+   * caller should reveal it there rather than opening a second editor over one
+   * file — the autosave fight that "a document lives in one tab" prevents
+   * inside a window does not stop at the window's edge.
+   */
+  claimDocument: (key: string, label: string) =>
+    invoke<string | null>('claim_document', { key, label }),
+  releaseDocument: (key: string, label: string) => invoke<void>('release_document', { key, label }),
+  focusWindow: (label: string) => invoke<void>('focus_window', { label }),
 };
+
+/**
+ * Why a git action is refused in a window that does not own the vault.
+ *
+ * One string, because three surfaces refuse for the same reason and a user who
+ * meets it twice should not have to work out that it is the same rule.
+ */
+export const MANAGED_ELSEWHERE =
+  'Another window owns this vault and runs its Git operations. Switch to that window to change branches or restore a version.';
+
+/** This window's label. `main` is the one the app starts with. */
+export function windowLabel(): string {
+  try {
+    return getCurrentWindow().label;
+  } catch {
+    // Outside the desktop shell — the screenshot harness — there is one window.
+    return 'main';
+  }
+}
 
 /** Binds the Tauri commands to the shape the sync engine expects. */
 export function createSyncPort(): import('@open-note/core').SyncPort {
@@ -205,5 +250,65 @@ export function createSyncPort(): import('@open-note/core').SyncPort {
     fetch: (root, remote) => api.fetch(root, remote),
     pullRebase: (root) => api.pullRebase(root),
     push: (root, remote, branch) => api.push(root, remote, branch),
+  };
+}
+
+/**
+ * Cross-window messages.
+ *
+ * Tauri's `emit` reaches every window in the process, so these are broadcasts
+ * with a vault root in the payload and a listener that ignores what is not its
+ * business. Deliberately a handful of facts rather than a command channel: the
+ * owner publishes what it knows, and a follower says when a file landed.
+ */
+export const VaultEvents = {
+  /** Owner → all: this is the vault's sync state now. */
+  state: 'vault://state',
+  /** Follower → owner: I wrote a file; your commit loop should look. */
+  saved: 'vault://saved',
+  /** Owner → all: I pulled, so re-read what you have open. */
+  changed: 'vault://changed',
+  /** Follower → owner: sync this vault now. */
+  syncNow: 'vault://sync-now',
+  /** Rust → all: a window closed and this vault has no owner. */
+  ownerless: 'vault://ownerless',
+  /** Window → the window holding a note: bring it forward and show it. */
+  reveal: 'doc://reveal',
+} as const;
+
+export function emitVault<T>(event: string, payload: T): void {
+  try {
+    void emit(event, payload).catch(() => {
+      // A single-window app with no listeners is the normal case, not an error.
+    });
+  } catch {
+    // No event layer at all — a plain browser, or the screenshot harness.
+  }
+}
+
+/**
+ * Subscribe, and return the unsubscribe.
+ *
+ * Everything is swallowed. The whole window layer is an enhancement: a build
+ * running outside the desktop shell has no events, and an app that failed to
+ * start over a missing broadcast channel would be a poor trade.
+ */
+export function listenVault<T>(event: string, handler: (payload: T) => void): () => void {
+  let stop: Promise<() => void> | null = null;
+  try {
+    stop = listen<T>(event, ({ payload }) => handler(payload)).catch(() => () => {});
+  } catch {
+    return () => {};
+  }
+  return () => {
+    void stop
+      ?.then((off) => {
+        try {
+          off();
+        } catch {
+          // Unsubscribing from a channel that never existed.
+        }
+      })
+      .catch(() => {});
   };
 }

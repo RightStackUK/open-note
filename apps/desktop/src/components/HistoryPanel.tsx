@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { api, type CommitInfo } from '../api';
+import { api, type CommitInfo, MANAGED_ELSEWHERE } from '../api';
 import { errorText } from '../useWorkspace';
 import { DiffView } from './DiffView';
 
@@ -11,6 +11,13 @@ interface HistoryPanelProps {
   dirty: boolean;
   onClose: () => void;
   onRestored: () => void;
+  /**
+   * Whether this window may run git here.
+   *
+   * Reading a version is safe from any window; putting one back rewrites the
+   * working copy, which belongs to the window that owns the vault.
+   */
+  canWrite: boolean;
 }
 
 /** Turn an ISO date into something a person reads at a glance. */
@@ -38,7 +45,14 @@ export { relativeDate };
  * into the working tree rather than committing it, so the user still sees the
  * change and can undo it before it is published.
  */
-export function HistoryPanel({ root, path, dirty, onClose, onRestored }: HistoryPanelProps) {
+export function HistoryPanel({
+  root,
+  path,
+  dirty,
+  onClose,
+  onRestored,
+  canWrite,
+}: HistoryPanelProps) {
   const [commits, setCommits] = useState<CommitInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [diff, setDiff] = useState<string>('');
@@ -148,7 +162,13 @@ export function HistoryPanel({ root, path, dirty, onClose, onRestored }: History
             <span className="history-subject">Uncommitted changes</span>
             <span className="history-meta">not yet saved to git</span>
           </button>
-          <button type="button" className="linky danger" onClick={discard}>
+          <button
+            type="button"
+            className="linky danger"
+            onClick={discard}
+            disabled={!canWrite}
+            title={canWrite ? undefined : MANAGED_ELSEWHERE}
+          >
             Discard them
           </button>
         </div>
@@ -177,7 +197,10 @@ export function HistoryPanel({ root, path, dirty, onClose, onRestored }: History
                   type="button"
                   className="linky"
                   onClick={() => void restore(commit)}
-                  title="Put this version back as an uncommitted change"
+                  disabled={!canWrite}
+                  title={
+                    canWrite ? 'Put this version back as an uncommitted change' : MANAGED_ELSEWHERE
+                  }
                 >
                   Restore this version
                 </button>
