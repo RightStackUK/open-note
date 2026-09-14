@@ -1,6 +1,6 @@
 import MiniSearch from 'minisearch';
 
-import { isArchivedPath } from './lifecycle';
+import { DEFAULT_TEMPLATES_FOLDER, isArchivedPath, isTemplatePath } from './lifecycle';
 import { noteHasTag } from './noteList';
 import { type ParsedNote, parseNote, type Todo } from './parse';
 import { isEmptyQuery, type ParsedQuery, parseSearchQuery } from './searchQuery';
@@ -53,6 +53,11 @@ export interface QueryOptions {
    * scoped to the archive — put away, not forgotten.
    */
   archiveFolder?: string;
+  /**
+   * Templates stay indexed but drop out of results unless the query says
+   * `is:template` — they are shapes to fill in, not notes to find.
+   */
+  templatesFolder?: string;
   /** Injected so `is:today` is testable. */
   now?: Date;
 }
@@ -233,9 +238,18 @@ export class VaultIndex {
    * Sorted the way someone triaging work would want them: open before done,
    * then by due date with undated last, then by priority.
    */
-  todos(): TodoItem[] {
+  /**
+   * Every task in the vault, ordered as the task view shows them.
+   *
+   * Templates are skipped: an unticked box in a template is the *shape* of a
+   * task, and one that can never be completed — ticking it would edit the
+   * template. Left in, a meeting template would put a permanent fake task at
+   * the top of the list.
+   */
+  todos(templatesFolder: string = DEFAULT_TEMPLATES_FOLDER): TodoItem[] {
     const items: TodoItem[] = [];
     for (const note of this.notes.values()) {
+      if (isTemplatePath(note.path, templatesFolder)) continue;
       for (const todo of note.todos) {
         items.push({ ...todo, path: note.path, noteTitle: note.title });
       }
@@ -367,6 +381,15 @@ export class VaultIndex {
           if (!note.hasMath) return false;
           break;
       }
+    }
+
+    // Only templates when asked for them, and never otherwise. The same shape
+    // as the archive below: indexed, and out of the way.
+    const wantsTemplates = parsed.filters.includes('is:template');
+    if (isTemplatePath(note.path, options.templatesFolder ?? DEFAULT_TEMPLATES_FOLDER)) {
+      if (!wantsTemplates) return false;
+    } else if (wantsTemplates) {
+      return false;
     }
 
     const scope = options.scope;

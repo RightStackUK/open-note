@@ -1,3 +1,4 @@
+import { DEFAULT_TEMPLATES_FOLDER } from '../notes/lifecycle';
 import { DEFAULT_NOTE_LIST_PREFS, type NoteListPrefs, parseNoteListPrefs } from '../notes/noteList';
 import { DEFAULT_TYPOGRAPHY, parseTypography, type TypographySettings } from './typography';
 
@@ -82,6 +83,14 @@ export interface VaultSettings {
   /** Where archived notes go. A visible folder, never a hidden flag. */
   archiveFolder: string;
   /**
+   * Where note templates live.
+   *
+   * Ordinary Markdown files in a folder, so they sync and version like
+   * everything else. Empty means the vault has no templates, which also takes
+   * the folder's contents out of the "not a note" exclusion.
+   */
+  templatesFolder: string;
+  /**
    * The OS spell checker, in notes. Off by default: WebKit couples it to the
    * automatic quote and dash substitution that silently corrupts `"key"` in a
    * YAML block or a code fence — in a Markdown editor that is a bug, not a
@@ -112,6 +121,7 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   tagSort: 'count',
   imageDisplay: 'full',
   archiveFolder: 'archive',
+  templatesFolder: DEFAULT_TEMPLATES_FOLDER,
   spellcheck: false,
 };
 
@@ -178,6 +188,7 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     tagSort: 'count',
     imageDisplay: 'full',
     archiveFolder: 'archive',
+    templatesFolder: DEFAULT_TEMPLATES_FOLDER,
     spellcheck: false,
   });
   if (!raw) return defaults();
@@ -242,6 +253,11 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
   const rawArchive = (parsed as { archiveFolder?: unknown }).archiveFolder;
   const archiveFolder =
     typeof rawArchive === 'string' && rawArchive.trim() ? rawArchive.trim() : 'archive';
+  // An explicit empty string is meaningful here — "this vault has no template
+  // folder" — so only a missing or non-string value falls back to the default.
+  const rawTemplates = (parsed as { templatesFolder?: unknown }).templatesFolder;
+  const templatesFolder =
+    typeof rawTemplates === 'string' ? rawTemplates.trim() : DEFAULT_TEMPLATES_FOLDER;
   const spellcheck = bool((parsed as { spellcheck?: unknown }).spellcheck, false);
 
   const prefs = {
@@ -263,6 +279,7 @@ export function parseVaultSettings(raw: string | null | undefined): VaultSetting
     tagSort,
     imageDisplay,
     archiveFolder,
+    templatesFolder,
     spellcheck,
   } as const;
 

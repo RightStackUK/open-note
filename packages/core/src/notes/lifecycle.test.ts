@@ -7,6 +7,7 @@ import {
   mergeNotes,
   noteStats,
   renderTemplate,
+  templatesPrefix,
 } from './lifecycle';
 import { buildNoteList } from './noteList';
 import { parseNote } from './parse';
@@ -48,12 +49,38 @@ describe('renderTemplate', () => {
   });
 });
 
-describe('archive rules', () => {
-  it('recognises template paths', () => {
-    expect(isTemplatePath('templates/daily.md')).toBe(true);
-    expect(isTemplatePath('notes/templates.md')).toBe(false);
+describe('template paths', () => {
+  it('recognises what is in the folder, and what merely resembles it', () => {
+    expect(isTemplatePath('templates/daily.md', 'templates')).toBe(true);
+    expect(isTemplatePath('templates', 'templates')).toBe(true);
+    expect(isTemplatePath('notes/templates.md', 'templates')).toBe(false);
+    expect(isTemplatePath('templatesque/x.md', 'templates')).toBe(false);
   });
 
+  it("follows the vault's own folder name", () => {
+    expect(isTemplatePath('Forms/meeting.md', 'Forms')).toBe(true);
+    // The default no longer applies once the vault has said otherwise: a
+    // `templates/` folder in such a vault holds ordinary notes.
+    expect(isTemplatePath('templates/daily.md', 'Forms')).toBe(false);
+  });
+
+  it('tolerates a hand-edited setting', () => {
+    expect(isTemplatePath('Forms/meeting.md', ' /Forms/ ')).toBe(true);
+  });
+
+  it('treats an empty setting as "this vault has no templates"', () => {
+    expect(isTemplatePath('templates/daily.md', '')).toBe(false);
+    expect(isTemplatePath('templates/daily.md', '   ')).toBe(false);
+  });
+
+  it('gives a prefix for listing, and nothing when unconfigured', () => {
+    expect(templatesPrefix('templates')).toBe('templates/');
+    expect(templatesPrefix(' /Forms/ ')).toBe('Forms/');
+    expect(templatesPrefix('')).toBe('');
+  });
+});
+
+describe('archive rules', () => {
   it('detects archived paths under the configured folder', () => {
     expect(isArchivedPath('archive/old.md', 'archive')).toBe(true);
     expect(isArchivedPath('archives/old.md', 'archive')).toBe(false);

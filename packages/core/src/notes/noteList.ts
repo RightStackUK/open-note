@@ -7,7 +7,7 @@
  * only wants an array to draw.
  */
 
-import { isArchivedPath, isTemplatePath } from './lifecycle';
+import { DEFAULT_TEMPLATES_FOLDER, isArchivedPath, isTemplatePath } from './lifecycle';
 import type { IndexedNote } from './vaultIndex';
 
 export type NoteListSort = 'modified' | 'created' | 'title';
@@ -138,6 +138,8 @@ export interface BuildNoteListInput {
    * list — they are scaffolding, not notes.
    */
   archiveFolder?: string;
+  /** Templates are shapes to fill in, so the list leaves them out. */
+  templatesFolder?: string;
   /** Injected so "Today" is testable. */
   now?: Date;
 }
@@ -147,12 +149,13 @@ export function buildNoteList(input: BuildNoteListInput): NoteListEntry[] {
   const today = startOfToday(input.now ?? new Date());
 
   const archiveFolder = input.archiveFolder ?? 'archive';
+  const templatesFolder = input.templatesFolder ?? DEFAULT_TEMPLATES_FOLDER;
 
   const entries: NoteListEntry[] = [];
   for (const note of input.notes) {
     const modified = input.modified.get(note.path) ?? 0;
 
-    if (isTemplatePath(note.path)) continue;
+    if (isTemplatePath(note.path, templatesFolder)) continue;
     const archived = isArchivedPath(note.path, archiveFolder);
     if (collection.kind === 'archive' ? !archived : archived) continue;
 

@@ -63,11 +63,30 @@ export function renderTemplate(source: string, values: { title: string; now?: Da
   });
 }
 
-/** Where templates live. Fixed, per issue #4: a folder is the whole design. */
-export const TEMPLATES_FOLDER = 'templates';
+/** Where templates live unless the vault says otherwise. */
+export const DEFAULT_TEMPLATES_FOLDER = 'templates';
 
-export function isTemplatePath(path: string): boolean {
-  return path === TEMPLATES_FOLDER || path.startsWith(`${TEMPLATES_FOLDER}/`);
+/**
+ * Whether a path is a template rather than a note.
+ *
+ * A folder, like the archive, and for the same reason: it is visible in the
+ * tree, on github.com and in the commit. Configurable because `templates/` is
+ * not everyone's word for it, and a vault that already uses that folder for
+ * something else should not have its notes quietly reclassified.
+ *
+ * An empty setting means the vault has no template folder, so nothing is a
+ * template — the same reading `isArchivedPath` gives.
+ */
+export function isTemplatePath(path: string, templatesFolder: string): boolean {
+  const folder = templatesFolder.trim().replace(/^\/+|\/+$/g, '');
+  if (!folder) return false;
+  return path === folder || path.startsWith(`${folder}/`);
+}
+
+/** The folder's prefix, for listing what is in it. `''` when unconfigured. */
+export function templatesPrefix(templatesFolder: string): string {
+  const folder = templatesFolder.trim().replace(/^\/+|\/+$/g, '');
+  return folder ? `${folder}/` : '';
 }
 
 /**

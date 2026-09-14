@@ -191,6 +191,50 @@ describe('todos', () => {
   });
 });
 
+describe('templates in search', () => {
+  it('keeps templates out of results', () => {
+    // Indexed, so a template's own links and tags still count; just not a
+    // result — a search hit on a template is almost never what was wanted.
+    index.put('templates/meeting.md', '# Meeting\n\nAgenda and actions.');
+    index.put('Meetings/Monday.md', '# Monday\n\nAgenda and actions.');
+    expect(index.query('agenda').map((h) => h.path)).toEqual(['Meetings/Monday.md']);
+  });
+
+  it('finds only templates when asked', () => {
+    index.put('templates/meeting.md', '# Meeting\n\nAgenda and actions.');
+    index.put('Meetings/Monday.md', '# Monday\n\nAgenda and actions.');
+    expect(index.query('agenda is:template').map((h) => h.path)).toEqual(['templates/meeting.md']);
+  });
+
+  it("follows the vault's configured folder", () => {
+    index.put('Forms/meeting.md', '# Meeting\n\nAgenda.');
+    index.put('templates/note.md', '# Note\n\nAgenda.');
+    const hits = index.query('agenda', 10, { templatesFolder: 'Forms' }).map((h) => h.path);
+    // `templates/` holds ordinary notes in a vault that named its folder Forms.
+    expect(hits).toEqual(['templates/note.md']);
+  });
+
+  it('has no templates to hide when the setting is empty', () => {
+    index.put('templates/meeting.md', '# Meeting\n\nAgenda.');
+    const hits = index.query('agenda', 10, { templatesFolder: '' }).map((h) => h.path);
+    expect(hits).toEqual(['templates/meeting.md']);
+  });
+});
+
+describe('templates and the task list', () => {
+  it("leaves a template's boxes out of the task list", () => {
+    index.put('templates/meeting.md', '# Meeting\n\n- [ ] Agenda\n');
+    index.put('Meetings/Monday.md', '# Monday\n\n- [ ] Actually do this\n');
+    expect(index.todos().map((t) => t.text)).toEqual(['Actually do this']);
+  });
+
+  it('follows the configured folder here too', () => {
+    index.put('Forms/meeting.md', '# Meeting\n\n- [ ] Agenda\n');
+    expect(index.todos('Forms')).toEqual([]);
+    expect(index.todos('templates').map((t) => t.text)).toEqual(['Agenda']);
+  });
+});
+
 describe('query', () => {
   it('finds a note by body text', () => {
     index.put('a.md', '# Alpha\n\nThe quick brown fox.');

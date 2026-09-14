@@ -50,12 +50,13 @@ export { htmlToMarkdown, isBareUrl } from './notes/htmlToMarkdown';
 export type { NoteStats } from './notes/lifecycle';
 export {
   archivePathFor,
+  DEFAULT_TEMPLATES_FOLDER,
   isArchivedPath,
   isTemplatePath,
   mergeNotes,
   noteStats,
   renderTemplate,
-  TEMPLATES_FOLDER,
+  templatesPrefix,
 } from './notes/lifecycle';
 export type {
   BuildNoteListInput,

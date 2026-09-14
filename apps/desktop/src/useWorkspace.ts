@@ -90,6 +90,8 @@ export interface VaultSession {
   imageDisplay: 'full' | 'thumbnail';
   /** Where archived notes live. */
   archiveFolder: string;
+  /** Where note templates live; empty means the vault has none. */
+  templatesFolder: string;
   /** OS spell checker in notes. */
   spellcheck: boolean;
 }
@@ -221,6 +223,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             tagSort: vaultSettings.tagSort,
             imageDisplay: vaultSettings.imageDisplay,
             archiveFolder: vaultSettings.archiveFolder,
+            templatesFolder: vaultSettings.templatesFolder,
             spellcheck: vaultSettings.spellcheck,
           },
         }));
@@ -327,6 +330,7 @@ export function useWorkspace(onExternalChange: (root: string, outcome: MergeOutc
             tagSort: session.tagSort,
             imageDisplay: session.imageDisplay,
             archiveFolder: session.archiveFolder,
+            templatesFolder: session.templatesFolder,
             spellcheck: session.spellcheck,
             ...override,
           }),

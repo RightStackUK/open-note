@@ -145,6 +145,31 @@ takes the caret on mount or a document swap when its pane is focused
 (`autoFocus`), or a remount from a theme flip or an incoming pull would pull the
 caret out of the pane being typed in.
 
+### Templates are notes that are not notes
+
+Templates are ordinary Markdown files in a folder (`templatesFolder` in
+`.opennote/settings.json`, `templates/` by default), so they sync and version
+like everything else and are editable in the app. `renderTemplate` fills
+`{{title}}`, `{{date}}` and `{{time}}`, leaving anything it does not know
+exactly as written — another tool's `{{mustache}}` passing through unchanged is
+correct, and swallowing it would hide typos. Daily notes go through the same
+path: a `daily.md` in that folder wins over the built-in heading.
+
+They stay **indexed** — their links and tags are real — but they are kept out
+of every surface that answers "what have I got?", because a template is a shape
+to fill in rather than something to read: the note list, content search
+(`is:template` is the way back in), the task list (an unticked box in a
+template is a task that can never be completed), the empty pane's Recent, and
+the switcher's nothing-typed list. Typing a name in the switcher still finds
+one, which is how you reach a template to edit it; so does the tree, which goes
+on showing everything the repository contains.
+
+The folder is configurable because `templates/` is not everyone's word for it,
+and because a vault that already uses that name for notes should not have them
+silently reclassified. An **empty** setting means "this vault has no
+templates", which is why the parse keeps an explicit `""` instead of falling
+back to the default.
+
 ### Tabs belong to the pane
 
 Each pane owns a list of open documents and an active one (`Tab`, `Pane` in

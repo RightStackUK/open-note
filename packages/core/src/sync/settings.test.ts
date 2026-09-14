@@ -150,6 +150,35 @@ describe('attachment folder', () => {
   });
 });
 
+describe('templates folder', () => {
+  it('defaults to templates/', () => {
+    expect(parseVaultSettings(null).templatesFolder).toBe('templates');
+  });
+
+  it('reads a configured folder', () => {
+    expect(parseVaultSettings('{"templatesFolder":"Forms"}').templatesFolder).toBe('Forms');
+  });
+
+  it('keeps an explicit empty string, which means "no templates here"', () => {
+    // Unlike a missing value: a vault that has deliberately turned templates
+    // off must not have the default handed back to it on the next read.
+    expect(parseVaultSettings('{"templatesFolder":""}').templatesFolder).toBe('');
+  });
+
+  it('ignores a non-string value', () => {
+    expect(parseVaultSettings('{"templatesFolder":42}').templatesFolder).toBe('templates');
+  });
+
+  it('trims a hand-edited value', () => {
+    expect(parseVaultSettings('{"templatesFolder":"  Forms  "}').templatesFolder).toBe('Forms');
+  });
+
+  it('round-trips', () => {
+    const original = parseVaultSettings('{"templatesFolder":"Forms"}');
+    expect(parseVaultSettings(serialiseVaultSettings(original))).toEqual(original);
+  });
+});
+
 describe('attachmentFolderFor', () => {
   it('uses the configured folder from anywhere in the vault', () => {
     expect(attachmentFolderFor('notes/deep/a.md', 'assets')).toBe('assets');

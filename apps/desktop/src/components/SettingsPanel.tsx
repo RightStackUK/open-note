@@ -22,6 +22,7 @@ export interface EditingPrefs {
   attachmentFolder: string;
   imageDisplay: 'full' | 'thumbnail';
   archiveFolder: string;
+  templatesFolder: string;
   spellcheck: boolean;
   pasteAsMarkdown: boolean;
   fetchLinkTitles: boolean;
@@ -397,6 +398,23 @@ export function SettingsPanel({
             type="text"
             value={prefs.archiveFolder}
             onChange={(e) => onPrefsChange({ archiveFolder: e.target.value })}
+          />
+        </span>
+      </label>
+
+      <label className="setting-number">
+        <span className="setting-label">
+          Templates folder
+          <small>
+            Notes here are shapes to fill in: they stay out of the note list and out of search,
+            unless you search <code>is:template</code>. Empty for none
+          </small>
+        </span>
+        <span className="setting-input">
+          <input
+            type="text"
+            value={prefs.templatesFolder}
+            onChange={(e) => onPrefsChange({ templatesFolder: e.target.value })}
           />
         </span>
       </label>

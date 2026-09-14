@@ -524,12 +524,20 @@ rewrite links that pointed at the merged notes to point at the result. The
 sources are deleted in the same commit as the merge, so it is one revertable
 action.
 
-### 9.7 Templates
+### 9.7 Templates ✅
 
-Implement [#4](https://github.com/RightStackUK/open-note/issues/4), which already
-has its design: a `templates/` folder, a **New from template…** command,
-`{{date}}` / `{{time}}` / `{{title}}` substitution, and daily notes moved onto
+[#4](https://github.com/RightStackUK/open-note/issues/4) landed: a templates
+folder — configurable, `templates/` by default — a **New from template…**
+command, `{{date}}` / `{{time}}` / `{{title}}` substitution, and daily notes on
 the same mechanism instead of their hardcoded heading.
+
+The issue's open question was whether templates should be excluded from search
+and the tree. They are excluded from search, with `is:template` as the way back
+in, and from every other surface that answers "what have I got?" — the note
+list, the task list, Recent, and the switcher's nothing-typed list. They stay in
+the tree, which goes on showing everything the repository contains, and typing
+a name in the switcher still finds one. The precedent is the archive: indexed,
+and out of the way.
 
 ### 9.8 Import a folder of Markdown
 

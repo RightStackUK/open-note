@@ -15,6 +15,9 @@ export const CONTENT_FILTERS = [
   'is:attachment',
   'is:untagged',
   'is:today',
+  // Templates are excluded from results by default — a search result for a
+  // template is almost never what was wanted — so this is how you reach them.
+  'is:template',
   'has:math',
 ] as const;
 

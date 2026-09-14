@@ -20,6 +20,7 @@ import {
   exportNoteToHtml,
   formatBinding,
   isArchivedPath,
+  isTemplatePath,
   localAssetReferences,
   maskCode,
   mentionPattern,
@@ -36,9 +37,9 @@ import {
   searchCommands,
   splitFrontmatter,
   stripTags,
-  TEMPLATES_FOLDER,
   type Theme,
   type TodoItem,
+  templatesPrefix,
   themeCssVariables,
   toPlainText,
   typographyCssVariables,
@@ -2764,9 +2765,10 @@ export function App() {
       'note.daily': () => {
         const today = new Date();
         const path = dailyNotePath(today);
-        // Daily notes ride the same template mechanism: templates/daily.md
-        // wins when it exists, the built-in heading otherwise.
-        const custom = vaultIndex.index.get(`${TEMPLATES_FOLDER}/daily.md`);
+        // Daily notes ride the same template mechanism: a `daily.md` in the
+        // templates folder wins when it exists, the built-in heading otherwise.
+        const prefix = templatesPrefix(session?.templatesFolder ?? '');
+        const custom = prefix ? vaultIndex.index.get(`${prefix}daily.md`) : undefined;
         void (async () => {
           if (custom && ws.activeRoot) {
             const template = await api.readNote(ws.activeRoot, custom.path);
@@ -3039,6 +3041,7 @@ export function App() {
   const sessionFiles = session?.files;
   const noteListPrefs = session?.noteList;
   const archiveFolder = session?.archiveFolder;
+  const templatesFolder = session?.templatesFolder;
   // `vaultIndex.revision` stands in for the index contents; `dayStamp`
   // re-evaluates "Today" after midnight.
   const noteListEntries = useMemo(() => {
@@ -3055,11 +3058,13 @@ export function App() {
       descending: noteListPrefs.descending,
       includeNestedTags: noteListPrefs.includeNestedTags,
       archiveFolder,
+      templatesFolder,
     });
   }, [
     sessionFiles,
     noteListPrefs,
     archiveFolder,
+    templatesFolder,
     showList,
     collection,
     createdDates,
@@ -3161,7 +3166,7 @@ export function App() {
 
   const backlinks = note ? vaultIndex.index.backlinks(note.path) : [];
   const noteTags = note ? (vaultIndex.index.get(note.path)?.tags ?? []) : [];
-  const todos = showTodos ? vaultIndex.index.todos() : [];
+  const todos = showTodos ? vaultIndex.index.todos(session.templatesFolder) : [];
 
   const paletteItems = (() => {
     if (palette === 'commands') {
@@ -3175,10 +3180,15 @@ export function App() {
       const matches = vaultIndex.index.quickSwitch(paletteQuery);
       const typed = paletteQuery.trim();
       if (!typed) {
-        // With nothing typed, the most useful order is what you touched last.
+        // With nothing typed, the most useful order is what you touched last —
+        // and templates are left out, because "what was I working on" is not
+        // answered by the shape you filled in twice. Typing a name still finds
+        // them, which is how you get to one to edit it.
         const recency = new Map(session.files.map((file) => [file.path, file.modified]));
         return noteItems(
-          [...matches].sort((a, b) => (recency.get(b.path) ?? 0) - (recency.get(a.path) ?? 0)),
+          matches
+            .filter((match) => !isTemplatePath(match.path, session.templatesFolder))
+            .sort((a, b) => (recency.get(b.path) ?? 0) - (recency.get(a.path) ?? 0)),
         );
       }
       const rows = noteItems(matches);
@@ -3211,26 +3221,34 @@ export function App() {
           scope,
           modified: new Map(session.files.map((file) => [file.path, file.modified])),
           archiveFolder: session.archiveFolder,
+          templatesFolder: session.templatesFolder,
         }),
       );
     }
     if (palette === 'templates') {
       const needle = paletteQuery.trim().toLowerCase();
-      const templates = vaultIndex.index
-        .paths()
-        .filter((path) => path.startsWith(`${TEMPLATES_FOLDER}/`))
-        .filter((path) => !needle || path.toLowerCase().includes(needle))
-        .map((path) => ({
-          id: `${TEMPLATE_PREFIX}${path}`,
-          title: vaultIndex.index.get(path)?.title ?? path,
-          detail: path,
-        }));
+      const prefix = templatesPrefix(session.templatesFolder);
+      const templates = prefix
+        ? vaultIndex.index
+            .paths()
+            .filter((path) => path.startsWith(prefix))
+            .filter((path) => !needle || path.toLowerCase().includes(needle))
+            .map((path) => ({
+              id: `${TEMPLATE_PREFIX}${path}`,
+              title: vaultIndex.index.get(path)?.title ?? path,
+              detail: path,
+            }))
+        : [];
       if (templates.length > 0) return templates;
       return [
         {
           id: 'template:none',
-          title: 'No templates yet',
-          detail: `Create notes under ${TEMPLATES_FOLDER}/ — {{title}}, {{date}} and {{time}} are filled in.`,
+          // The empty setting is a different situation from an empty folder,
+          // and the way out of each is different too.
+          title: prefix ? 'No templates yet' : 'This vault has no templates folder',
+          detail: prefix
+            ? `Create notes under ${prefix} — {{title}}, {{date}} and {{time}} are filled in.`
+            : 'Name one in Settings → Templates folder, then put notes in it.',
         },
       ];
     }
@@ -3308,9 +3326,15 @@ export function App() {
   const stats = note?.kind === 'markdown' ? readingStats(note.doc) : null;
   const lineCount = note?.kind === 'text' ? note.doc.split('\n').length : null;
 
-  /** Most recently touched notes, for the empty state. */
+  /**
+   * Most recently touched notes, for the empty state.
+   *
+   * Templates are not among them: editing one puts it at the top of "Recent",
+   * which then offers `{{title}}` as something to read.
+   */
   const recentNotes = [...session.files]
     .filter((file) => file.kind === 'markdown')
+    .filter((file) => !isTemplatePath(file.path, session.templatesFolder))
     .sort((a, b) => b.modified - a.modified)
     .slice(0, 6);
 
@@ -3914,6 +3938,7 @@ export function App() {
               attachmentFolder: session.attachmentFolder,
               imageDisplay: session.imageDisplay,
               archiveFolder: session.archiveFolder,
+              templatesFolder: session.templatesFolder,
               spellcheck: session.spellcheck,
               pasteAsMarkdown: session.pasteAsMarkdown,
               fetchLinkTitles: session.fetchLinkTitles,
@@ -4013,7 +4038,7 @@ export function App() {
               .paths()
               .filter((path) => path.startsWith(prefix))
               .filter((path) => !isArchivedPath(path, session.archiveFolder))
-              .filter((path) => !path.startsWith(`${TEMPLATES_FOLDER}/`))
+              .filter((path) => !isTemplatePath(path, session.templatesFolder))
               // Tree order — folders before files at each level, names
               // case-insensitive — because that is the order on screen.
               .sort(treeOrder);
