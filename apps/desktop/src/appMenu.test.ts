@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { COMMANDS, KEYMAP_SCHEMES, resolveKeymap } from '@open-note/core';
 import { describe, expect, it } from 'vitest';
-import { MENU_EVENT, MENU_ONLY } from './menu';
+import { MENU_EVENT, MENU_ONLY, VIEW_MENU_COMMANDS } from './menu';
 
 /**
  * The application menu is built in Rust and handled in TypeScript, so the two
@@ -111,6 +111,38 @@ describe('application menu', () => {
         'recents(&app)',
       );
     }
+  });
+
+  it('builds every View item from a declared command with a frontend handler', () => {
+    // The View items dispatch their menu id as a command id, so an id that is
+    // not declared, or declared but unhandled, is a menu item that does
+    // nothing — silently.
+    const declared = new Set(COMMANDS.map((c) => c.id));
+    for (const id of VIEW_MENU_COMMANDS) {
+      expect(declared.has(id), `${id} is not a declared command`).toBe(true);
+      expect(appSource, `${id} has no handler in App`).toContain(`'${id}':`);
+    }
+  });
+
+  it('lists the same View commands in the Rust half, in the same order', () => {
+    // The two halves agree only by matching strings, like the rest of the
+    // menu; this is the check that they go on matching.
+    const rust = [...menuSource.matchAll(/\("(view\.[\w.]+)", "/g)].map((m) => m[1] as string);
+    expect(rust).toEqual([...VIEW_MENU_COMMANDS]);
+  });
+
+  it('turns the vault-dependent View items on with the push that names Close', () => {
+    expect(menuSource).toMatch(/ViewMenu<R>>\(\)[\s\S]*?set_enabled\(name\.is_some\(\)\)/);
+  });
+
+  it('pushes View accelerators from the webview rather than declaring them', () => {
+    // An accelerator declared in Rust would go stale after a rebind and
+    // swallow the chord from whatever it moved to — the Open… reasoning.
+    for (const command of ['set_view_accelerators']) {
+      expect(libSource).toContain(`fn ${command}(`);
+      expect(libSource).toMatch(new RegExp(`^\\s+${command},$`, 'm'));
+    }
+    expect(appSource).toContain('setViewAccelerators');
   });
 
   it('leaves no keymap scheme with two commands on one chord', () => {

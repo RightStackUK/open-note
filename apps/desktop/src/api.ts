@@ -80,6 +80,8 @@ export const api = {
   setOpenAccelerator: (accelerator: string | null) =>
     invoke<void>('set_open_accelerator', { accelerator }),
   setCloseTarget: (name: string | null) => invoke<void>('set_close_target', { name }),
+  setViewAccelerators: (accelerators: Record<string, string | null>) =>
+    invoke<void>('set_view_accelerators', { accelerators }),
   listFiles: (root: string) => invoke<VaultFile[]>('list_vault_files', { root }),
   readNote: (root: string, path: string) => invoke<string>('read_note', { root, path }),
   writeNote: (root: string, path: string, contents: string) =>

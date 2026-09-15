@@ -99,6 +99,18 @@ fn set_close_target(app: tauri::AppHandle, name: Option<String>) {
     let _ = menu::set_close_target(&app, name.as_deref());
 }
 
+/// Show the keymap's bindings beside the View menu items.
+///
+/// Pushed from the webview like `set_open_accelerator`, and for the same
+/// reason — the keymap lives in the vault and can change while running.
+#[tauri::command]
+fn set_view_accelerators(
+    app: tauri::AppHandle,
+    accelerators: std::collections::HashMap<String, Option<String>>,
+) {
+    let _ = menu::set_view_accelerators(&app, &accelerators);
+}
+
 /// Empty the recent list — File → Open Recent → Clear Menu.
 #[tauri::command]
 fn clear_recent_vaults(app: tauri::AppHandle) {
@@ -942,6 +954,7 @@ pub fn run() {
             clear_recent_vaults,
             set_open_accelerator,
             set_close_target,
+            set_view_accelerators,
             list_vault_files,
             read_note,
             write_note,

@@ -126,7 +126,7 @@ import {
   updatePane,
 } from './editorPanes';
 import { fileIconName } from './fileIcons';
-import { MENU_EVENT, MENU_ONLY, type MenuCommand } from './menu';
+import { MENU_EVENT, MENU_ONLY, type MenuCommand, VIEW_MENU_COMMANDS } from './menu';
 import { readOpenTabs, storedFrom, writeOpenTabs } from './openTabs';
 import { PANE_DEFAULTS, PANE_LIMITS, type PaneWidths, readPaneWidths } from './panes';
 import { relativeFrom, resolveAgainst } from './paths';
@@ -3279,6 +3279,21 @@ export function App() {
       });
   }, [openBinding]);
 
+  // The View menu shows each item's current chord, pushed for the reason
+  // Open…'s is: an accelerator declared in Rust would go stale after a rebind
+  // and swallow the chord from whatever it moved to.
+  const keymapByCommand = vaultIndex.keymap.byCommand;
+  useEffect(() => {
+    const accelerators: Record<string, string | null> = {};
+    for (const id of VIEW_MENU_COMMANDS) {
+      const binding = keymapByCommand.get(id);
+      accelerators[id] = binding ? bindingToAccelerator(binding) : null;
+    }
+    void api.setViewAccelerators(accelerators).catch(() => {
+      // Older shell, or the browser harness.
+    });
+  }, [keymapByCommand]);
+
   // File → Close <vault> is named after whichever vault is active, so the
   // label has to follow the tab strip. Rust cannot know this: which vault is
   // active is frontend state.
@@ -4136,6 +4151,8 @@ export function App() {
                 })
               }
               onContext={(path, x, y) => setContextTarget({ path, kind: 'file', x, y })}
+              onHide={() => setShowList(false)}
+              hideTitle={`Hide note list (${shortcut('view.toggleList')})`}
             />
           </aside>
         )}
@@ -4329,6 +4346,17 @@ export function App() {
             aria-label="Toggle sidebar"
           >
             ▤
+          </button>
+          {/* Beside the sidebar's toggle: the way back in once the list's own
+              hide button has taken the pane — and its header — off screen. */}
+          <button
+            type="button"
+            className={`status-button ${showList ? '' : 'is-off'}`}
+            onClick={() => setShowList((v) => !v)}
+            title={`Toggle note list (${shortcut('view.toggleList')})`}
+            aria-label="Toggle note list"
+          >
+            ▥
           </button>
           <button
             type="button"

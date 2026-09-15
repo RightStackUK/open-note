@@ -21,6 +21,10 @@ interface NoteListProps {
   onDescendingChange: (descending: boolean) => void;
   /** Right-click on a row, for the same file menu the tree offers. */
   onContext: (path: string, x: number, y: number) => void;
+  /** The corner hide button. Showing again lives in the status bar. */
+  onHide: () => void;
+  /** Tooltip for it — built by the caller, which knows the current chord. */
+  hideTitle: string;
 }
 
 /** Row heights, one per density. The virtualiser depends on these being fixed. */
@@ -76,6 +80,8 @@ export function NoteList({
   onSortChange,
   onDescendingChange,
   onContext,
+  onHide,
+  hideTitle,
 }: NoteListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const observer = useRef<ResizeObserver | null>(null);
@@ -112,6 +118,18 @@ export function NoteList({
   return (
     <div className="note-list">
       <header className="note-list-head">
+        {/* The hide half of the toggle lives in the pane's own corner, where
+            IntelliJ keeps it; the show half is in the status bar, because a
+            hidden pane has no corner to click. */}
+        <button
+          type="button"
+          className="icon-button note-list-hide"
+          title={hideTitle}
+          aria-label="Hide note list"
+          onClick={onHide}
+        >
+          ⇤
+        </button>
         <nav className="note-list-collections" aria-label="Collections">
           {COLLECTIONS.map((c) => (
             <button

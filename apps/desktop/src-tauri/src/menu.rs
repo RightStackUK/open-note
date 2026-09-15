@@ -33,6 +33,41 @@ const RECENTS_SUBMENU: &str = "file.recents";
 /// in step with the submenu.
 const RECENT_PREFIX: &str = "file.recent:";
 
+/// The View menu: (command id, label, whether it needs an open vault).
+///
+/// The command id *is* the menu id, so `on_event` passes it straight through
+/// to the registry — one table serves building, dispatch, enabling and the
+/// accelerator push, and cannot drift from itself. Each inner slice is one
+/// group; a separator goes between groups. The webview's `VIEW_MENU_COMMANDS`
+/// mirrors the flattened list, and `appMenu.test.ts` holds the two together.
+const VIEW_GROUPS: &[&[(&str, &str, bool)]] = &[
+    // What flanks the editor: the tree, the note list, and backlinks.
+    &[
+        ("view.toggleSidebar", "Toggle Sidebar", true),
+        ("view.toggleList", "Toggle Note List", true),
+        ("view.toggleBacklinks", "Toggle Backlinks", true),
+    ],
+    // The split editor.
+    &[
+        ("view.splitRight", "Split Editor", true),
+        ("view.focusOtherPane", "Go to Other Pane", true),
+        ("view.closePane", "Close Pane", true),
+    ],
+    // Panels that show something about the note or the repository.
+    &[
+        ("view.outline", "Outline & Word Count", true),
+        ("view.tags", "Tags", true),
+        ("view.history", "Note History", true),
+        ("view.branches", "Branches & Pull Requests", true),
+    ],
+    // Zoom works on the welcome screen too, so it is never gated.
+    &[
+        ("view.zoomIn", "Zoom In", false),
+        ("view.zoomOut", "Zoom Out", false),
+        ("view.zoomReset", "Reset Zoom", false),
+    ],
+];
+
 /// What a menu item asks the frontend to do.
 ///
 /// `command` is a `COMMANDS` id where one exists, so the menu dispatches
@@ -58,6 +93,11 @@ struct CloseItem<R: Runtime>(MenuItem<R>);
 
 /// File → Import from Evernote…, kept so it can be greyed out with no vault.
 struct ImportItem<R: Runtime>(MenuItem<R>);
+
+/// The View menu's items, kept so their accelerators can follow the keymap
+/// and their enabled state the active vault. Order and flags are
+/// [`VIEW_GROUPS`]'s, flattened.
+struct ViewMenu<R: Runtime>(Vec<(String, MenuItem<R>, bool)>);
 
 /// Build the menu and set it on the app.
 ///
@@ -141,6 +181,29 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         ],
     )?;
 
+    // Built from `VIEW_GROUPS` rather than by hand, and appended item by item
+    // because the groups are data. Items that need a vault start disabled —
+    // `set_close_target` turns them on — and none declares an accelerator, for
+    // the reason Open… has none: the webview pushes the keymap's current
+    // chords through `set_view_accelerators`.
+    let view = Submenu::with_items(app, "View", true, &[])?;
+    let mut view_items: Vec<(String, MenuItem<R>, bool)> = Vec::new();
+    for (i, group) in VIEW_GROUPS.iter().enumerate() {
+        if i > 0 {
+            view.append(&PredefinedMenuItem::separator(app)?)?;
+        }
+        for (id, label, needs_vault) in group.iter() {
+            let item = MenuItem::with_id(app, *id, *label, !needs_vault, None::<&str>)?;
+            view.append(&item)?;
+            view_items.push(((*id).to_string(), item, *needs_vault));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        view.append(&PredefinedMenuItem::separator(app)?)?;
+        view.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
+    }
+
     let window = Submenu::with_items(
         app,
         "Window",
@@ -176,13 +239,7 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             )?,
             &file,
             &edit,
-            #[cfg(target_os = "macos")]
-            &Submenu::with_items(
-                app,
-                "View",
-                true,
-                &[&PredefinedMenuItem::fullscreen(app, None)?],
-            )?,
+            &view,
             &window,
             #[cfg(not(target_os = "macos"))]
             &Submenu::with_items(
@@ -203,6 +260,32 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     app.manage(OpenItem(open));
     app.manage(CloseItem(close));
     app.manage(ImportItem(import_enex));
+    app.manage(ViewMenu(view_items));
+    Ok(())
+}
+
+/// Show the keymap's current chords beside the View menu items.
+///
+/// Pushed from the webview for the reason [`set_open_accelerator`] is, and as
+/// one map rather than a call per item: the keymap is resolved as a whole over
+/// there, and arrives here the same way. A command missing from the map, or
+/// mapped to `None`, loses its accelerator — which is what unbound means.
+pub fn set_view_accelerators<R: Runtime>(
+    app: &AppHandle<R>,
+    accelerators: &HashMap<String, Option<String>>,
+) -> tauri::Result<()> {
+    let Some(state) = app.try_state::<ViewMenu<R>>() else {
+        return Ok(());
+    };
+    for (id, item, _) in state.0.iter() {
+        let accelerator = accelerators.get(id).and_then(|a| a.as_deref());
+        // The keymap is hand-editable, so a chord this parser rejects must not
+        // abort the push for the other items — and the item must not go on
+        // showing (and swallowing) whatever it claimed before.
+        if item.set_accelerator(accelerator).is_err() {
+            let _ = item.set_accelerator(None::<&str>);
+        }
+    }
     Ok(())
 }
 
@@ -227,12 +310,21 @@ pub fn set_open_accelerator<R: Runtime>(
 /// `None` means no vault is open, which leaves both disabled rather than
 /// offering to close nothing or to import into nowhere. The label carries the
 /// vault's own name because with several vaults open, "Close Vault" does not
-/// say *which*. Import rides along because it turns on the same fact, and this
-/// is already the one call the frontend makes when the active vault changes —
-/// a second push would be a second thing to forget.
+/// say *which*. Import and the vault-dependent View items ride along because
+/// they turn on the same fact, and this is already the one call the frontend
+/// makes when the active vault changes — a second push would be a second thing
+/// to forget.
 pub fn set_close_target<R: Runtime>(app: &AppHandle<R>, name: Option<&str>) -> tauri::Result<()> {
     if let Some(state) = app.try_state::<ImportItem<R>>() {
         state.0.clone().set_enabled(name.is_some())?;
+    }
+
+    if let Some(state) = app.try_state::<ViewMenu<R>>() {
+        for (_, item, needs_vault) in state.0.iter() {
+            if *needs_vault {
+                item.set_enabled(name.is_some())?;
+            }
+        }
     }
 
     let Some(state) = app.try_state::<CloseItem<R>>() else {
@@ -322,6 +414,16 @@ pub fn on_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
     } else if id == NEW_WINDOW {
         MenuCommand {
             command: "window.new".into(),
+            arg: None,
+        }
+    } else if VIEW_GROUPS
+        .iter()
+        .flat_map(|group| group.iter())
+        .any(|(command, _, _)| *command == id)
+    {
+        // A View item's menu id is its registry id, so it dispatches itself.
+        MenuCommand {
+            command: id.to_string(),
             arg: None,
         }
     } else {

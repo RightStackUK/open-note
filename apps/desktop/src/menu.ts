@@ -23,3 +23,27 @@ export interface MenuCommand {
   command: string;
   arg?: string;
 }
+
+/**
+ * The View menu's items, by registry id, in menu order.
+ *
+ * The Rust half builds the menu from the same list (`VIEW_GROUPS` in
+ * `menu.rs`); this copy drives the accelerator push, and `appMenu.test.ts`
+ * holds the two halves together — an id in one and not the other is either a
+ * dead menu item or a chord shown beside nothing.
+ */
+export const VIEW_MENU_COMMANDS = [
+  'view.toggleSidebar',
+  'view.toggleList',
+  'view.toggleBacklinks',
+  'view.splitRight',
+  'view.focusOtherPane',
+  'view.closePane',
+  'view.outline',
+  'view.tags',
+  'view.history',
+  'view.branches',
+  'view.zoomIn',
+  'view.zoomOut',
+  'view.zoomReset',
+] as const;

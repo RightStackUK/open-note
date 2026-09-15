@@ -276,6 +276,8 @@ button {
 }
 
 .note-list-head {
+  /* Anchors the hide button in the pane's top-right corner. */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -283,10 +285,18 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
+.note-list-hide {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+}
+
 .note-list-collections {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
+  /* Clear of the hide button in the corner. */
+  padding-right: 1.9rem;
 }
 
 .chip {
