@@ -54,6 +54,23 @@ export interface PlannedAsset {
   path: string;
 }
 
+/**
+ * An attachment whose bytes arrived *inside* the body, as a data URL.
+ *
+ * Two shapes are needed because the two sources differ in where the bytes
+ * live. Evernote names a resource by hash and keeps the bytes in the file, so
+ * only the path is decided here and Rust writes from what it already holds
+ * ({@link PlannedAsset}). Apple Notes cannot hand over an attachment at all,
+ * but inlines images into the body — so the payload comes through here and the
+ * caller writes it.
+ */
+export interface InlineAsset {
+  /** Vault-relative. */
+  path: string;
+  /** Base64, exactly as the data URL carried it. */
+  base64: string;
+}
+
 /** Something the import could not carry across, named so it can be reported. */
 export interface ImportWarning {
   /** The note it happened in, as the user will recognise it. */
@@ -67,6 +84,8 @@ export interface PlannedNote {
   markdown: string;
   /** Every resource of the note, deduplicated by hash. */
   assets: PlannedAsset[];
+  /** Images the body carried inline, for the caller to write. */
+  inline: InlineAsset[];
   warnings: ImportWarning[];
 }
 
@@ -141,6 +160,49 @@ function tightenTaskLists(markdown: string): string {
   return markdown.replace(/^(\s*- \[[ xX]\] .*)\n\n(?=\s*- \[[ xX]\] )/gm, '$1\n');
 }
 
+/**
+ * Tidy the blank space a converted note arrives with.
+ *
+ * Both sources write a line per block and use empty ones for spacing — Apple
+ * Notes especially, where `<div><br></div>` is how a gap is drawn. Turndown
+ * renders a `<br>` as two trailing spaces, so those become *lines of
+ * whitespace*, and a run of them becomes several blank lines. Neither means
+ * anything in Markdown, both show up as noise in the first `git diff` of a
+ * freshly imported vault, and many editors strip trailing whitespace on save
+ * — which would turn the next edit of any imported note into a whole-file
+ * diff.
+ *
+ * Trailing spaces after real text are left alone: two of those are a hard line
+ * break, which is content. And nothing inside a fenced code block is touched,
+ * where a blank line is content too.
+ */
+function tidyBlankLines(markdown: string): string {
+  const out: string[] = [];
+  let fenced = false;
+  let blanks = 0;
+
+  for (const line of markdown.split('\n')) {
+    if (/^\s*(?:```|~~~)/.test(line)) fenced = !fenced;
+
+    if (fenced) {
+      out.push(line);
+      continue;
+    }
+
+    const tidied = line.trim() === '' ? '' : line;
+    if (tidied === '') {
+      blanks += 1;
+      // One blank line separates blocks; more is just the source's spacing.
+      if (blanks > 1) continue;
+    } else {
+      blanks = 0;
+    }
+    out.push(tidied);
+  }
+
+  return out.join('\n').trim();
+}
+
 function isImage(mime: string): boolean {
   return mime.toLowerCase().startsWith('image/');
 }
@@ -208,31 +270,49 @@ export function planNote(source: SourceNote, options: PlanOptions): PlannedNote 
 
   const warnings: ImportWarning[] = [];
   const referenced = new Set<string>();
+  const inline: InlineAsset[] = [];
   let encrypted = 0;
 
-  const body = tightenTaskLists(
-    htmlToMarkdown(source.html, {
-      media: (hash, type) => {
-        const found = byHash.get(hash);
-        if (!found) {
-          // The body references bytes the file did not carry. Saying so is the
-          // point: the alternative is a note that quietly lost a picture.
-          warnings.push({ note: label, reason: 'an attachment was missing from the export' });
-          return null;
-        }
-        referenced.add(hash);
-        const mime = type || found.resource.mime;
-        const name = found.resource.fileName ?? found.asset.path.split('/').pop() ?? 'attachment';
-        return {
-          href: relativeFrom(notePath, found.asset.path),
-          text: isImage(mime) ? splitExtension(name).stem : name,
-          embed: isImage(mime),
-        };
-      },
-      onEncrypted: () => {
-        encrypted += 1;
-      },
-    }) ?? '',
+  const body = tidyBlankLines(
+    tightenTaskLists(
+      htmlToMarkdown(source.html, {
+        media: (hash, type) => {
+          const found = byHash.get(hash);
+          if (!found) {
+            // The body references bytes the file did not carry. Saying so is the
+            // point: the alternative is a note that quietly lost a picture.
+            warnings.push({ note: label, reason: 'an attachment was missing from the export' });
+            return null;
+          }
+          referenced.add(hash);
+          const mime = type || found.resource.mime;
+          const name = found.resource.fileName ?? found.asset.path.split('/').pop() ?? 'attachment';
+          return {
+            href: relativeFrom(notePath, found.asset.path),
+            text: isImage(mime) ? splitExtension(name).stem : name,
+            embed: isImage(mime),
+          };
+        },
+        // An image the body carried itself. Named after the note, numbered in
+        // the order it appears, because a data URL says nothing about what the
+        // picture was called — and left in the same folder as any other
+        // attachment, so one vault setting governs all of them.
+        dataUrl: (mime, base64, index) => {
+          const stem = sanitiseSegment(label, 'image').replace(/\s+/g, '-');
+          const path = names.take(
+            assetFolder,
+            index === 0 ? stem : `${stem}-${index + 1}`,
+            extensionFor({ hash: '', mime, fileName: null, size: 0 }),
+            'image',
+          );
+          inline.push({ path, base64 });
+          return { href: relativeFrom(notePath, path), text: stem, embed: true };
+        },
+        onEncrypted: () => {
+          encrypted += 1;
+        },
+      }) ?? '',
+    ),
   );
 
   if (encrypted > 0) {
@@ -271,7 +351,7 @@ export function planNote(source: SourceNote, options: PlanOptions): PlannedNote 
     ['tags', [...new Set(source.tags.map((tag) => tag.trim()).filter(Boolean))]],
   ]);
 
-  return { path: notePath, markdown: `${header}${body}${trailer}\n`, assets, warnings };
+  return { path: notePath, markdown: `${header}${body}${trailer}\n`, assets, inline, warnings };
 }
 
 /** What an import did, for the message shown when it finishes. */
@@ -286,9 +366,12 @@ export interface ImportSummary {
 /**
  * The sentence the app reports.
  *
- * Warnings are summarised rather than listed: an Evernote archive can have
- * hundreds of encrypted notes, and a dialog that lists them all is a dialog
- * nobody reads.
+ * Counted rather than listed. An Evernote archive can have hundreds of
+ * encrypted notes and an Apple Notes library hundreds of attachments it cannot
+ * export, and a sentence that tried to name them all would be a sentence
+ * nobody reads. The names matter — they are how the user goes and deals with
+ * what was left behind — so the dialog lists them underneath this, and
+ * repeating the reasons here only made both harder to read.
  */
 export function describeImport(summary: ImportSummary): string {
   const parts = [`${summary.notes} note${summary.notes === 1 ? '' : 's'}`];
@@ -298,12 +381,6 @@ export function describeImport(summary: ImportSummary): string {
   const head = `${summary.cancelled ? 'Stopped after importing' : 'Imported'} ${parts.join(' and ')}`;
   if (summary.warnings.length === 0) return `${head}.`;
 
-  const counts = new Map<string, number>();
-  for (const warning of summary.warnings) {
-    counts.set(warning.reason, (counts.get(warning.reason) ?? 0) + 1);
-  }
-  const reasons = [...counts]
-    .map(([reason, count]) => (count === 1 ? reason : `${reason} (${count} notes)`))
-    .join('; ');
-  return `${head}. Not everything came across: ${reasons}.`;
+  const count = summary.warnings.length;
+  return `${head}. ${count} thing${count === 1 ? '' : 's'} could not be carried across:`;
 }

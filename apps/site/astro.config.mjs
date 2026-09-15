@@ -42,6 +42,7 @@ export default defineConfig({
         { label: 'Conflicts', slug: 'docs/conflicts' },
         { label: 'Keyboard shortcuts', slug: 'docs/shortcuts' },
         { label: 'Diagrams', slug: 'docs/diagrams' },
+        { label: 'Importing', slug: 'docs/importing' },
         { label: 'Files and folders', slug: 'docs/files' },
       ],
     }),

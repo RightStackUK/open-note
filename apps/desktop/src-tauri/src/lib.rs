@@ -1,3 +1,4 @@
+pub mod apple_notes;
 pub mod enex;
 pub mod menu;
 pub mod prefs;
@@ -761,6 +762,23 @@ fn write_attachment(
     vault::write_attachment(&PathBuf::from(root), &folder, &extension, &bytes)
 }
 
+/// Write an imported attachment whose bytes came through the webview.
+///
+/// The Evernote importer never sends bytes across the bridge — Rust holds the
+/// file and writes from what it has. Apple Notes leaves no choice: it cannot
+/// hand over an attachment at all, and the only images that can be got out
+/// arrive inside the note's own body as data URLs, which means they arrive in
+/// the webview. The path is chosen by the importer, so it is guarded like any
+/// other path from out there.
+#[tauri::command]
+fn write_import_file(root: String, path: String, data: String) -> Result<(), VaultError> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|e| VaultError::Io(format!("attachment is not valid base64: {e}")))?;
+    vault::write_new_file(&PathBuf::from(root), &path, &bytes)
+}
+
 #[tauri::command]
 fn create_folder(root: String, path: String) -> Result<(), VaultError> {
     vault::create_folder(&PathBuf::from(root), &path)
@@ -972,6 +990,10 @@ pub fn run() {
             enex::enex_next,
             enex::enex_write_media,
             enex::enex_close,
+            apple_notes::apple_notes_folders,
+            apple_notes::apple_notes_enumerate,
+            apple_notes::apple_notes_bodies,
+            write_import_file,
             pick_folder,
             list_branches,
             create_branch,

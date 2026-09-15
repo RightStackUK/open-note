@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { bindingFromEvent, formatBinding, normaliseBinding } from './keys';
 import {
   COMMANDS,
+  commandsFor,
   parseKeymapConfig,
   resolveKeymap,
   searchCommands,
@@ -254,5 +255,32 @@ describe('command definitions', () => {
       if (!command.binding) continue;
       expect(normaliseBinding(command.binding)).not.toBe('');
     }
+  });
+});
+
+describe('platform-gated commands', () => {
+  it('hides a command the platform does not have', () => {
+    const mac = commandsFor('mac').map((c) => c.id);
+    const other = commandsFor('other').map((c) => c.id);
+
+    expect(mac).toContain('vault.importAppleNotes');
+    // Absent rather than present and failing: a user who tries it and reads an
+    // error has spent their time finding out the feature was never there.
+    expect(other).not.toContain('vault.importAppleNotes');
+  });
+
+  it('keeps every command that names no platform', () => {
+    const ungated = COMMANDS.filter((c) => !c.platforms);
+    expect(ungated.length).toBeGreaterThan(0);
+    for (const platform of ['mac', 'other'] as const) {
+      const ids = new Set(commandsFor(platform).map((c) => c.id));
+      for (const command of ungated) expect(ids.has(command.id), command.id).toBe(true);
+    }
+  });
+
+  it('still lets a gated command be searched for on its own platform', () => {
+    const found = searchCommands('apple', commandsFor('mac'));
+    expect(found.some((c) => c.id === 'vault.importAppleNotes')).toBe(true);
+    expect(searchCommands('apple', commandsFor('other'))).toEqual([]);
   });
 });

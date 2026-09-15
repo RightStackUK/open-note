@@ -17,6 +17,7 @@ export type {
 } from './commands/registry';
 export {
   COMMANDS,
+  commandsFor,
   DEFAULT_KEYMAP_CONFIG,
   KEYMAP_SCHEME_LABELS,
   KEYMAP_SCHEMES,
@@ -28,6 +29,14 @@ export {
 export type { ForgeKind, ParsedRemote } from './forge/remote';
 // Forge
 export { forgeLabel, newPullRequestUrl, parseRemote } from './forge/remote';
+export type { AppleNoteBody, AppleNoteRef } from './import/appleNotes';
+export {
+  appleNotesDate,
+  appleNotesFolder,
+  appleNotesSourceNote,
+  appleNotesWarnings,
+  isRecentlyDeleted,
+} from './import/appleNotes';
 export type { EnexNote } from './import/enex';
 // Import
 export { enexFolderName, enexSourceNote, enexTimestamp } from './import/enex';
@@ -42,6 +51,7 @@ export {
 export type {
   ImportSummary,
   ImportWarning,
+  InlineAsset,
   PlannedAsset,
   PlannedNote,
   PlanOptions,

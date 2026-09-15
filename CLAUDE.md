@@ -249,6 +249,57 @@ a visible marker, a reference to bytes the export did not carry becomes a
 warning, and a resource the body never mentioned is linked from an Attachments
 list rather than written where nothing points at it.
 
+### Apple Notes has no export, so the app goes and gets the notes
+
+There is no file to parse — Apple Notes exports one note at a time, to PDF —
+and two ways to reach the library. `src-tauri/src/apple_notes.rs` takes the
+**scripting** route and not `NoteStore.sqlite`: the database is faster and is
+what most scripts read, but its bodies are gzipped protobuf in an undocumented
+schema Apple changes between releases, it needs Full Disk Access, and it is
+live. That trade buys a speed-up on a one-time operation for a permission users
+should refuse and a format that breaks yearly.
+
+The scripts are **JXA**, in `src-tauri/scripts/`, embedded with `include_str!`
+and piped to `osascript` on stdin so they stay files that can be run by hand.
+JXA rather than AppleScript because they must return structured data and honest
+dates: AppleScript cannot serialise anything, and coercing its dates to text
+gives a *localised* string. What JXA cannot say is `with timeout`, so the rule
+is **never ask for the whole library in one Apple event** — `Notes.notes()`
+reaches the 120-second default and fails with `-1712`, which is how that rule
+was learnt. Folders, then one folder's notes (bulk property access, one event
+for the whole folder), then bodies ten at a time.
+
+Three findings worth keeping, because each one looks like something else:
+
+- **Images do come across, and attachments do not.** The `attachment` class
+  exposes a name, an id and a URL but no bytes, and the only commands Notes
+  scripts are `open note location` and `show` — so a PDF cannot be exported at
+  all. But Notes inlines images into the body as `data:` URLs, so they arrive
+  anyway, in the webview rather than in Rust. That is why `planNote` returns
+  `inline` assets as well as `assets`, and why `write_import_file` exists.
+  Non-image attachments and locked notes are **named** in the summary, and the
+  limitation is stated in the dialog *before* the import runs, which is the
+  only moment at which it is any use.
+- **Permission is a state, not an error.** Automation access is granted in
+  System Settings and the underlying failure is an opaque `-1743`, so
+  `VaultError::NotPermitted` is its own variant and the dialog has its own
+  screen for it. `Info.plist` carries `NSAppleEventsUsageDescription`, which is
+  the sentence macOS shows in the prompt; without it the request can be refused
+  outright.
+- **"Recently Deleted" must never be imported** — deleted notes in a permanent
+  Git history are irreversible once pushed. Its name is localised and there is
+  no flag for it, so there are two guards: a list of known names, unticked in
+  the picker, and the fact that nothing is imported that the user did not tick.
+
+**The platform gate lives in two places, and that is deliberate.** A command
+listed where it cannot work is worse than one that is missing, so
+`vault.importAppleNotes` carries `platforms: ['mac']` in `COMMANDS` and every
+surface that *lists* commands asks `commandsFor(PLATFORM)` — the palette and
+the keymap settings, which are the only two. The menu cannot use that: it is
+built at startup in Rust and cannot ask the webview what platform it is on, so
+it gates itself with `cfg(target_os = "macos")`. Same decision, expressed where
+each surface can see it.
+
 ### Templates are notes that are not notes
 
 Templates are ordinary Markdown files in a folder (`templatesFolder` in

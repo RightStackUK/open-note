@@ -69,12 +69,31 @@ describe('application menu', () => {
     expect(appSource).toContain("'vault.importEnex':");
   });
 
+  it('routes File → Import from Apple Notes… through the command registry', () => {
+    expect(menuSource).toContain('command: "vault.importAppleNotes"');
+    expect(COMMANDS.some((c) => c.id === 'vault.importAppleNotes')).toBe(true);
+    expect(appSource).toContain("'vault.importAppleNotes':");
+  });
+
+  it('builds the Apple Notes item only on macOS', () => {
+    // An item that cannot work is worse than no item, and there is no Notes to
+    // script on Windows or Linux. The webview surfaces gate on the registry's
+    // `platforms`; a menu is built at startup in Rust and cannot ask the
+    // webview what platform it is on, so it gates itself.
+    expect(menuSource).toMatch(/#\[cfg\(target_os = "macos"\)\]\s*\n\s*let import_apple/);
+    expect(menuSource).toMatch(/#\[cfg\(target_os = "macos"\)\]\s*\n\s*&import_apple,/);
+    expect(COMMANDS.find((c) => c.id === 'vault.importAppleNotes')?.platforms).toEqual(['mac']);
+  });
+
   it('leaves Import disabled until there is a vault to import into', () => {
     // An item that does nothing when clicked is the command-coverage failure
     // arrived at from the other direction, so it turns on with the same push
     // that names File → Close ….
     expect(menuSource).toMatch(/IMPORT_ENEX,\s*"Import from Evernote…",\s*false/);
-    expect(menuSource).toMatch(/ImportItem<R>>\(\) \{\s*state\.0\.clone\(\)\.set_enabled/);
+    // Both import items turn on with the push that names File → Close ….
+    expect(menuSource).toMatch(
+      /ImportItems<R>>\(\) \{\s*for item in &state\.0 \{\s*item\.set_enabled\(name\.is_some\(\)\)/,
+    );
   });
 
   it('names File → Close … after a vault rather than leaving it generic', () => {

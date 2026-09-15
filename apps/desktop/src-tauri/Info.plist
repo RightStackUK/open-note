@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Merged into the bundle's Info.plist by Tauri on macOS, and ignored
+  everywhere else.
+
+  `NSAppleEventsUsageDescription` is the sentence macOS shows in the Automation
+  prompt when the app first asks Notes for anything. Without it the prompt
+  either carries no explanation or the request is refused outright — and the
+  underlying failure is `-1743`, which tells the user nothing about what was
+  being attempted or why. The importer is the only thing here that scripts
+  another application, so the wording names it.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Open Note asks Notes for your notes and their folders so it can import them into a vault. It only reads them, and only while an import is running.</string>
+</dict>
+</plist>

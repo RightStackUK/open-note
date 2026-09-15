@@ -2000,6 +2000,57 @@ button {
   color: var(--accent);
 }
 
+/* Consecutive paragraphs in an import dialog need air between them: the
+   permission screen is two, and run together they read as one. */
+.import .muted-note + .muted-note {
+  margin-top: 0.6rem;
+}
+
+.import-folders {
+  max-height: 14rem;
+  margin: 0.9rem 0 0;
+  padding: 0.3rem;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.import-folders label {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.3rem 0.4rem;
+  border-radius: 5px;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.import-folders label:hover {
+  background: var(--bg-raised);
+}
+
+.import-caveat {
+  margin-top: 0.9rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 7px;
+  background: var(--bg-raised);
+}
+
+.import-warnings {
+  max-height: 11rem;
+  margin: 0.8rem 0 0;
+  padding-left: 1.1rem;
+  overflow-y: auto;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.import-warnings li {
+  margin-bottom: 0.25rem;
+}
+
 .import-bar {
   height: 6px;
   margin-top: 0.9rem;

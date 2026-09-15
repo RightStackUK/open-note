@@ -1,4 +1,4 @@
-import { normaliseBinding } from './keys';
+import { normaliseBinding, type Platform } from './keys';
 
 export type CommandCategory = 'Navigate' | 'Note' | 'Edit' | 'Sync' | 'View' | 'App';
 
@@ -10,6 +10,21 @@ export interface CommandDefinition {
   binding: string | null;
   /** Keywords the palette should also match on. */
   keywords?: string[];
+  /**
+   * The platforms the command exists on. Absent means all of them.
+   *
+   * For the handful of commands that are a bridge to something only one OS
+   * has — importing from Apple Notes is the case that forced this — and a
+   * command listed where it cannot work is worse than one that is missing,
+   * because the user spends their time finding out why it failed.
+   *
+   * The gate is metadata here rather than a filter at each surface for the
+   * usual reason: there are two surfaces today and the third would forget.
+   * `commandsFor` is how they all ask. The application menu is the exception
+   * and gates itself in Rust with `cfg(target_os)`, because a menu built at
+   * startup cannot ask the webview what platform it is on.
+   */
+  platforms?: Platform[];
 }
 
 /**
@@ -141,6 +156,15 @@ export const COMMANDS: CommandDefinition[] = [
     category: 'Note',
     binding: null,
     keywords: ['import', 'evernote', 'enex', 'migrate'],
+  },
+  {
+    id: 'vault.importAppleNotes',
+    title: 'Import from Apple Notes…',
+    category: 'Note',
+    binding: null,
+    keywords: ['import', 'apple', 'notes', 'icloud', 'migrate'],
+    // Apple Notes is reached by scripting the app, which exists on one OS.
+    platforms: ['mac'],
   },
   {
     id: 'note.daily',
@@ -911,6 +935,20 @@ export function serialiseKeymapConfig(config: KeymapConfig): string {
 }
 
 /** Palette matching: title, category and keywords, ranked. */
+/**
+ * The commands that exist on `platform`.
+ *
+ * Every surface that *lists* commands goes through this — the palette and the
+ * keymap settings — so a platform-only command is absent rather than present
+ * and failing.
+ */
+export function commandsFor(
+  platform: Platform,
+  commands: CommandDefinition[] = COMMANDS,
+): CommandDefinition[] {
+  return commands.filter((command) => !command.platforms || command.platforms.includes(platform));
+}
+
 export function searchCommands(
   query: string,
   commands: CommandDefinition[] = COMMANDS,

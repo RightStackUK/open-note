@@ -24,6 +24,8 @@ const OPEN: &str = "file.open";
 const NEW_WINDOW: &str = "window.new";
 const CLOSE: &str = "file.close";
 const IMPORT_ENEX: &str = "file.importEnex";
+#[cfg(target_os = "macos")]
+const IMPORT_APPLE_NOTES: &str = "file.importAppleNotes";
 const CHECK_UPDATES: &str = "app.checkUpdates";
 const CLEAR_RECENTS: &str = "file.clearRecents";
 const RECENTS_SUBMENU: &str = "file.recents";
@@ -91,8 +93,15 @@ struct OpenItem<R: Runtime>(MenuItem<R>);
 /// File → Close <vault>, kept so its label can follow the active vault.
 struct CloseItem<R: Runtime>(MenuItem<R>);
 
-/// File → Import from Evernote…, kept so it can be greyed out with no vault.
-struct ImportItem<R: Runtime>(MenuItem<R>);
+/// The File → Import items, kept so they can be greyed out with no vault.
+///
+/// A vector because one of them is macOS-only: Apple Notes is reached by
+/// scripting the app, so the item is *absent* on Windows and Linux rather than
+/// present and failing. That gate is `cfg(target_os)` here rather than the
+/// `platforms` field in `COMMANDS`, because a menu is built at startup in Rust
+/// and cannot ask the webview what platform it is on — the two gates are the
+/// same decision expressed where each surface can see it.
+struct ImportItems<R: Runtime>(Vec<MenuItem<R>>);
 
 /// The View menu's items, kept so their accelerators can follow the keymap
 /// and their enabled state the active vault. Order and flags are
@@ -136,6 +145,15 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         false,
         None::<&str>,
     )?;
+    // Only where there is a Notes app to script.
+    #[cfg(target_os = "macos")]
+    let import_apple = MenuItem::with_id(
+        app,
+        IMPORT_APPLE_NOTES,
+        "Import from Apple Notes…",
+        false,
+        None::<&str>,
+    )?;
     let check_updates =
         MenuItem::with_id(app, CHECK_UPDATES, "Check for Updates…", true, None::<&str>)?;
     // No accelerator, for the reason Open… has none: one declared here would
@@ -154,6 +172,8 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             // With Open rather than in a group of its own: it is another way
             // of getting notes into the app.
             &import_enex,
+            #[cfg(target_os = "macos")]
+            &import_apple,
             &PredefinedMenuItem::separator(app)?,
             // Above the separator that starts the window-level items: closing
             // a vault is not closing the window, and next to Close Window the
@@ -259,7 +279,10 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     app.manage(RecentsMenu(recents));
     app.manage(OpenItem(open));
     app.manage(CloseItem(close));
-    app.manage(ImportItem(import_enex));
+    #[cfg(target_os = "macos")]
+    app.manage(ImportItems(vec![import_enex, import_apple]));
+    #[cfg(not(target_os = "macos"))]
+    app.manage(ImportItems(vec![import_enex]));
     app.manage(ViewMenu(view_items));
     Ok(())
 }
@@ -315,8 +338,10 @@ pub fn set_open_accelerator<R: Runtime>(
 /// makes when the active vault changes — a second push would be a second thing
 /// to forget.
 pub fn set_close_target<R: Runtime>(app: &AppHandle<R>, name: Option<&str>) -> tauri::Result<()> {
-    if let Some(state) = app.try_state::<ImportItem<R>>() {
-        state.0.clone().set_enabled(name.is_some())?;
+    if let Some(state) = app.try_state::<ImportItems<R>>() {
+        for item in &state.0 {
+            item.set_enabled(name.is_some())?;
+        }
     }
 
     if let Some(state) = app.try_state::<ViewMenu<R>>() {
@@ -394,6 +419,11 @@ pub fn on_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
     } else if id == IMPORT_ENEX {
         MenuCommand {
             command: "vault.importEnex".into(),
+            arg: None,
+        }
+    } else if cfg!(target_os = "macos") && id == "file.importAppleNotes" {
+        MenuCommand {
+            command: "vault.importAppleNotes".into(),
             arg: None,
         }
     } else if id == CLOSE {

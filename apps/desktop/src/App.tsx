@@ -1,14 +1,17 @@
 import {
+  appleNotesFolder,
+  appleNotesSourceNote,
+  appleNotesWarnings,
   archivePathFor,
   attachmentFolderFor,
   bindingToAccelerator,
   buildNoteList,
   buildTextpack,
   bytesToBase64,
-  COMMANDS,
   type Collection,
   clampZoom,
   collectionTitle,
+  commandsFor,
   DEFAULT_TYPOGRAPHY,
   dailyNotePath,
   dailyNoteTemplate,
@@ -16,6 +19,7 @@ import {
   describeImport,
   enexFolderName,
   enexSourceNote,
+  errorCode,
   exportAnchor,
   exportFileName,
   exportNotesToHtml,
@@ -25,6 +29,7 @@ import {
   type ImportSummary,
   inWorkspace,
   isArchivedPath,
+  isRecentlyDeleted,
   isTemplatePath,
   localAssetReferences,
   maskCode,
@@ -65,7 +70,15 @@ import { sanitiseSvg } from '@open-note/diagrams';
 import { editorCommands } from '@open-note/editor';
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { api, emitVault, listenVault, VaultEvents, type VaultFile, windowLabel } from './api';
+import {
+  api,
+  emitVault,
+  listenVault,
+  type NotesFolder,
+  VaultEvents,
+  type VaultFile,
+  windowLabel,
+} from './api';
 import { BranchMenu } from './components/BranchMenu';
 import { CloneDialog } from './components/CloneDialog';
 import { ConflictPanel } from './components/ConflictPanel';
@@ -159,6 +172,16 @@ function samePath(a: string, b: string): boolean {
 
 /** How long the editor sits idle before the note is written to disk. */
 const AUTOSAVE_IDLE_MS = 500;
+
+/**
+ * How many Apple Notes bodies to fetch per Apple event.
+ *
+ * Small on purpose. JXA cannot extend the 120-second Apple event timeout, and
+ * a body carries its images as base64 — so a large batch risks both a timeout
+ * and a needlessly large reply. Ten keeps each round trip short enough that
+ * progress moves and Stop is answered promptly.
+ */
+const APPLE_NOTES_BATCH = 10;
 
 /** Marks a quick-switcher row that creates rather than opens. */
 const CREATE_PREFIX = 'create:';
@@ -262,6 +285,7 @@ export function App() {
   const [showTodos, setShowTodos] = useState(false);
   const [showClone, setShowClone] = useState(false);
   const [importing, setImporting] = useState<ImportState | null>(null);
+  const [importTitle, setImportTitle] = useState('Importing');
   /** Read inside the import loop, so Stop takes effect on the next note. */
   const cancelImport = useRef(false);
   const [contextTarget, setContextTarget] = useState<ContextTarget | null>(null);
@@ -2604,17 +2628,17 @@ export function App() {
     if (files.length === 0) return;
 
     cancelImport.current = false;
+    setImportTitle('Importing from Evernote');
     const names = new NameAllocator((session?.files ?? []).map((file) => file.path));
     const attachmentFolder = session?.attachmentFolder ?? 'assets';
     const summary: ImportSummary = { notes: 0, attachments: 0, warnings: [], cancelled: false };
-    const report = (file: string, percent: number) =>
+    const report = (label: string, percent: number) =>
       setImporting({
         phase: 'running',
-        file,
+        label,
         notes: summary.notes,
         attachments: summary.attachments,
         percent,
-        summary: null,
       });
     report('', 0);
 
@@ -2676,11 +2700,10 @@ export function App() {
     summary.cancelled = cancelImport.current;
     setImporting({
       phase: 'done',
-      file: '',
       notes: summary.notes,
       attachments: summary.attachments,
-      percent: 100,
       summary: describeImport(summary),
+      warnings: summary.warnings,
     });
 
     // The index is rebuilt in one pass rather than patched per note, and the
@@ -2689,6 +2712,137 @@ export function App() {
     await vaultIndex.rebuild(root);
     ws.noteSaved(root);
   }, [ws, session?.files, session?.attachmentFolder, createNoteFile, vaultIndex]);
+
+  /**
+   * Import from Apple Notes, in two acts: choose folders, then fetch.
+   *
+   * The folder list is asked for first because it doubles as the permission
+   * check — if Automation access is off, this is where the refusal arrives,
+   * before anything has been promised — and because choosing is the only
+   * moment at which saying what cannot come across is any use.
+   *
+   * "Recently Deleted" is unticked by default. Its name is localised and the
+   * scripting interface exposes no flag for it, so the guard that actually
+   * holds is that nothing is imported the user did not tick.
+   */
+  const importAppleNotes = useCallback(async () => {
+    if (!ws.activeRoot) return;
+    setImportTitle('Importing from Apple Notes');
+    try {
+      const folders = await api.appleNotesFolders();
+      const selected: Record<string, boolean> = {};
+      for (const folder of folders) selected[folder.id] = !isRecentlyDeleted(folder.path);
+      setImporting({ phase: 'folders', folders, selected });
+    } catch (e) {
+      // Granted somewhere else entirely, so it gets a screen rather than a toast.
+      if (errorCode(e) === 'notPermitted') setImporting({ phase: 'permission' });
+      else ws.setError(errorText(e));
+    }
+  }, [ws]);
+
+  /**
+   * Fetch the chosen folders.
+   *
+   * Bodies come in small batches, which is the slow part — a few notes a
+   * second, because each one is an Apple event — so progress is counted in
+   * notes seen against the totals the folder list already reported, and Stop
+   * is checked between batches.
+   */
+  const runAppleNotesImport = useCallback(
+    async (folders: NotesFolder[], selected: Record<string, boolean>) => {
+      const root = ws.activeRoot;
+      if (!root) return;
+
+      // Ticked *and* not the trash: importing someone's deleted notes into a
+      // permanent history is irreversible once pushed, so the name check
+      // stands even if the box was ticked.
+      const chosen = folders.filter((f) => selected[f.id] && !isRecentlyDeleted(f.path));
+      const total = chosen.reduce((count, folder) => count + folder.count, 0);
+
+      cancelImport.current = false;
+      const names = new NameAllocator((session?.files ?? []).map((file) => file.path));
+      const attachmentFolder = session?.attachmentFolder ?? 'assets';
+      const summary: ImportSummary = { notes: 0, attachments: 0, warnings: [], cancelled: false };
+      let seen = 0;
+      const report = (label: string) =>
+        setImporting({
+          phase: 'running',
+          label,
+          notes: summary.notes,
+          attachments: summary.attachments,
+          percent: total > 0 ? Math.min(100, Math.round((seen / total) * 100)) : 0,
+        });
+      report('');
+
+      try {
+        for (const folder of chosen) {
+          if (cancelImport.current) break;
+          const refs = await api.appleNotesEnumerate(folder.id);
+          const target = appleNotesFolder(folder.path);
+
+          for (let at = 0; at < refs.length && !cancelImport.current; at += APPLE_NOTES_BATCH) {
+            const batch = refs.slice(at, at + APPLE_NOTES_BATCH);
+            const bodies = await api.appleNotesBodies(batch.map((ref) => ref.id));
+            const byId = new Map(bodies.map((body) => [body.id, body]));
+
+            for (const ref of batch) {
+              seen += 1;
+              const body = byId.get(ref.id) ?? {
+                id: ref.id,
+                body: null,
+                attachments: [],
+                error: 'Notes did not return it',
+              };
+              summary.warnings.push(...appleNotesWarnings(ref, body));
+
+              // Null for a locked note, or one the bridge refused. Creating an
+              // empty note in its place would claim to have imported something
+              // that was never read.
+              const source = appleNotesSourceNote(ref, body);
+              if (!source) continue;
+
+              const planned = planNote(source, { folder: target, attachmentFolder, names });
+              try {
+                await createNoteFile(root, planned.path, planned.markdown, { index: false });
+                summary.notes += 1;
+                // Images arrived inside the body, so the bytes are here rather
+                // than in Rust — the one place this importer differs.
+                for (const asset of planned.inline) {
+                  await api.writeImportFile(root, asset.path, asset.base64);
+                  summary.attachments += 1;
+                }
+              } catch (e) {
+                summary.warnings.push({ note: planned.path, reason: errorText(e) });
+              }
+              summary.warnings.push(...planned.warnings);
+            }
+            report(folder.path);
+          }
+        }
+      } catch (e) {
+        // Access can be revoked while an import is running.
+        if (errorCode(e) === 'notPermitted') {
+          setImporting({ phase: 'permission' });
+          return;
+        }
+        summary.warnings.push({ note: '', reason: errorText(e) });
+      }
+
+      summary.cancelled = cancelImport.current;
+      setImporting({
+        phase: 'done',
+        notes: summary.notes,
+        attachments: summary.attachments,
+        summary: describeImport(summary),
+        warnings: summary.warnings,
+      });
+
+      await ws.refreshFiles(root);
+      await vaultIndex.rebuild(root);
+      ws.noteSaved(root);
+    },
+    [ws, session?.files, session?.attachmentFolder, createNoteFile, vaultIndex],
+  );
 
   const importFolder = useCallback(async () => {
     try {
@@ -3129,6 +3283,7 @@ export function App() {
       },
       'vault.importFolder': () => void importFolder(),
       'vault.importEnex': () => void importEnex(),
+      'vault.importAppleNotes': () => void importAppleNotes(),
       'note.fromSelection': () => void noteFromSelection(),
       'note.addTag': () => {
         if (noteRef.current) setPrompt({ kind: 'addTag' });
@@ -3210,6 +3365,7 @@ export function App() {
       archiveNote,
       importFolder,
       importEnex,
+      importAppleNotes,
       copyAs,
       pasteAs,
       printNote,
@@ -3483,7 +3639,7 @@ export function App() {
   const paletteItems = (() => {
     if (palette === 'commands') {
       return commandItems(
-        searchCommands(paletteQuery, COMMANDS),
+        searchCommands(paletteQuery, commandsFor(PLATFORM)),
         vaultIndex.keymap.byCommand,
         PLATFORM,
       );
@@ -4662,11 +4818,35 @@ export function App() {
 
       {importing && (
         <ImportDialog
+          title={importTitle}
           state={importing}
           onCancel={() => {
             cancelImport.current = true;
           }}
           onClose={() => setImporting(null)}
+          onToggle={(id) =>
+            setImporting((current) =>
+              current?.phase === 'folders'
+                ? {
+                    ...current,
+                    selected: { ...current.selected, [id]: !current.selected[id] },
+                  }
+                : current,
+            )
+          }
+          onStart={() => {
+            if (importing.phase !== 'folders') return;
+            void runAppleNotesImport(importing.folders, importing.selected);
+          }}
+          onOpenSettings={() => {
+            // The Automation pane specifically: "Privacy & Security" alone
+            // opens a long list in which the relevant switch is not obvious.
+            void api
+              .openExternal(
+                'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation',
+              )
+              .catch(() => ws.setError('Could not open System Settings.'));
+          }}
         />
       )}
 

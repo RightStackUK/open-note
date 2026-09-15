@@ -1,4 +1,4 @@
-import type { EnexNote } from '@open-note/core';
+import type { AppleNoteBody, AppleNoteRef, EnexNote } from '@open-note/core';
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -62,6 +62,14 @@ export interface CommitInfo {
   author: string;
   date: string;
   subject: string;
+}
+
+/** A folder in the Apple Notes library, as the picker lists it. */
+export interface NotesFolder {
+  id: string;
+  /** Nested with `/`, exactly as it will become directories. */
+  path: string;
+  count: number;
 }
 
 export type MergeResult =
@@ -204,6 +212,21 @@ export const api = {
   enexWriteMedia: (id: number, root: string, items: Array<{ hash: string; path: string }>) =>
     invoke<number>('enex_write_media', { id, root, items }),
   enexClose: (id: number) => invoke<void>('enex_close', { id }),
+
+  /**
+   * Apple Notes, over the scripting bridge. macOS only.
+   *
+   * Three steps because the cheap half and the expensive half are different
+   * Apple events: folders and note lists come back fast, bodies a few a
+   * second. Batches are small on purpose — see `src-tauri/src/apple_notes.rs`.
+   */
+  appleNotesFolders: () => invoke<NotesFolder[]>('apple_notes_folders'),
+  appleNotesEnumerate: (folder: string) =>
+    invoke<AppleNoteRef[]>('apple_notes_enumerate', { folder }),
+  appleNotesBodies: (ids: string[]) => invoke<AppleNoteBody[]>('apple_notes_bodies', { ids }),
+  /** Write an attachment whose bytes came through the webview, base64-encoded. */
+  writeImportFile: (root: string, path: string, data: string) =>
+    invoke<void>('write_import_file', { root, path, data }),
 
   /**
    * Open a URL in the user's real browser.

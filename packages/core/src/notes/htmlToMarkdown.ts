@@ -34,6 +34,16 @@ export interface HtmlToMarkdownOptions {
    * this. `null` drops the reference, for a resource the file did not carry.
    */
   media?: (hash: string, mime: string) => MediaRef | null;
+  /**
+   * Resolve an inline `data:` image to a file the caller has written.
+   *
+   * Apple Notes has no way to hand over an attachment's bytes, but it inlines
+   * images into the body as data URLs — so this is how they come across. The
+   * caller is given the payload and returns where it put it; returning null
+   * drops the image, which is still better than leaving a megabyte of base64
+   * in a Markdown file that has to be read by humans and diffed by Git.
+   */
+  dataUrl?: (mime: string, base64: string, index: number) => MediaRef | null;
   /** Called once per `<en-crypt>` block met, so the caller can report it. */
   onEncrypted?: () => void;
 }
@@ -47,6 +57,9 @@ export interface HtmlToMarkdownOptions {
  * interleave, and the value is cleared in a `finally`.
  */
 let current: HtmlToMarkdownOptions = {};
+
+/** Which inline image of this conversion is being resolved. */
+let dataUrls = 0;
 
 /** Whether `node` sits inside a list item, where a marker is already present. */
 function insideListItem(node: Node): boolean {
@@ -63,7 +76,7 @@ function attribute(node: Node, name: string): string {
   return element.getAttribute?.(name) ?? '';
 }
 
-function marks(node: Node, name: string): boolean {
+function hasAttribute(node: Node, name: string): boolean {
   const element = node as { hasAttribute?: (name: string) => boolean };
   return element.hasAttribute?.(name) ?? false;
 }
@@ -115,28 +128,62 @@ function turndown(): TurndownService {
   service.remove(['script', 'style']);
 
   /**
-   * Evernote's checkbox.
+   * Every checkbox, whichever source drew it.
    *
-   * It sits *inline* at the start of the line rather than wrapping the item,
-   * so without this the note silently loses every todo it had. Mapping it onto
-   * the GFM checkbox is most of the value of importing for anyone who used
-   * Evernote as a todo list, and it is the syntax the app's own task view
-   * reads. Registered after the GFM plugin, whose task-list rule would
-   * otherwise claim the same element — `addRule` prepends, so this wins.
+   * Evernote writes `<en-todo checked="true"/>` — an empty element sitting
+   * inline at the start of the line rather than wrapping the item — and Apple
+   * Notes writes a checklist as a list. Both arrive here as an `<input>` (see
+   * `asHtmlElements`), and both mean the same thing: a GFM checkbox, which is
+   * the syntax the app's own task view reads. Without this an imported
+   * checklist silently loses every tick, which for anyone who kept their todo
+   * list in either app is most of what they were importing.
+   *
+   * Registered after the GFM plugin, whose task-list rule handles only the
+   * inside-a-list case — `addRule` prepends, so this wins and the two do not
+   * disagree about the same element.
    */
-  service.addRule('en-todo', {
-    filter: (node) => marks(node, 'data-en-todo'),
+  service.addRule('checkbox', {
+    filter: (node) =>
+      hasAttribute(node, 'data-en-todo') ||
+      (node.nodeName === 'INPUT' && attribute(node, 'type').toLowerCase() === 'checkbox'),
     replacement: (_content, node) => {
-      const box = attribute(node, 'checked').toLowerCase() === 'true' ? '[x]' : '[ ]';
+      // `checked="false"` is Evernote's unticked box, while bare `checked` is
+      // HTML's ticked one — so presence alone is not the answer.
+      const value = attribute(node, 'checked').toLowerCase();
+      const box = hasAttribute(node, 'checked') && value !== 'false' ? '[x]' : '[ ]';
       // In a list the marker is already there; adding ours would nest a list
       // inside a list item.
       return insideListItem(node) ? `${box} ` : `- ${box} `;
     },
   });
 
+  /**
+   * A checklist drawn with classes or an attribute rather than an `<input>`.
+   *
+   * `<li class="checklist-item checked">` and `<li checked>` both mean a
+   * ticked box and both convert to a plain bullet otherwise, losing the state
+   * without saying so. Narrow on purpose: an `li` that says nothing about
+   * checking is left alone, so ordinary pasted lists are untouched.
+   */
+  service.addRule('checklist-item', {
+    filter: (node) =>
+      node.nodeName === 'LI' &&
+      (hasAttribute(node, 'checked') || /check/i.test(attribute(node, 'class'))) &&
+      !(node as unknown as { querySelector?: (s: string) => unknown }).querySelector?.(
+        'input[type=checkbox]',
+      ),
+    replacement: (content, node) => {
+      const ticked =
+        /\bchecked\b/i.test(attribute(node, 'class')) ||
+        (hasAttribute(node, 'checked') && attribute(node, 'checked').toLowerCase() !== 'false');
+      const text = content.replace(/^\s+|\s+$/g, '').replace(/\n/g, '\n  ');
+      return `- [${ticked ? 'x' : ' '}] ${text}\n`;
+    },
+  });
+
   /** The body's reference to a resource, by the MD5 of the resource's bytes. */
   service.addRule('en-media', {
-    filter: (node) => marks(node, 'data-en-media'),
+    filter: (node) => hasAttribute(node, 'data-en-media'),
     replacement: (_content, node) => {
       const resolved = current.media?.(
         attribute(node, 'hash').toLowerCase(),
@@ -146,6 +193,26 @@ function turndown(): TurndownService {
       return resolved.embed
         ? `![${resolved.text}](${resolved.href})`
         : `[${resolved.text}](${resolved.href})`;
+    },
+  });
+
+  /**
+   * An inline `data:` image.
+   *
+   * Registered before the default image rule — `addRule` prepends — so a
+   * converter with no `dataUrl` resolver still behaves as it always did and
+   * emits the URL. Counted per conversion, because the resolver's answer
+   * depends on which image this is.
+   */
+  service.addRule('data-url-image', {
+    filter: (node) => node.nodeName === 'IMG' && attribute(node, 'src').startsWith('data:image/'),
+    replacement: (_content, node) => {
+      const src = attribute(node, 'src');
+      const match = /^data:([^;,]+)(?:;charset=[^;,]+)?;base64,(.*)$/s.exec(src);
+      if (!match || !current.dataUrl) return '';
+      const resolved = current.dataUrl(match[1] ?? '', match[2] ?? '', dataUrls++);
+      if (!resolved) return '';
+      return `![${resolved.text}](${resolved.href})`;
     },
   });
 
@@ -172,6 +239,7 @@ function turndown(): TurndownService {
  */
 export function htmlToMarkdown(html: string, options: HtmlToMarkdownOptions = {}): string | null {
   current = options;
+  dataUrls = 0;
   try {
     const markdown = turndown()
       .turndown(asHtmlElements(html))

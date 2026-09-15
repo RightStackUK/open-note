@@ -69,6 +69,15 @@ pub enum VaultError {
     #[error("{0} cannot be modified")]
     Protected(String),
 
+    /// macOS refused an Apple event — Automation access is off for this app.
+    ///
+    /// Its own variant, not an `Io`, because the frontend has to *explain* it:
+    /// the underlying failure is an opaque `-1743`, it is fixed in System
+    /// Settings rather than in the app, and an error toast is not enough for
+    /// something the user has to go elsewhere to grant.
+    #[error("Open Note is not allowed to control Notes")]
+    NotPermitted,
+
     #[error(transparent)]
     Git(#[from] git_port::GitError),
 
@@ -98,6 +107,7 @@ impl VaultError {
             VaultError::NotUtf8 => "notUtf8",
             VaultError::AlreadyExists(_) => "alreadyExists",
             VaultError::Protected(_) => "protected",
+            VaultError::NotPermitted => "notPermitted",
             VaultError::Io(_) => "io",
             VaultError::Git(e) => match e {
                 git_port::GitError::GitNotFound => "gitNotFound",

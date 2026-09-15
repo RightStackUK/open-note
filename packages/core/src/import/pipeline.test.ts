@@ -171,6 +171,31 @@ describe('planNote', () => {
     expect(planNote(source({ title: 'ideas' }), options).path).toBe('Inbox/ideas 3.md');
   });
 
+  it('tidies the blank space the source drew its gaps with', () => {
+    // Apple Notes draws a gap as `<div><br></div>`, which converts to a line
+    // of two spaces — nothing in Markdown, noise in a diff, and gone the first
+    // time an editor strips trailing whitespace, which would make the next
+    // edit of the note a whole-file diff.
+    const planned = plan(
+      source({
+        html: '<div>One</div><div><br></div><div><br></div><div><br></div><div>Two</div>',
+      }),
+    );
+
+    expect(planned.markdown).toBe('One\n\nTwo\n');
+  });
+
+  it('leaves blank lines inside a code block alone', () => {
+    const planned = plan(source({ html: '<pre><code>one\n\n\ntwo</code></pre>' }));
+
+    expect(planned.markdown).toContain('one\n\n\ntwo');
+  });
+
+  it('keeps a hard line break, which is content rather than spacing', () => {
+    const planned = plan(source({ html: '<div>One<br>Two</div>' }));
+    expect(planned.markdown).toContain('One  \nTwo');
+  });
+
   it('still creates a note whose body was empty', () => {
     const planned = plan(source({ title: 'Blank', html: '<en-note></en-note>' }));
 
@@ -186,7 +211,9 @@ describe('describeImport', () => {
     );
   });
 
-  it('says when it was stopped, and groups the warnings', () => {
+  it('says when it was stopped, and counts what was left behind', () => {
+    // Counted, not listed: the dialog names them underneath, and a sentence
+    // that tried to name hundreds is a sentence nobody reads.
     const message = describeImport({
       notes: 1,
       attachments: 0,
@@ -197,9 +224,7 @@ describe('describeImport', () => {
       cancelled: true,
     });
 
-    expect(message).toBe(
-      'Stopped after importing 1 note. Not everything came across: 1 encrypted block could not be decrypted (2 notes).',
-    );
+    expect(message).toBe('Stopped after importing 1 note. 2 things could not be carried across:');
   });
 });
 

@@ -1,7 +1,7 @@
 import {
   bindingFromEvent,
-  COMMANDS,
   type CommandDefinition,
+  commandsFor,
   formatBinding,
   KEYMAP_SCHEME_LABELS,
   KEYMAP_SCHEMES,
@@ -63,7 +63,9 @@ export function KeymapPanel({ config, keymap, onChange, onClose }: KeymapPanelPr
 
   const grouped = CATEGORY_ORDER.map((category) => ({
     category,
-    commands: COMMANDS.filter((c) => c.category === category),
+    // Platform-gated, like the palette: a shortcut cannot be usefully bound
+    // to a command this OS does not have.
+    commands: commandsFor(PLATFORM).filter((c) => c.category === category),
   })).filter((group) => group.commands.length > 0);
 
   return (
