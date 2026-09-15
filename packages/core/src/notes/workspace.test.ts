@@ -158,6 +158,33 @@ describe('a new note joins the workspace it was made in', () => {
     expect(withWorkspaceTag('', 'work')).toBe('#work\n\n');
   });
 
+  it('writes the tag below the frontmatter, not above it', () => {
+    // A `---` block is only frontmatter on the first line. Above it, the tag
+    // would turn the note's own header into body text — and a template can
+    // carry one, as can every imported note.
+    expect(withWorkspaceTag('---\ntitle: Plan\n---\n\n# Plan\n', 'work')).toBe(
+      '---\ntitle: Plan\n---\n\n# Plan\n\n#work',
+    );
+    expect(withWorkspaceTag('---\ncreated: 2024-01-15\n---\n\nJust text.\n', 'work')).toBe(
+      '---\ncreated: 2024-01-15\n---\n\n#work\n\nJust text.\n',
+    );
+  });
+
+  it('counts a tag the frontmatter already declares', () => {
+    const listed = '---\ntags:\n  - work\n  - reading\n---\n\nBody.\n';
+    expect(withWorkspaceTag(listed, 'work')).toBe(listed);
+
+    const inline = '---\ntags: [work, reading]\n---\n\nBody.\n';
+    expect(withWorkspaceTag(inline, 'work')).toBe(inline);
+  });
+
+  it('does not mistake another frontmatter field for a tag', () => {
+    // The false positive that matters: it would leave the note outside the
+    // workspace it was created in.
+    const body = '---\ntitle: work notes\n---\n\nBody.\n';
+    expect(withWorkspaceTag(body, 'work')).toBe('---\ntitle: work notes\n---\n\n#work\n\nBody.\n');
+  });
+
   it('does nothing without a workspace', () => {
     expect(withWorkspaceTag('# Plan\n', null)).toBe('# Plan\n');
   });

@@ -13,12 +13,16 @@ import {
   dailyNotePath,
   dailyNoteTemplate,
   dataUrlToBytes,
+  describeImport,
+  enexFolderName,
+  enexSourceNote,
   exportAnchor,
   exportFileName,
   exportNotesToHtml,
   exportNoteToDocx,
   exportNoteToHtml,
   formatBinding,
+  type ImportSummary,
   inWorkspace,
   isArchivedPath,
   isTemplatePath,
@@ -26,6 +30,7 @@ import {
   maskCode,
   mentionPattern,
   mergeNotes,
+  NameAllocator,
   newNoteId,
   normaliseWorkspace,
   noteHasTag,
@@ -33,6 +38,7 @@ import {
   noteLink,
   noteStats,
   parseTheme,
+  planNote,
   removeTagFromNote,
   renameTagInNote,
   renderNoteBody,
@@ -72,6 +78,7 @@ import {
   Prompt,
 } from './components/FileActions';
 import { HistoryPanel } from './components/HistoryPanel';
+import { ImportDialog, type ImportState } from './components/ImportDialog';
 import { InfoPanel, type InfoTab } from './components/InfoPanel';
 import { KeymapPanel } from './components/KeymapPanel';
 import { NoteEditor, type NoteEditorHandle } from './components/NoteEditor';
@@ -254,6 +261,9 @@ export function App() {
   const [searchScoped, setSearchScoped] = useState(true);
   const [showTodos, setShowTodos] = useState(false);
   const [showClone, setShowClone] = useState(false);
+  const [importing, setImporting] = useState<ImportState | null>(null);
+  /** Read inside the import loop, so Stop takes effect on the next note. */
+  const cancelImport = useRef(false);
   const [contextTarget, setContextTarget] = useState<ContextTarget | null>(null);
   const [prompt, setPrompt] = useState<
     | { kind: 'newNote' | 'newFolder'; parent: string }
@@ -1306,10 +1316,19 @@ export function App() {
    * the write happens rather than in a racy `exists()` check up here.
    */
   const createNoteFile = useCallback(
-    async (root: string, path: string, body: string): Promise<string> => {
+    async (
+      root: string,
+      path: string,
+      body: string,
+      options?: { index?: boolean },
+    ): Promise<string> => {
       const tagged = withWorkspaceTag(body, workspaceRef.current);
       await api.createNote(root, path, tagged);
-      vaultIndex.updateNote(path, tagged);
+      // An import creates thousands of notes, and patching the index per note
+      // re-renders the window per note. Bulk callers rebuild once at the end;
+      // the decision about the note's *bytes* still happens here, which is
+      // what this seam is for.
+      if (options?.index !== false) vaultIndex.updateNote(path, tagged);
       return tagged;
     },
     [vaultIndex],
@@ -2557,6 +2576,120 @@ export function App() {
     [ws, createNote],
   );
 
+  /**
+   * Import one or more Evernote `.enex` exports into the open vault.
+   *
+   * The division of labour is the point. Rust holds the file open and hands
+   * over one note at a time — an archive is routinely gigabytes and the
+   * webview cannot hold it — while every decision about what lands in the
+   * vault is made here through `planNote`: the filename, the Markdown, where
+   * the attachments go. Notes are written through `createNoteFile` like every
+   * other new note, so an import inside a workspace stays inside it.
+   *
+   * One allocator spans the whole run, seeded with what the vault already
+   * holds, because the collision to avoid is as much with an existing note as
+   * with one imported a second ago.
+   */
+  const importEnex = useCallback(async () => {
+    const root = ws.activeRoot;
+    if (!root) return;
+
+    let files: string[];
+    try {
+      files = await api.pickEnexFiles();
+    } catch (e) {
+      ws.setError(errorText(e));
+      return;
+    }
+    if (files.length === 0) return;
+
+    cancelImport.current = false;
+    const names = new NameAllocator((session?.files ?? []).map((file) => file.path));
+    const attachmentFolder = session?.attachmentFolder ?? 'assets';
+    const summary: ImportSummary = { notes: 0, attachments: 0, warnings: [], cancelled: false };
+    const report = (file: string, percent: number) =>
+      setImporting({
+        phase: 'running',
+        file,
+        notes: summary.notes,
+        attachments: summary.attachments,
+        percent,
+        summary: null,
+      });
+    report('', 0);
+
+    try {
+      for (const file of files) {
+        if (cancelImport.current) break;
+        const folder = enexFolderName(file);
+        let opened: { id: number; bytesTotal: number };
+        try {
+          opened = await api.enexOpen(file);
+        } catch (e) {
+          // Three notebooks were picked and one will not open: import the
+          // other two and say which was left.
+          summary.warnings.push({ note: folder, reason: errorText(e) });
+          continue;
+        }
+        try {
+          while (!cancelImport.current) {
+            const batch = await api.enexNext(opened.id);
+            if (!batch.note) break;
+
+            const planned = planNote(enexSourceNote(batch.note), {
+              folder,
+              attachmentFolder,
+              names,
+            });
+            try {
+              await createNoteFile(root, planned.path, planned.markdown, { index: false });
+              summary.notes += 1;
+              if (planned.assets.length > 0) {
+                summary.attachments += await api.enexWriteMedia(opened.id, root, planned.assets);
+              }
+            } catch (e) {
+              // One note that would not write must not end the archive.
+              summary.warnings.push({ note: planned.path, reason: errorText(e) });
+            }
+            summary.warnings.push(...planned.warnings);
+
+            // Every note to begin with, so a small notebook shows progress
+            // at all, then every tenth — an archive of thousands must not
+            // re-render the window once per note.
+            if (summary.notes < 10 || summary.notes % 10 === 0) {
+              report(
+                folder,
+                batch.bytesTotal > 0
+                  ? Math.min(100, Math.round((batch.bytesRead / batch.bytesTotal) * 100))
+                  : 0,
+              );
+            }
+          }
+        } finally {
+          await api.enexClose(opened.id);
+        }
+      }
+    } catch (e) {
+      summary.warnings.push({ note: '', reason: errorText(e) });
+    }
+
+    summary.cancelled = cancelImport.current;
+    setImporting({
+      phase: 'done',
+      file: '',
+      notes: summary.notes,
+      attachments: summary.attachments,
+      percent: 100,
+      summary: describeImport(summary),
+    });
+
+    // The index is rebuilt in one pass rather than patched per note, and the
+    // vault is told files landed so the commit loop picks them up.
+    await ws.refreshFiles(root);
+    await vaultIndex.rebuild(root);
+    ws.noteSaved(root);
+  }, [ws, session?.files, session?.attachmentFolder, createNoteFile, vaultIndex]);
+
   const importFolder = useCallback(async () => {
     try {
       const info = await api.importFolderAsVault();
@@ -2995,6 +3128,7 @@ export function App() {
         if (ws.activeRoot) void closeVaultAt(ws.activeRoot);
       },
       'vault.importFolder': () => void importFolder(),
+      'vault.importEnex': () => void importEnex(),
       'note.fromSelection': () => void noteFromSelection(),
       'note.addTag': () => {
         if (noteRef.current) setPrompt({ kind: 'addTag' });
@@ -3075,6 +3209,7 @@ export function App() {
       navigateHistory,
       archiveNote,
       importFolder,
+      importEnex,
       copyAs,
       pasteAs,
       printNote,
@@ -4494,6 +4629,16 @@ export function App() {
             setShowClone(false);
             void ws.openVault(root);
           }}
+        />
+      )}
+
+      {importing && (
+        <ImportDialog
+          state={importing}
+          onCancel={() => {
+            cancelImport.current = true;
+          }}
+          onClose={() => setImporting(null)}
         />
       )}
 

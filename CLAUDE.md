@@ -170,7 +170,10 @@ wikilink to nothing, a daily note, a template, a merge, a deep link — and
 of them. A new note without the tag is created straight into a view that hides
 it, which reads as the note not having been created at all. That bug shipped
 once during development precisely because `newNote` wrote through its own call
-to `api.createNote`.
+to `api.createNote`. The tag itself goes *below* any frontmatter
+(`withWorkspaceTag`): a `---` block is only frontmatter on the first line, so a
+tag written above one turns the note's own header into prose — which templates
+with a header, and every imported note, would meet immediately.
 
 The active workspace is machine-local, per vault (`workspaces.ts`), and it
 persists: the app stays inside it "until you leave", and dropping you back into
@@ -187,6 +190,61 @@ notes linked from outside and no others. `withNoteId` edits the frontmatter as
 drop comments, and "we copied a link" must not diff as a rewrite of the
 reader's file. Anything that copies a note's text strips the id
 (`withoutNoteId`): duplicating, and creating from a template.
+
+### Importing: a reader per source, one seam after it
+
+Arriving from another Markdown app is `vault.importFolder` — `git init` over a
+picked folder — and that is the cheap half. The expensive half is the apps that
+do not keep notes as files: Evernote, Notion, Apple Notes, OneNote. Each needs
+its own reader, and **none of them may have its own idea of how a note becomes
+a file**, or a vault ends up laid out four ways and three of them are
+discovered later. So a reader's whole job is to produce `SourceNote`s — title,
+body as HTML, tags, dates, resources identified by content hash — and
+`planNote` (`packages/core/src/import/pipeline.ts`) decides everything after
+that. Evernote is the only one implemented; the second one is what will prove
+the seam is in the right place.
+
+`packages/core/src/import/names.ts` is where the bodies are buried, and it is
+the same problem for every source: titles hold `/` and `:` and newlines, notes
+are untitled, `Meeting: 3/4` and `Meeting - 3-4` sanitise to one name, macOS
+and Windows are case-insensitive where Linux is not, and the 255 limit is in
+**bytes**. So names are *allocated* rather than derived — one `NameAllocator`
+per run, seeded with the paths the vault already has, because the collision to
+avoid is as much with an existing note as with one imported a second ago.
+
+**The split between Rust and TypeScript is about size, not about layers.** A
+ten-year Evernote archive is a multi-gigabyte `.enex` of base64, so the file
+never enters the webview: `src-tauri/src/enex.rs` holds it open and hands over
+one note at a time, plus the decoded bytes of *that note only*
+(`enex_open` → `enex_next` → `enex_write_media` → `enex_close`). Memory is
+bounded by the largest note rather than the archive, and no attachment crosses
+the IPC. Everything that decides what the note *says* stays in core, where it
+is a pure function over a fixture. Cancelling is simply not asking for the next
+note; what has already landed stays, because it is in the vault and in Git.
+
+Three things an importer must not reinvent, all of which have a home already:
+
+- **HTML → Markdown is `htmlToMarkdown.ts`**, extended rather than forked —
+  two converters would mean two dialects and the difference would show up in
+  the diffs of a vault that was half typed and half imported. Evernote's own
+  elements are rewritten to *void* HTML ones (`<en-todo>` → `<input>`,
+  `<en-media>` → `<img>`) before parsing, because Turndown discards any element
+  whose text is empty before consulting a rule, and recursively: a `<div>`
+  holding nothing but an image is blank too, so a note of photographs would
+  convert to nothing at all.
+- **Where attachments go is `attachmentFolderFor`**, which reads the vault's
+  own setting. An importer that hard-codes `assets/` is wrong in every vault
+  whose owner chose otherwise.
+- **Notes are written through `createNoteFile`**, like every other new note, so
+  an import inside a workspace stays inside it. It takes `{ index: false }` for
+  bulk: patching the search index per note re-renders the window per note, so
+  an import rebuilds it once at the end. The decision about a note's *bytes*
+  still happens in that one place.
+
+What cannot come across is **reported, not dropped**: an encrypted block leaves
+a visible marker, a reference to bytes the export did not carry becomes a
+warning, and a resource the body never mentioned is linked from an Attachments
+list rather than written where nothing points at it.
 
 ### Templates are notes that are not notes
 

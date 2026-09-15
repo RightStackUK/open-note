@@ -136,6 +136,13 @@ export const COMMANDS: CommandDefinition[] = [
     keywords: ['import', 'init', 'migrate'],
   },
   {
+    id: 'vault.importEnex',
+    title: 'Import from Evernote…',
+    category: 'Note',
+    binding: null,
+    keywords: ['import', 'evernote', 'enex', 'migrate'],
+  },
+  {
     id: 'note.daily',
     title: "Open today's note",
     category: 'Note',

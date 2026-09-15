@@ -1,3 +1,4 @@
+pub mod enex;
 pub mod menu;
 pub mod prefs;
 // Public so the integration tests can drive the same code the commands wrap.
@@ -900,6 +901,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(enex::Sessions::default())
         .manage(windows::Owners::default())
         .manage(windows::Documents::default())
         .manage(windows::Intents::default())
@@ -952,6 +954,11 @@ pub fn run() {
             remote_url,
             clone_vault,
             import_folder_as_vault,
+            enex::pick_enex_files,
+            enex::enex_open,
+            enex::enex_next,
+            enex::enex_write_media,
+            enex::enex_close,
             pick_folder,
             list_branches,
             create_branch,

@@ -1,3 +1,4 @@
+import type { EnexNote } from '@open-note/core';
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -184,6 +185,23 @@ export const api = {
     invoke<VaultInfo>('clone_vault', { url, parent, name }),
   /** Pick a folder of Markdown, git init it, first commit, open it. */
   importFolderAsVault: () => invoke<VaultInfo | null>('import_folder_as_vault'),
+
+  /**
+   * Importing an Evernote `.enex` export, one note at a time.
+   *
+   * A session rather than one call because an archive can be gigabytes: Rust
+   * holds the open file and the bytes of the note being worked on, and the
+   * webview pulls notes through it. Cancelling is stopping the pull, which is
+   * why there is no cancel command.
+   */
+  pickEnexFiles: () => invoke<string[]>('pick_enex_files'),
+  enexOpen: (path: string) => invoke<{ id: number; bytesTotal: number }>('enex_open', { path }),
+  enexNext: (id: number) =>
+    invoke<{ note: EnexNote | null; bytesRead: number; bytesTotal: number }>('enex_next', { id }),
+  /** Write the current note's attachments where the planner decided. */
+  enexWriteMedia: (id: number, root: string, items: Array<{ hash: string; path: string }>) =>
+    invoke<number>('enex_write_media', { id, root, items }),
+  enexClose: (id: number) => invoke<void>('enex_close', { id }),
 
   /**
    * Open a URL in the user's real browser.

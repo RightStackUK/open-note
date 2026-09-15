@@ -28,6 +28,27 @@ export {
 export type { ForgeKind, ParsedRemote } from './forge/remote';
 // Forge
 export { forgeLabel, newPullRequestUrl, parseRemote } from './forge/remote';
+export type { EnexNote } from './import/enex';
+// Import
+export { enexFolderName, enexSourceNote, enexTimestamp } from './import/enex';
+export {
+  byteLength,
+  MAX_FILENAME_BYTES,
+  NameAllocator,
+  sanitiseSegment,
+  splitExtension,
+  truncateBytes,
+} from './import/names';
+export type {
+  ImportSummary,
+  ImportWarning,
+  PlannedAsset,
+  PlannedNote,
+  PlanOptions,
+  SourceNote,
+  SourceResource,
+} from './import/pipeline';
+export { describeImport, planNote } from './import/pipeline';
 export type { DailyNoteSettings } from './notes/daily';
 export {
   DEFAULT_DAILY_SETTINGS,
@@ -46,6 +67,7 @@ export {
   exportNoteToHtml,
   renderNoteBody,
 } from './notes/export';
+export type { HtmlToMarkdownOptions, MediaRef } from './notes/htmlToMarkdown';
 export { htmlToMarkdown, isBareUrl } from './notes/htmlToMarkdown';
 export {
   isNoteId,
@@ -104,6 +126,7 @@ export {
   stripTags,
   toPlainText,
 } from './notes/parse';
+export { relativeFrom, resolveAgainst } from './notes/paths';
 export type { LinkRewrite } from './notes/rename';
 export { replacementTarget, rewriteLinks } from './notes/rename';
 export type { ContentFilter, ParsedQuery } from './notes/searchQuery';

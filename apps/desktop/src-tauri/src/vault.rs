@@ -692,6 +692,39 @@ pub fn write_attachment(
     Ok(relative)
 }
 
+/// Write a file an importer has already named, refusing to overwrite.
+///
+/// Unlike `write_attachment`, the name is decided by the caller: an import
+/// keeps the name the note had in the app it came from, which is the only
+/// thing tying the file in the vault to the file the writer remembers. The
+/// path is as untrusted as any other from the webview, so it goes through
+/// `reject_protected` like every other write.
+///
+/// `create_new` rather than an `exists()` check: the allocator that chose the
+/// name cannot see a file another process created a moment ago, and losing an
+/// attachment to that race would be silent.
+pub fn write_new_file(root: &Path, relative: &str, bytes: &[u8]) -> Result<()> {
+    let path = reject_protected(root, relative)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(mut file) => {
+            use std::io::Write;
+            file.write_all(bytes)?;
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err(VaultError::AlreadyExists(relative.to_string()))
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// Read any vault file as raw bytes, for previewing an attachment.
 pub fn read_bytes(root: &Path, relative: &str) -> Result<Vec<u8>> {
     let path = resolve_within(root, relative)?;
