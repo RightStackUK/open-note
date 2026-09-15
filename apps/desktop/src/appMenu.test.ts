@@ -63,6 +63,20 @@ describe('application menu', () => {
     expect(menuSource).toMatch(/"Help".*?&check_updates.*?PredefinedMenuItem::about/s);
   });
 
+  it('routes File → Import from Evernote… through the command registry', () => {
+    expect(menuSource).toContain('command: "vault.importEnex"');
+    expect(COMMANDS.some((c) => c.id === 'vault.importEnex')).toBe(true);
+    expect(appSource).toContain("'vault.importEnex':");
+  });
+
+  it('leaves Import disabled until there is a vault to import into', () => {
+    // An item that does nothing when clicked is the command-coverage failure
+    // arrived at from the other direction, so it turns on with the same push
+    // that names File → Close ….
+    expect(menuSource).toMatch(/IMPORT_ENEX,\s*"Import from Evernote…",\s*false/);
+    expect(menuSource).toMatch(/ImportItem<R>>\(\) \{\s*state\.0\.clone\(\)\.set_enabled/);
+  });
+
   it('names File → Close … after a vault rather than leaving it generic', () => {
     // The label is the whole point of the item: with several vaults open,
     // "Close Vault" does not say which one is about to go.

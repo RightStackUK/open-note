@@ -23,6 +23,7 @@ pub const MENU_EVENT: &str = "menu://command";
 const OPEN: &str = "file.open";
 const NEW_WINDOW: &str = "window.new";
 const CLOSE: &str = "file.close";
+const IMPORT_ENEX: &str = "file.importEnex";
 const CHECK_UPDATES: &str = "app.checkUpdates";
 const CLEAR_RECENTS: &str = "file.clearRecents";
 const RECENTS_SUBMENU: &str = "file.recents";
@@ -55,6 +56,9 @@ struct OpenItem<R: Runtime>(MenuItem<R>);
 /// File → Close <vault>, kept so its label can follow the active vault.
 struct CloseItem<R: Runtime>(MenuItem<R>);
 
+/// File → Import from Evernote…, kept so it can be greyed out with no vault.
+struct ImportItem<R: Runtime>(MenuItem<R>);
+
 /// Build the menu and set it on the app.
 ///
 /// The recents submenu starts empty and disabled; `refresh_recents` fills it.
@@ -81,6 +85,17 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     // Disabled, and named for no vault in particular, until one is open —
     // which is the state on first run. `set_close_target` names it.
     let close = MenuItem::with_id(app, CLOSE, "Close Vault", false, None::<&str>)?;
+    // Disabled until a vault is open, like Close: an import needs somewhere to
+    // import *into*, and a menu item that does nothing when clicked is the
+    // failure the command-coverage test exists to prevent, arrived at from the
+    // other direction.
+    let import_enex = MenuItem::with_id(
+        app,
+        IMPORT_ENEX,
+        "Import from Evernote…",
+        false,
+        None::<&str>,
+    )?;
     let check_updates =
         MenuItem::with_id(app, CHECK_UPDATES, "Check for Updates…", true, None::<&str>)?;
     // No accelerator, for the reason Open… has none: one declared here would
@@ -96,6 +111,9 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             &PredefinedMenuItem::separator(app)?,
             &open,
             &recents,
+            // With Open rather than in a group of its own: it is another way
+            // of getting notes into the app.
+            &import_enex,
             &PredefinedMenuItem::separator(app)?,
             // Above the separator that starts the window-level items: closing
             // a vault is not closing the window, and next to Close Window the
@@ -184,6 +202,7 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     app.manage(RecentsMenu(recents));
     app.manage(OpenItem(open));
     app.manage(CloseItem(close));
+    app.manage(ImportItem(import_enex));
     Ok(())
 }
 
@@ -202,12 +221,20 @@ pub fn set_open_accelerator<R: Runtime>(
     state.0.clone().set_accelerator(accelerator)
 }
 
-/// Name File → Close … after the vault it would close.
+/// Name File → Close … after the vault it would close, and enable the items
+/// that need a vault to act on.
 ///
-/// `None` means no vault is open, which leaves the item disabled rather than
-/// offering to close nothing. The label carries the vault's own name because
-/// with several vaults open, "Close Vault" does not say *which*.
+/// `None` means no vault is open, which leaves both disabled rather than
+/// offering to close nothing or to import into nowhere. The label carries the
+/// vault's own name because with several vaults open, "Close Vault" does not
+/// say *which*. Import rides along because it turns on the same fact, and this
+/// is already the one call the frontend makes when the active vault changes —
+/// a second push would be a second thing to forget.
 pub fn set_close_target<R: Runtime>(app: &AppHandle<R>, name: Option<&str>) -> tauri::Result<()> {
+    if let Some(state) = app.try_state::<ImportItem<R>>() {
+        state.0.clone().set_enabled(name.is_some())?;
+    }
+
     let Some(state) = app.try_state::<CloseItem<R>>() else {
         return Ok(());
     };
@@ -270,6 +297,11 @@ pub fn on_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
     } else if id == OPEN {
         MenuCommand {
             command: "vault.open".into(),
+            arg: None,
+        }
+    } else if id == IMPORT_ENEX {
+        MenuCommand {
+            command: "vault.importEnex".into(),
             arg: None,
         }
     } else if id == CLOSE {

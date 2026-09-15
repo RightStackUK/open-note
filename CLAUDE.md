@@ -109,7 +109,10 @@ every command that changes it ends there. A submenu built at setup is wrong by t
 opened and goes on offering vaults that have since been deleted, which reads as stale data rather
 than a bug. Menu accelerators are pushed from the webview (`set_open_accelerator`) for the same
 reason: one declared in Rust would both show a stale chord after a rebind and swallow it before the
-webview saw it.
+webview saw it. `set_close_target` is the same idea for state rather than chords: it
+names File → Close … after the active vault *and* enables the items that need a vault to act on —
+Import from Evernote… — because which vault is active is frontend state, and a second push would be
+a second thing to forget.
 
 ### Two editor panes, one focused
 
