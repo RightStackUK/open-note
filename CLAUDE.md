@@ -408,6 +408,18 @@ and diagram blocks render off it. Follow that when adding decorations.
 Block decorations must come from a `StateField`, not a `ViewPlugin` — CodeMirror rejects them
 otherwise (see `diagrams.ts`).
 
+**Frontmatter is a parser extension, not a style.** Markdown has no concept of a YAML header, so
+`---` on line one is a thematic break and the keys below it are a paragraph closed by `---` — which
+is CommonMark's spelling of a setext heading. A note's metadata therefore rendered as its title, in
+1.42em bold. `frontmatter.ts` teaches `@lezer/markdown` a `Frontmatter` block instead
+(`markdown({ extensions: [frontmatterSyntax] })`), because the *tree* was wrong and styling over
+the top of it would leave every tree consumer inheriting the mistake. It fires only at position 0 —
+frontmatter is frontmatter because of where it is — and requires the line after the fence to look
+like YAML, since a block parser can peek exactly one line and so cannot know whether a closing
+fence exists. The block is dimmed rather than concealed: concealment is for punctuation, and dates,
+tags and an `id:` another app may be holding are content. This mattered little while only
+link-copied notes carried an `id:`; every imported note has a header.
+
 ### Paths from the webview are untrusted
 
 Every path crossing the IPC goes through `vault::resolve_within`, which rejects absolute paths and

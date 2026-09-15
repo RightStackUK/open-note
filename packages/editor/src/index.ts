@@ -20,6 +20,7 @@ import { type DiagramOptions, diagramBlocks } from './diagrams';
 import { fileEmbeds } from './fileEmbeds';
 import { headingFolding } from './folding';
 import { footnotes } from './footnotes';
+import { frontmatterStyling, frontmatterSyntax } from './frontmatter';
 import { inlineStyles } from './inlineStyles';
 import { mathRendering } from './math';
 import { type RichPasteOptions, richPaste } from './paste';
@@ -41,6 +42,7 @@ export { diagramBlocks } from './diagrams';
 export { fileEmbeds } from './fileEmbeds';
 export { headingFolding, headingFoldRange } from './folding';
 export { footnotes, footnoteTokensForTest, renumberFootnotes } from './footnotes';
+export { frontmatterLinesForTest, frontmatterStyling, frontmatterSyntax } from './frontmatter';
 export { inlineStyleSpansForTest, inlineStyles } from './inlineStyles';
 export { mathRendering, mathSpansForTest } from './math';
 export type { RichPasteOptions } from './paste';
@@ -105,12 +107,21 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     bracketMatching(),
     // `markdownLanguage` (rather than the default) enables GFM: task lists,
     // tables and strikethrough all parse.
-    markdown({ base: markdownLanguage, codeLanguages: [] }),
+    // `frontmatterSyntax` teaches the parser about a YAML header, which
+    // Markdown has no concept of: without it `---` opens a thematic break and
+    // the keys below it parse as a setext heading, so a note's metadata
+    // rendered as its title.
+    markdown({
+      base: markdownLanguage,
+      codeLanguages: [],
+      extensions: [frontmatterSyntax],
+    }),
     // In-note find and replace. `searchKeymap` alone does nothing: its commands
     // need this extension's state to open a panel at all.
     search({ top: true }),
     EditorView.lineWrapping,
     markdownTheme,
+    frontmatterStyling,
     concealMarkdown({ everywhere: options.concealEverywhere }),
     callouts,
     mathRendering,

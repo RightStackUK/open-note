@@ -41,6 +41,34 @@ export const editorTheme = EditorView.theme({
   '.cm-activeLine': { backgroundColor: 'transparent' },
   '.cm-gutters': { display: 'none' },
   '.cm-placeholder': { color: 'var(--muted)', fontStyle: 'italic' },
+
+  // A note's YAML header, set apart from its prose: smaller, monospace, and
+  // dimmed, so it reads as the metadata it is. Deliberately still visible and
+  // still editable — it holds dates, tags and the id another app may be
+  // holding onto, and hiding it would mean the only way to correct one was to
+  // leave the app.
+  '.cm-frontmatter': {
+    fontFamily: 'var(--mono-font, ui-monospace, SFMono-Regular, Menlo, monospace)',
+    fontSize: '0.8em',
+    lineHeight: '1.5',
+    color: 'var(--muted)',
+    backgroundColor: 'color-mix(in srgb, var(--muted) 7%, transparent)',
+    paddingTop: '0.1rem',
+    paddingBottom: '0.1rem',
+  },
+  // The fences carry no information beyond "the header starts here", so they
+  // are dimmer still, and they round the block off at both ends.
+  '.cm-frontmatter-fence': {
+    color: 'color-mix(in srgb, var(--muted) 55%, transparent)',
+  },
+  '.cm-frontmatter-fence:first-child': {
+    paddingTop: '0.35rem',
+    borderRadius: '6px 6px 0 0',
+  },
+  '.cm-frontmatter-fence:last-of-type': {
+    paddingBottom: '0.35rem',
+    borderRadius: '0 0 6px 6px',
+  },
 });
 
 /** Heading tag paired with its size, in `em` relative to the base note size. */
