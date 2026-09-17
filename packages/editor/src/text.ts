@@ -27,6 +27,8 @@ export interface CreateTextEditorOptions {
   filename: string;
   readOnly?: boolean;
   onChange?: (doc: string) => void;
+  /** Dark appearance, for the base theme's own light/dark rules. See `index.ts`. */
+  dark?: boolean;
 }
 
 /**
@@ -46,9 +48,13 @@ const textTheme = EditorView.theme({
   },
   '.cm-content': { padding: '1rem 0 40vh', caretColor: 'var(--accent)' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-    backgroundColor: 'var(--selection)',
-  },
+  // Spelled out to the same depth as CodeMirror's own rule, for the reason
+  // `theme.ts` records: a shorter selector loses to the base theme and leaves
+  // the selection the near-white it paints by default.
+  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
+    {
+      backgroundColor: 'var(--selection)',
+    },
   '.cm-gutters': {
     backgroundColor: 'transparent',
     color: 'var(--muted)',
@@ -106,7 +112,7 @@ export function languageForFilename(filename: string): LanguageDescription | nul
 }
 
 export function createTextEditor(options: CreateTextEditorOptions): EditorView {
-  const { parent, doc = '', filename, readOnly = false, onChange } = options;
+  const { parent, doc = '', filename, readOnly = false, onChange, dark = false } = options;
 
   const view = new EditorView({
     parent,
@@ -124,6 +130,7 @@ export function createTextEditor(options: CreateTextEditorOptions): EditorView {
         search({ top: true }),
         EditorView.lineWrapping,
         textTheme,
+        dark ? EditorView.darkTheme.of(true) : [],
         syntaxHighlighting(codeHighlight),
         languageSlot.of([]),
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),

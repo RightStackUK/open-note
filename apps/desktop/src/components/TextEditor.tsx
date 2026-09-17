@@ -8,6 +8,8 @@ interface TextEditorProps {
   onChange: (doc: string) => void;
   /** Whether this editor may take the caret on mount; false in an unfocused pane. */
   autoFocus: boolean;
+  /** The app's appearance, which CodeMirror's base theme needs to be told. */
+  dark: boolean;
 }
 
 /**
@@ -20,7 +22,7 @@ interface TextEditorProps {
  * Remounted per file rather than swapped in place, because the language is fixed
  * when the view is built — a `.ts` and a `.toml` are not the same editor.
  */
-export function TextEditor({ path, doc, onChange, autoFocus }: TextEditorProps) {
+export function TextEditor({ path, doc, onChange, autoFocus, dark }: TextEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -33,6 +35,7 @@ export function TextEditor({ path, doc, onChange, autoFocus }: TextEditorProps) 
       parent: host.current,
       doc,
       filename: path,
+      dark,
       onChange: (next) => onChangeRef.current(next),
     });
     if (autoFocusRef.current) view.focus();
@@ -41,7 +44,8 @@ export function TextEditor({ path, doc, onChange, autoFocus }: TextEditorProps) 
       view = null;
     };
     // `doc` is deliberately excluded: reacting to it would rebuild the editor on
-    // every keystroke. The caller remounts by key when the file changes.
+    // every keystroke. The caller remounts by key when the file changes, and
+    // when the appearance flips.
   }, [path]);
 
   return <div className="editor text-editor" ref={host} />;

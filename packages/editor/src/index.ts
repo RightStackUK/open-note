@@ -98,6 +98,17 @@ export interface CreateEditorOptions {
    * way: WebKit rewriting `"key"` inside a code fence corrupts the file.
    */
   spellcheck?: boolean;
+  /**
+   * Whether the app is in a dark appearance.
+   *
+   * CodeMirror's base theme has its own light and dark rules, and it assumes
+   * light unless told otherwise. It paints the parts this package does not —
+   * the find panel, its buttons and fields, the tooltips — so without this a
+   * dark window's find panel is light grey with black text. Read once: the
+   * caller remounts the editor when the appearance flips, because rendered
+   * diagrams bake their colours in.
+   */
+  dark?: boolean;
 }
 
 export function markdownEditorExtensions(options: CreateEditorOptions = { parent: null as never }) {
@@ -124,6 +135,7 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     search({ top: true }),
     EditorView.lineWrapping,
     markdownTheme,
+    options.dark ? EditorView.darkTheme.of(true) : [],
     frontmatterStyling,
     concealMarkdown({ everywhere: options.concealEverywhere }),
     callouts,

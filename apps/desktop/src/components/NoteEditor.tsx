@@ -141,6 +141,7 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
       doc,
       readOnly,
       spellcheck,
+      dark,
       placeholder: 'Start writing…',
       onChange: (next) => onChangeRef.current(next),
       // Read through refs so the editor is never rebuilt when the index changes.

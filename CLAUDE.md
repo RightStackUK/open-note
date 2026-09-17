@@ -434,6 +434,18 @@ events are not the editor's business, and that covers registered handlers too. A
 into a list or a blockquote is left as source, because a block decoration would swallow the `>` or
 the bullet that puts it there.
 
+**Styling over CodeMirror's base theme is a specificity fight, not a colour choice.** The base theme
+paints the focused selection itself through `&light.cm-focused > .cm-scroller > .cm-selectionLayer
+.cm-selectionBackground` — five classes deep — so the app's own three-class rule lost the cascade
+and `--selection` was simply never used: every selection was the base theme's near-white `#d7d4f0`,
+which in a dark theme is light text on a white highlight. `theme.ts` now spells the layer out to the
+same depth, which is enough to win because a theme's styles mount after the base theme's. Related:
+the base theme has **its own light and dark rules** and assumes light unless told, so the editor is
+built with `EditorView.darkTheme.of(true)` in a dark appearance (`dark` in `CreateEditorOptions`) —
+otherwise the parts this package does not paint, the find panel and the tooltips, stay light in a
+dark window. `theme.test.ts` pins both, because a too-short selector looks right in the source and
+does nothing.
+
 ### Paths from the webview are untrusted
 
 Every path crossing the IPC goes through `vault::resolve_within`, which rejects absolute paths and

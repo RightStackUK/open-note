@@ -35,9 +35,19 @@ export const editorTheme = EditorView.theme({
     textIndent: 'var(--note-paragraph-indent, 0)',
   },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-    backgroundColor: 'var(--selection)',
-  },
+  // The selection layer is addressed in full — `&.cm-focused > .cm-scroller >
+  // .cm-selectionLayer .cm-selectionBackground` — rather than as the shorter
+  // `&.cm-focused .cm-selectionBackground` it reads like, because CodeMirror's
+  // base theme paints the focused selection itself through a selector five
+  // classes deep. A shorter rule here loses the cascade whatever colour it
+  // names, so `--selection` was ignored in both appearances and the selection
+  // stayed the base theme's near-white `#d7d4f0` — light text on a white
+  // highlight, which is unreadable in a dark theme. Matching that depth is
+  // enough to win: a theme's styles mount after the base theme's.
+  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
+    {
+      backgroundColor: 'var(--selection)',
+    },
   '.cm-activeLine': { backgroundColor: 'transparent' },
   '.cm-gutters': { display: 'none' },
   '.cm-placeholder': { color: 'var(--muted)', fontStyle: 'italic' },

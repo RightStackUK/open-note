@@ -4005,10 +4005,14 @@ export function App() {
           />
         ) : note?.kind === 'text' ? (
           <TextEditor
-            key={`${session.info.root}:${note.path}:${note.revision}`}
+            // `dark` is in the key for the same reason it is in the note
+            // editor's: the editor is told the appearance when it is built,
+            // because CodeMirror's base theme paints its own find panel.
+            key={`${session.info.root}:${note.path}:${note.revision}:${dark}`}
             path={note.path}
             doc={freshestDoc(note)}
             autoFocus={focused}
+            dark={dark}
             onChange={(text) => onDocChange(side, text)}
           />
         ) : note ? (
