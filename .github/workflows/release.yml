@@ -50,9 +50,15 @@ jobs:
           - os: macos-latest
             label: macOS (universal)
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-            # Keep the human-facing bundle to the .dmg. createUpdaterArtifacts
-            # separately emits the signed .app.tar.gz used by in-app updates.
-            args: --target universal-apple-darwin --bundles dmg
+            # `app` as well as `dmg`, even though only the .dmg is a download.
+            # createUpdaterArtifacts emits the signed .app.tar.gz the updater
+            # installs, but only when the `app` target is among those built —
+            # a dmg-only build logs a warning and produces no macOS entry in
+            # latest.json, so every Mac's update check fails with "none of the
+            # fallback platforms were found". tauri-action drops the raw .app
+            # once the tarball exists, so this adds the updater artifact and
+            # nothing else.
+            args: --target universal-apple-darwin --bundles app,dmg
           - os: ubuntu-latest
             label: Linux
             rust-targets: x86_64-unknown-linux-gnu
@@ -274,6 +280,33 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # Each matrix leg merges its own platform into latest.json, so a leg that
+      # builds green while emitting no updater artifact leaves a manifest that
+      # is missing a platform — invisible here, and surfacing much later as
+      # "None of the fallback platforms ... were found" in front of a user who
+      # has already installed. Check the manifest while the release is still a
+      # draft, for the same reason the DMG's notarisation is checked.
+      - name: Check latest.json covers every platform
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --pattern latest.json --dir . --clobber
+          missing=()
+          for key in darwin-aarch64 darwin-x86_64 windows-x86_64 linux-x86_64; do
+            jq -e --arg k "$key" \
+              '.platforms[$k].url and .platforms[$k].signature' latest.json >/dev/null \
+              || missing+=("$key")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "Manifest contains:"
+            jq '.platforms | keys' latest.json
+            echo "::error::latest.json has no usable entry for: ${missing[*]}. In-app updates would fail there, so this release will not be published."
+            exit 1
+          fi
+          echo "latest.json covers every platform."
+
       - name: Undraft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

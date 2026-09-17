@@ -224,6 +224,25 @@ Linux, in-place replacement is intended for the AppImage; `.deb` and `.rpm`
 users should continue updating through their package installation workflow if
 the install location is not writable.
 
+That macOS package is emitted by the **`app`** bundle target, not the `dmg`
+one, which is why the macOS leg builds `--bundles app,dmg` even though only the
+`.dmg` is offered as a download: `createUpdaterArtifacts` produces the signed
+`.app.tar.gz` only when `app` is among the targets built, and a dmg-only build
+merely logs a warning and writes a `latest.json` with no macOS entry at all.
+Every Mac then fails its update check with *"None of the fallback platforms
+`["darwin-aarch64-app", "darwin-aarch64"]` were found"* — before any version
+comparison, so even an up-to-date install reports it as an error. The
+`Open Note.app.tar.gz` and `.sig` on a release are that artifact; the download
+is still the `.dmg`.
+
+The publish job therefore checks `latest.json` for a usable entry per platform
+while the release is still a draft, and refuses to publish without one. A
+missing platform is otherwise invisible: the build is green, the release looks
+complete, and the failure only appears in front of someone who has already
+installed. A release published before that check cannot be repaired by editing
+the manifest, since the entry it lacks needs a signature over a bundle that was
+never built — the fix is to tag again.
+
 ## Local builds: the DMG step fails on macOS
 
 `pnpm desktop:build` can fail at the very end with a `bundle_dmg.sh` error and
