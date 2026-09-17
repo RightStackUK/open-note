@@ -24,6 +24,7 @@ import { frontmatterStyling, frontmatterSyntax } from './frontmatter';
 import { inlineStyles } from './inlineStyles';
 import { mathRendering } from './math';
 import { type RichPasteOptions, richPaste } from './paste';
+import { renderedTables } from './tableView';
 import { autoSortCompletedTasks, taskCheckboxes } from './tasks';
 import { markdownTheme } from './theme';
 import { type WikiLinkOptions, wikiLinks } from './wikilinks';
@@ -48,7 +49,9 @@ export { mathRendering, mathSpansForTest } from './math';
 export type { RichPasteOptions } from './paste';
 export { richPaste } from './paste';
 export type { Alignment, ParsedTable } from './tables';
-export { parseTableAt, renderTable, tableCommands } from './tables';
+export { alignmentsFor, parseTableAt, renderTable, tableCommands } from './tables';
+export type { CellPart, CellSpec, TableSpec, TableViewOptions } from './tableView';
+export { renderedTables, tableSpecAt } from './tableView';
 export {
   autoSortCompletedTasks,
   sortCompletedTasksAt,
@@ -124,6 +127,9 @@ export function markdownEditorExtensions(options: CreateEditorOptions = { parent
     frontmatterStyling,
     concealMarkdown({ everywhere: options.concealEverywhere }),
     callouts,
+    // Tables render off the caret like diagrams do, and a `[[link]]` in a cell
+    // is followed through the same callbacks as one in a paragraph.
+    renderedTables({ links: options.wikiLinks }),
     mathRendering,
     footnotes,
     inlineStyles,

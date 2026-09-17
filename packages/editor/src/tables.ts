@@ -89,6 +89,17 @@ function alignmentOf(cell: string): Alignment {
 }
 
 /**
+ * The alignments a delimiter row declares, one per column.
+ *
+ * Exported so the rendered view (`tableView.ts`) reads a row the same way the
+ * commands do — including which pipes count, which is not obvious once a cell
+ * contains `\\|`.
+ */
+export function alignmentsFor(delimiterRow: string): Alignment[] {
+  return splitRow(delimiterRow).map(alignmentOf);
+}
+
+/**
  * The table containing `line`, or null when the cursor is not in one.
  *
  * The delimiter row is what anchors the table, not the run of pipe-bearing
@@ -123,7 +134,7 @@ export function parseTableAt(
     // The cursor may sit on the header, the delimiter, or any body row.
     if (line < first || line > last) continue;
 
-    const alignments = splitRow(doc.line(delimiter).text).map(alignmentOf);
+    const alignments = alignmentsFor(doc.line(delimiter).text);
     const rows: string[][] = [splitRow(doc.line(first).text)];
     for (let n = delimiter + 1; n <= last; n++) rows.push(splitRow(doc.line(n).text));
 

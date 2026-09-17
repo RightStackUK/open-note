@@ -420,6 +420,20 @@ fence exists. The block is dimmed rather than concealed: concealment is for punc
 tags and an `id:` another app may be holding are content. This mattered little while only
 link-copied notes carried an `id:`; every imported note has a header.
 
+**A table is the one construct whose source is not a readable version of itself.** `| a | b |` in a
+proportional serif, wrapped to the measure, is a paragraph of pipes — so `tableView.ts` draws a real
+`<table>` for every table the selection is not in, and `tables.ts`'s commands keep the source padded
+for when it is. Cells are built by walking the **same syntax tree** the other extensions decorate,
+not by running the cell through a Markdown-to-HTML renderer: a second parser would be a second
+dialect, and the promise is narrower than a renderer's anyway — a cell reads exactly as its line
+would read off the caret. Emphasis, strikethrough and code become elements because those markers are
+concealed off the active line; `[text](url)` stays as written, because that is what the editor does
+with it today. Two consequences. A cell's `[[link]]` is followed through the same `onOpen` the link
+extension is given, *not* through its mousedown handler: `ignoreEvent` tells CodeMirror the widget's
+events are not the editor's business, and that covers registered handlers too. And a table indented
+into a list or a blockquote is left as source, because a block decoration would swallow the `>` or
+the bullet that puts it there.
+
 ### Paths from the webview are untrusted
 
 Every path crossing the IPC goes through `vault::resolve_within`, which rejects absolute paths and
